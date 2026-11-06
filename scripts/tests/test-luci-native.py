@@ -96,7 +96,7 @@ assert "'每天零点认证'" not in campus.read_text()
 assert "发现新版本，已开启自动更新" in flash
 assert "发现新版本，可立即手动升级" in flash
 assert "发现新版本，可手动升级" not in flash
-assert "return view.otaRefresh();" in flash
+assert "view.otaRefresh().catch(function() {});" in flash
 assert "'当前已是最新版本'" in flash
 assert "'当前已是最新版本。'" not in flash
 assert "this._otaInstallButton.disabled = isReadonlyView || st.update !== true;" in flash
