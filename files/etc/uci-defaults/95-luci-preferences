@@ -1,0 +1,10 @@
+#!/bin/sh
+# This changes only LuCI appearance and language, not credentials or Wi-Fi.
+if [ -f /etc/config/luci ] && [ -d /www/luci-static/aurora ]; then
+    uci -q set luci.main.mediaurlbase='/luci-static/aurora'
+fi
+if [ -f /etc/config/luci ]; then
+    uci -q set luci.main.lang='zh_cn'
+    uci -q commit luci
+fi
+exit 0
