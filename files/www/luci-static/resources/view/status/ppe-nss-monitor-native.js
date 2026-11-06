@@ -98,7 +98,7 @@ return view.extend({
 			'ath11k NSS：' + (nss.wifi_active === true ? '启用' : nss.wifi_active === false ? '关闭' : '未知'),
 			'NSS 配置：' + (nss.wifi_config == null ? '不可用' : nss.wifi_config),
 			'NSS 运行核心：' + (nss.visible_cores > 0 ? nss.running_cores + ' / ' + nss.visible_cores : '不可用'),
-			'NSS flows 接口：' + (nss.flows_found ? '存在（不读取连接明细）' : '不存在'),
+			'NSS flows 接口：' + (nss.flows_found ? '可用' : '不存在'),
 			'PPE offload 接口：' + (ppe.debugfs_found ? '存在' : '不存在')
 		].join('\n'));
 
@@ -148,7 +148,7 @@ return view.extend({
 		this._root = E('div', { 'class': 'cbi-map' }, [
 			E('h2', 'PPE / NSS 硬件加速'),
 			E('div', { 'class': 'cbi-map-descr' },
-				'显示设备内核报告的 PPE、NSS 和连接跟踪信息。仅供监控，不会修改网络或驱动设置。'),
+				'查看 PPE 硬件卸载连接、NSS 运行状态和内核统计。'),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', '监控状态'),
 				E('div', { 'class': 'cbi-section-descr', 'data-nss': 'summary' }, '正在读取…'),
@@ -178,7 +178,7 @@ return view.extend({
 					row('NSS 运行核心', 'core', '运行 / 已检测')
 				]),
 				E('p', { 'class': 'cbi-section-descr' },
-					'硬件连接数不等于实际吞吐量，也不是硬件加速命中率。')
+					'统计值表示当前连接数。')
 			]),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', '最近 24 次采样'),

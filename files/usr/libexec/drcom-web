@@ -48,16 +48,16 @@ wan_preflight() {
 		fail '无法读取 WAN 状态，认证已取消'
 	wan_up="$(jsonfilter -i "$WAN_JSON" -e '@.up' 2>/dev/null || true)"
 	WAN_DEVICE="$(jsonfilter -i "$WAN_JSON" -e '@.l3_device' 2>/dev/null || true)"
-	[ "$wan_up" = true ] || fail 'WAN 未连接，不会改走 WireGuard'
+	[ "$wan_up" = true ] || fail 'WAN 未连接，请检查 WAN 接口'
 	[ -n "$WAN_DEVICE" ] && [ "${#WAN_DEVICE}" -le 32 ] &&
 		printf '%s\n' "$WAN_DEVICE" | LC_ALL=C grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.:-]*$' ||
 		fail 'WAN 没有有效的 L3 出口设备'
 	case "$WAN_DEVICE" in
 		wg* | tun* | tap* | tailscale* | ts_* | zerotier* )
-			fail 'WAN 实际是隧道接口，拒绝发送认证' ;;
+			fail 'WAN 当前绑定到隧道设备，请检查接口设置' ;;
 	esac
 	ip link show dev "$WAN_DEVICE" >/dev/null 2>&1 ||
-		fail 'WAN 设备不存在，不会回退默认路由'
+		fail 'WAN 出口设备不可用'
 }
 # OpenWrt curl lacks c-ares; --interface does not bind DNS.
 # Only use WAN DNS when route-to-DNS is WAN; pin IPv4 with curl --resolve.

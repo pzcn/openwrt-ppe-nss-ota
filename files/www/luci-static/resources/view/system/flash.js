@@ -100,7 +100,7 @@ return view.extend({
 		this._otaStatus = info || {};
 		const st = this._otaStatus;
 		const rows = [
-			customOTARow('更新来源', 'pzcn/openwrt-ppe-nss-ota'),
+			customOTARow('固件渠道', 'RE-SS-01 PPE+NSS'),
 			customOTARow('当前固件', st.current || '—'),
 			customOTARow('最新发布', st.latest || (st.error ? '暂时不可用' : '—'))
 		];
@@ -111,12 +111,12 @@ return view.extend({
 			rows.push(customOTARow('更新状态', E('strong', '发现新版本，可手动升级')));
 			if (st.extras)
 				rows.push(customOTARow('额外软件包', E('span', {},
-					'检测到当前系统的额外软件包；新系统启动后将尝试重装，不能保证全部兼容。')));
-			rows.push(customOTARow('升级校验', '下载后核对 SHA256，并执行 sysupgrade -T。APK 兼容性模拟不再阻止手动升级。'));
+					'升级后将尝试恢复额外安装的软件包。')));
+			rows.push(customOTARow('升级校验', '升级前校验固件完整性与设备兼容性。'));
 		} else if (st.error) {
 			rows.push(customOTARow('检查结果', E('span', st.error + '。请确认 GitHub 可以从路由器访问。')));
 		} else {
-			rows.push(customOTARow('检查结果', '当前没有较新的定制固件。'));
+			rows.push(customOTARow('检查结果', '当前已是最新版本。'));
 		}
 		if (st.pending)
 			rows.push(customOTARow('待恢复软件包', st.pending));
@@ -127,7 +127,7 @@ return view.extend({
 	otaRefresh() {
 		this._otaStatus = null;
 		if (this._otaInfo)
-			this._otaInfo.textContent = '正在从定制 GitHub Releases 检查固件更新…';
+			this._otaInfo.textContent = '正在检查固件更新…';
 
 		return fs.exec_direct('/usr/sbin/ppe-update', [ 'status' ], 'json')
 			.then(L.bind(this.otaShow, this))
@@ -161,7 +161,7 @@ return view.extend({
 	},
 
 	otaConfirmInstall() {
-		ui.showModal('正在升级定制固件', [
+		ui.showModal('正在更新固件', [
 			E('p', '正在下载并验证固件。升级期间请勿断电。原有配置将按普通 sysupgrade 规则尽量保留。'),
 			E('pre', {
 				'id': 'ppe-ota-progress-log',
@@ -192,12 +192,12 @@ return view.extend({
 			return;
 		}
 		const extraInfo = st.extras
-			? '注意：部分额外软件包可能无法自动重新安装。更新不会因此被阻止，但相关插件或服务可能需要手动恢复。'
-			: '当前未发现必须单独恢复的额外软件包。';
+			? '升级后将尝试恢复额外软件包；部分插件可能需要手动安装。'
+			: '将使用当前配置升级固件。';
 
 		ui.showModal('确认在线固件更新', [
 			E('p', ['即将升级至：', E('strong', st.latest)]),
-			E('p', '将核对设备型号、固件 SHA256 和 sysupgrade 镜像有效性；不会绕过平台固件校验。'),
+			E('p', '安装前将验证设备兼容性和镜像完整性。'),
 			E('p', extraInfo),
 			E('p', '请先通过本页的“生成备份”将配置下载到电脑，升级将导致路由器重启。'),
 			E('div', { 'class': 'right' }, [
@@ -589,8 +589,8 @@ return view.extend({
 		// Sibling of "Flash new firmware image"; native form UI,
 		// without replacing any of LuCI's existing backup/restore actions.
 		o = s.option(form.SectionValue, 'online_upgrade', form.NamedSection,
-			'actions', 'actions', '在线固件更新（pzcn OTA）',
-			'从当前定制仓库检查新固件。额外 APK 插件兼容性不限制手动升级，仍校验设备和固件。');
+			'actions', 'actions', '在线固件更新',
+			'检查新版本并在线下载安装。');
 		ss = o.subsection;
 
 		o = ss.option(form.DummyValue, 'online_upgrade_status', '在线更新状态');
@@ -610,7 +610,7 @@ return view.extend({
 		o.onclick = L.bind(this.otaAskInstall, this);
 
 		o = ss.option(form.DummyValue, 'online_upgrade_schedule', '自动更新设置');
-		o.default = '打开定制 OTA 自动更新设置';
+		o.default = '设置自动更新计划';
 		o.href = L.url('admin/system/ppe-update');
 
 		s = m.section(form.NamedSection, 'config', 'config', _('Configuration'), _('This is a list of shell glob patterns for matching files and directories to include during sysupgrade. Modified files in /etc/config/ and certain other configurations are automatically preserved.'));

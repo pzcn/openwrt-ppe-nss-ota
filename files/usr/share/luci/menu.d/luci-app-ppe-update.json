@@ -1,6 +1,6 @@
 {
   "admin/system/ppe-update": {
-    "title": "OTA 自动更新设置",
+    "title": "自动更新设置",
     "order": 75,
     "action": {
       "type": "view",

@@ -1,57 +1,38 @@
-# PPE + NSS 硬件加速监控
+# PPE / NSS 硬件加速监控
 
-这个页面是针对 JuliusBairaktaris/openwrt-ppe-nss 的 **qca_ppe + nss-wifi-drv** 新架构设计的轻量级 LuCI 只读仪表盘。它不是旧版 ECM / qca-nss-drv 监控插件。
+入口：**状态 → PPE / NSS 硬件加速**
 
-## 访问
+使用 OpenWrt LuCI 原生样式展示 PPE 硬件卸载连接、NSS Wi-Fi 数据路径和内核统计。页面每 **8 秒** 更新一次，支持手动刷新和暂停；最近 24 次采样仅保存在浏览器当前页面。
 
-刷入包含本页面的固件后，在 LuCI 中进入：
+## 监控指标
 
-**状态 → PPE / NSS 硬件加速**
+| 指标 | 数据来源 |
+| --- | --- |
+| 硬件卸载连接 | `/proc/net/nf_conntrack` 中的 `[HW_OFFLOAD]` |
+| 软件 Flowtable 连接 | conntrack 中的 `[OFFLOAD]` |
+| 连接跟踪总数 | `/proc/net/nf_conntrack` |
+| PPE 硬件卸载开关 | 防火墙 `flow_offloading_hw` |
+| PPE 内核统计 | `/sys/kernel/debug/*.ppe/offload` |
+| NSS Wi-Fi 路径 | `/sys/module/ath11k/parameters/nss_offload` |
+| NSS 核心状态 | `/sys/kernel/debug/*.nss/boot` |
+| NSS flows 接口 | `/sys/kernel/debug/*.nss/flows` |
 
-使用 **LuCI 原生的 cbi-map、cbi-section 和 table 布局**，跟随 OpenWrt 当前主题（包括 Aurora）的颜色与排版，不使用自定义深色 CSS。默认每 **8 秒** 更新一次，支持暂停和手动刷新。最近 24 个样本以简洁的字符趋势显示，只保留在当前浏览器页面，不写入 eMMC。
+这些指标反映当前连接与驱动状态。测试硬件卸载时，可从局域网客户端发起持续下载，观察 `HW_OFFLOAD` 连接数。
 
-## 真实数据来源
-
-| 指标 | 采集接口 | 注意事项 |
-| --- | --- | --- |
-| 当前硬件卸载连接数 | `/proc/net/nf_conntrack`，包含 `[HW_OFFLOAD]` 标记的行数 | 仅为当前存活连接数，不是带宽或卸载流量百分比 |
-| 软件 Flowtable 连接数 | `/proc/net/nf_conntrack` 中仅包含 `[OFFLOAD]`、没有 `[HW_OFFLOAD]` 的行数 | 不是所有未卸载的连接 |
-| Conntrack 总量 | `/proc/net/nf_conntrack` 记录行数 | 不是 PPE 硬件流表容量 |
-| PPE 开关 | 防火墙默认配置中的 `flow_offloading_hw` | 配置开启不代表当前一定有硬件连接 |
-| PPE 内核诊断 | `/sys/kernel/debug/*.ppe/offload` | 驱动未提供或 debugfs 未挂载时明确提示不可用 |
-| NSS Wi-Fi 活动路径 | `/sys/module/ath11k/parameters/nss_offload` | 1 表示 ath11k 当前使用 NSS 路径，0 为主机路径 |
-| NSS 核心运行 | `/sys/kernel/debug/*.nss/boot` | 只将可解析的 0/1 计入运行核心数量 |
-| NSS 流表接口是否存在 | `/sys/kernel/debug/*.nss/flows` | **只检查存在性，不读取流表数据** |
-
-页面不会公开 conntrack 原始记录、IP 地址、端口或 NSS 的 flows 表。读取不修改防火墙、网络设置或 NSS 驱动。
-
-需要真实测试时，请在局域网客户端与互联网之间产生持续 TCP 流量，例如下载大文件，然后观察 HW_OFFLOAD 是否出现。通过路由器自身 SSH 发起的流量通常不能作为硬件转发验证。
-
-## 实现文件
-
-- `files/www/luci-static/resources/view/status/ppe-nss-monitor-native.js`：原生 LuCI 状态页面、实时采样和趋势显示（不加载自定义样式）
-- `files/usr/share/rpcd/ucode/luci.ppe-nss-monitor`：只读 ubus 采集接口
-- `files/usr/share/rpcd/acl.d/luci-app-ppe-nss-monitor.json`：**只有 get_status 读取权限**
-- `files/usr/share/luci/menu.d/luci-app-ppe-nss-monitor.json`：菜单入口
-
-这些文件被 ImageBuilder 的 `FILES=files` 覆盖层直接打入 SquashFS。**不需要额外的软件包源、不需要修改内核模块、不需要安装旧版 luci-app-nss**。
-
-## 排查
-
-如果网页显示“通信异常”或所有指标不可用，在 SSH 中先运行：
+## 诊断
 
 ```sh
-ubus list 'luci.ppe-nss-monitor'
 ubus call luci.ppe-nss-monitor get_status
 mount | grep debugfs
 grep -c HW_OFFLOAD /proc/net/nf_conntrack
 cat /sys/module/ath11k/parameters/nss_offload
 ```
 
-已登录 LuCI 的页面还依赖正常工作的 `rpcd-mod-ucode`。如果直接替换这些文件而不是通过固件升级安装，需要重启 `rpcd` 并刷新 LuCI 页面。
+如果页面提示通信异常，先确认 `rpcd` 服务与对应 ubus 对象正常。驱动版本变化时，部分 debugfs 统计路径可能需要调整。
 
-## 局限
+## 组件
 
-- 驱动统计文件路径来自上游 PPE+NSS 文档，新内核或上游版本改变时可能需要适配。
-- **没有硬件总带宽、处理器利用率、硬件卸载命中率等数据时不会虚构相关数值。**
-- 首次集成尚未在真实 RE-SS-01 上进行网页功能测试；ImageBuilder 编译成功也不等同于每种 debugfs 格式都能解析。
+- `files/www/luci-static/resources/view/status/ppe-nss-monitor-native.js`：LuCI 监控页面
+- `files/usr/share/rpcd/ucode/luci.ppe-nss-monitor`：监控数据接口
+- `files/usr/share/rpcd/acl.d/luci-app-ppe-nss-monitor.json`：读取权限
+- `files/usr/share/luci/menu.d/luci-app-ppe-nss-monitor.json`：菜单

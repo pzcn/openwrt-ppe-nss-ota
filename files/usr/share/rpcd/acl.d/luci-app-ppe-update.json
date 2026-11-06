@@ -1,6 +1,6 @@
 {
   "luci-app-ppe-update": {
-    "description": "Read current custom OTA status, run verified custom update and edit schedule",
+    "description": "Check firmware releases, install updates and configure the update schedule",
     "read": {
       "file": {
         "/usr/sbin/ppe-update status": [

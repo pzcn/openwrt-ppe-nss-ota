@@ -152,7 +152,7 @@ return view.extend({
 				this.notify('认证地址已保存并核对成功', true);
 			}, this));
 		}, this)).catch(L.bind(function(e) {
-			this.setText('saveState', '保存失败，当前输入没有被重置');
+			this.setText('saveState', '保存失败，请查看提示并重试');
 			this.notify('认证地址保存失败：' + (e.message || e), false);
 		}, this)).finally(L.bind(function() { this.setBusy(false); }, this));
 	},
@@ -229,7 +229,7 @@ return view.extend({
 	doForget: function() {
 		if (this._busy)
 			return Promise.resolve();
-		if (!window.confirm('确定清除路由器保存的校园网账号和密码？这不会立即注销网络。'))
+		if (!window.confirm('确定清除已保存的校园网账号和密码？'))
 			return Promise.resolve();
 
 		this.setBusy(true);
@@ -291,7 +291,7 @@ return view.extend({
 		var root = E('div', { 'class': 'cbi-map' }, [
 			E('h2', '校园网认证（Dr.COM）'),
 			E('div', { 'class': 'cbi-map-descr' },
-				'通过路由器 WAN 接口登录 Dr.COM 校园网。认证请求不会经由 WireGuard。'),
+				'通过 WAN 接口进行校园网认证，支持手动登录、注销和自动认证。'),
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', '认证状态'),
 				E('table', { 'class': 'table' }, [
@@ -329,7 +329,7 @@ return view.extend({
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', '自动认证'),
 				E('div', { 'class': 'cbi-section-descr' },
-					'开启前需勾选记住账号密码并完成一次登录。每天路由器本地时间 00:00 执行一次，不做持续重连。'),
+					'保存账号密码后，可设置每天 00:00 自动认证。按路由器本地时间执行。'),
 				E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title', 'for': 'drcom-auto' }, '每天零点认证'),
 					E('div', { 'class': 'cbi-value-field' }, [ n.auto, '　', n.autoStatus ])
@@ -339,7 +339,7 @@ return view.extend({
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', '注意事项'),
 				E('div', { 'class': 'cbi-section-descr' }, [
-					E('p', '当 WAN 或 WAN DNS 不可用时，插件不会回退到 WireGuard。使用认证网关 IPv4 地址通常更可靠。'),
+					E('p', '使用 WAN 接口连接认证网关；若域名解析异常，可填写认证网关 IPv4 地址。'),
 					E('p', '如果认证服务器只支持 HTTP，账号密码在校园网链路上会明文传输；保存的密码仅允许 root 读取，并可能被包含在配置备份中。')
 				])
 			])

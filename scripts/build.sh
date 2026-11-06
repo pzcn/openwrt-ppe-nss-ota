@@ -8,10 +8,10 @@ PROFILE=jdcloud_re-ss-01
 AURORA_TAG=v1.4.0
 AURORA_APK=luci-theme-aurora-1.4.0-r20260920.apk
 STORAGE_FIX_REV=f2fsrootfsdata1
-MONITOR_REV=ppe-nss-native1
-OTA_REV=custom-ota2
+MONITOR_REV=ppe-nss-native2
+OTA_REV=custom-ota3
 I18N_REV=zhcn-lmo1
-DRCOM_REV=campus-drcom9
+DRCOM_REV=campus-drcom10
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
@@ -104,7 +104,7 @@ node --check "$WORK/ib/files/www/luci-static/resources/view/system/ppe-update.js
 test -s "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 node --check "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 python3 -m json.tool "$WORK/ib/files/usr/share/luci/menu.d/luci-app-ppe-update.json" >/dev/null
-grep -Fq "在线固件更新（pzcn OTA）" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
+grep -Fq "在线固件更新" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 grep -Fq "handleSysupgradeConfirm" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 grep -Fq "handleBackup(ev)" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 grep -Fq 'if [ "$policy" = auto ]; then' "$WORK/ib/files/usr/sbin/ppe-update"
@@ -187,66 +187,35 @@ python3 "$GITHUB_WORKSPACE/scripts/write_ota_metadata.py" \
 python3 -m json.tool "$GITHUB_WORKSPACE/out/ota.json" >/dev/null
 grep -Fq "$RELEASE_TAG" "$GITHUB_WORKSPACE/out/ota.json"
 cat > "$WORK/notes.md" <<EOF
-JDCloud RE-SS-01 customized PPE+NSS firmware.
+# RE-SS-01 PPE+NSS 固件
 
-Upstream release: $TAG
-Aurora release: $AURORA_TAG
-Storage fix revision: $STORAGE_FIX_REV
-Monitor revision: $MONITOR_REV
-OTA revision: $OTA_REV
-Language pack revision: $I18N_REV
-Dr.COM campus auth revision: $DRCOM_REV
+**上游版本：** $TAG
+**Aurora 主题：** $AURORA_TAG
 
-The standard OpenWrt rootfs_data overlay is used on the active rootfs partition's
-space after SquashFS. Matching kmod-fs-f2fs, f2fs-tools and mkf2fs are included
-for fstools to initialize that large space as F2FS on first boot, if unformatted.
-CAUTION: first-boot initialization may format the unused tail of the active
-rootfs partition (reported as p18); it does NOT format p27.
-The original 64 GB eMMC's p27 ext4 partition is independent data storage,
-mounted as /mnt/storage. No GPT or U-Boot modifications.
-Legacy p27 extroot fstab settings are converted to /mnt/storage by a
-first-boot UCI default when config files are retained across sysupgrade.
+## 本版内容
 
-Includes a native OpenWrt LuCI campus Dr.COM app under Network, with no custom CSS.
-The login and logout addresses are fully editable HTTP(S) URLs, including
-hostname or IP, port, path and query string. All status, manual login, logout
-and midnight cron requests bind via curl --interface if!<WAN L3_DEVICE>.
-DNS for hostname URLs uses only an IPv4 WAN-advertised resolver when its
-route matches WAN, then curl --resolve pins the answer. No WG or system DNS
-fallback: use the numeric campus gateway IP if WAN-only DNS is unavailable.
-No gateway address is preconfigured for clean installations.
-An untouched legacy LNU default is cleared on upgrade only if there is no
-remembered account and auto-auth is off. Active credentials are preserved.
-Users must enter the login and logout URLs explicitly in LuCI.
-The save_urls RPC now has explicit UCI load, set, commit, chmod and read-back
-failure codes. Browser calls reject non-zero ubus errors instead of silently
-displaying an unrelated URL mismatch. A backend revision token detects stale
-rpcd service versions. The backend commits UCI and reloads an independent
-cursor to confirm the new URLs were persisted before reporting success.
-Optional cron task runs exactly once per day at 00:00 ROUTER LOCAL TIME
-(not UTC unless the router timezone is set to UTC). Auto-auth is disabled
-by default and requires explicitly remembered credentials. The cron entry
-is recreated on boot and preserves all unrelated scheduled tasks.
-Saved credentials are root-only; secrets are never included in curl argv.
-The campus-specific response markers still require verification on-campus.
+- **状态 → PPE / NSS 硬件加速：** 连接统计、NSS 状态和内核诊断
+- **网络 → 校园网认证：** 自定义地址、登录注销、保存账号及每日 00:00 自动认证
+- **系统 → 备份 / 升级：** 在线检查、下载和安装更新
+- **系统 → 自动更新设置：** 管理自动更新计划
+- **界面文案：** 使用 LuCI 原生风格，统一菜单和帮助文字
 
-Includes official Simplified Chinese language packs for SQM and BCP38, plus
-custom native LuCI translation catalogs for PPE Hardware QoS and the OTA menu.
-The PPE QoS application JavaScript and drivers are not modified.
+包含常用 LuCI 应用、简体中文语言包、PPE QoS 汉化、WireGuard 和 Aurora 主题。
 
-Includes a native OpenWrt LuCI PPE / NSS status page (no custom dark theme), with live HW_OFFLOAD conntrack statistics, NSS ath11k/core status and optional kernel debugfs counters. Polls while the LuCI page is open and exposes no per-connection IPs or ports.
+## 存储
 
-Uses upstream Linux/PPE/NSS/ath11k binaries, with selected LuCI apps and Chinese language packs.
-Only sysupgrade, not factory/U-Boot. No Wi-Fi credentials are embedded.
-The bundled ppe-update now targets only pzcn/openwrt-ppe-nss-ota GitHub Releases.
-The native System -> Backup / Flash page includes an ONLINE firmware update
-sibling section, preserving official backup / restore and local flashing.
-Manual OTA no longer depends on optional APK dependency simulations and will
-attempt to reinstall extra packages after reboot, warning of possible losses.
-Firmware device/channel metadata, image SHA256 and sysupgrade -T stay mandatory.
-Automatic unattended updates remain conservative about optional packages.
-The firmware embeds an immutable build number and verifies per-release ota.json,
-manifest SHA256, firmware SHA256, board and upstream group before sysupgrade.
-Automatic updates are OFF by default and must be explicitly opted in.
+- p18：SquashFS + F2FS rootfs_data 可写层
+- p27：ext4 数据分区，挂载到 /mnt/storage
+
+**升级提示：** 建议先备份配置及重要文件。首次初始化时请确认 p18 数据状态。
+
+## 版本标识
+
+- 监控：$MONITOR_REV
+- 校园网认证：$DRCOM_REV
+- 在线更新：$OTA_REV
+- 中文语言包：$I18N_REV
+- 存储：$STORAGE_FIX_REV
 EOF
-gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS Native Backup + Online OTA ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST" ota.json
+
+gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS 固件 ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST" ota.json

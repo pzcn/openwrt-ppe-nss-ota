@@ -54,7 +54,7 @@ valid_hash() {
 index() {
 	[ -n "$OTA_TAG" ] && valid_integer "$OTA_BUILD" &&
 		[ "$OTA_CHANNEL" = "$RELEASE_CHANNEL" ] ||
-		die "not a pzcn custom OTA image (missing ROM metadata)"
+		die "missing local firmware update identity"
 	[ "$BOARD" = "$EXPECTED_BOARD" ] &&
 		[ "$GROUP" = "$EXPECTED_GROUP" ] ||
 		die "board or PPE group mismatch: refusing OTA"
@@ -63,7 +63,7 @@ index() {
 	LATEST=$(jsonfilter -i "$WORK/github.json" -e '@.tag_name')
 	case "$LATEST" in
 	ota-ppe-nss-*) ;;
-	*) die "latest release is not a pzcn OTA build" ;;
+	*) die "latest firmware release is not on the expected channel" ;;
 	esac
 	case "$LATEST" in *[!a-zA-Z0-9._-]*) die "unsafe release tag" ;; esac
 	# We do not trust arbitrary names or paths from a release.
@@ -198,20 +198,20 @@ cmd_status() {
 		fi
 		printf '{"board":"%s","current":"%s","build":%s,"group":"%s","latest":"%s","latest_time":%s,"update":%s,"image":"%s","size":%s,"extras":"%s","missing":"","checked":false,"pending":"%s","auto":"%s","source":"%s"}\n' \
 			"$BOARD" "$OTA_TAG" "$OTA_BUILD" "$GROUP" "$LATEST" "$LATEST_TIME" "$avail" "$IMAGE" "$SIZE" \
-			"$(extras | tr '\n' ' ')" "$pending" "${auto:-0}" "$RELEASE_REPO"
+			"$(extras | tr '\n' ' ')" "$pending" "${auto:-0}" "GitHub Releases"
 	) 2>/dev/null ||
 		printf '{"board":"%s","current":"%s","group":"%s","error":"custom OTA source unavailable or metadata rejected","pending":"%s","auto":"%s","source":"%s"}\n' \
-			"$BOARD" "$OTA_TAG" "$GROUP" "$pending" "${auto:-0}" "$RELEASE_REPO"
+			"$BOARD" "$OTA_TAG" "$GROUP" "$pending" "${auto:-0}" "GitHub Releases"
 }
 
 cmd_check() {
 	lookup ""
 	if newer; then
-		echo "custom update available: $OTA_TAG -> $LATEST ($IMAGE)"
+		echo "firmware update available: $OTA_TAG -> $LATEST"
 		echo "Optional package compatibility is checked before installing, but will not block MANUAL updates."
 		return 0
 	fi
-	echo "custom firmware is up to date: $OTA_TAG"
+	echo "firmware is up to date: $OTA_TAG"
 	return 1
 }
 
@@ -243,7 +243,7 @@ cmd_update() {
 		die "not enough free space: need ${need_kb}K, have ${avail_kb}K"
 	fi
 
-	log "downloading $IMAGE from CUSTOM repo $RELEASE_REPO / $LATEST"
+	log "downloading firmware $LATEST"
 	fetch "$RELEASE_ASSETS/$LATEST/$IMAGE" "$WORK/$IMAGE" || die "download failed"
 	[ "$(sha256sum "$WORK/$IMAGE" | cut -d' ' -f1)" = "$SHA256" ] ||
 		{ rm -f "$WORK/$IMAGE"; die "image SHA256 mismatch"; }
@@ -253,7 +253,7 @@ cmd_update() {
 	mkdir -p "$STATE"
 	cp "$WORK/extras" "$STATE/packages"
 	[ -s "$STATE/packages" ] || rm -f "$STATE/packages"
-	log "flashing VERIFIED custom image $LATEST; attempting to keep settings"
+	log "installing validated firmware $LATEST with configuration preservation"
 	sysupgrade "$WORK/$IMAGE"
 }
 

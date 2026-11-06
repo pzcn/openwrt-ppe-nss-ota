@@ -12,7 +12,7 @@ return view.extend({
 	},
 	render: function(st) {
 		var status = E('div', { 'class': 'cbi-section' }, [
-			E('h2', '定制 OTA 设置'),
+			E('h2', '自动更新设置'),
 			E('p', { 'class': 'cbi-section-descr' },
 				'手动在线更新现已放到「系统 → 备份/升级」页面，和本地刷写固件并列。'),
 			E('table', { 'class': 'table' }, [
@@ -26,7 +26,7 @@ return view.extend({
 				])
 			]),
 			E('p', { 'class': 'cbi-section-descr' },
-				'手动 OTA 不会因为无法模拟额外 APK 包安装而阻止更新，但可能有软件包需要升级后重新安装。设备与镜像校验始终执行。'),
+				'手动升级请在「系统 → 备份 / 升级」中操作。升级后将尝试恢复额外软件包。'),
 			E('div', { 'class': 'cbi-page-actions' }, [
 				E('a', {
 					'class': 'btn cbi-button cbi-button-action',
@@ -38,7 +38,7 @@ return view.extend({
 		var m = new form.Map('ppe-update');
 		var section = m.section(form.NamedSection, 'main', 'ppe-update', '自动更新');
 		var o = section.option(form.Flag, 'auto', '启用无人值守更新',
-			'自动更新仍会检查额外软件包兼容性；模拟检查失败则暂缓，以免无人值守升级后功能缺失。');
+			'自动更新会检查软件包兼容性，遇到异常时暂缓更新。');
 		o.rmempty = false;
 
 		o = section.option(form.ListValue, 'hour', '每天检查的小时');

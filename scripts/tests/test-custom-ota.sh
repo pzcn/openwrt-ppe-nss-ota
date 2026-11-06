@@ -18,7 +18,7 @@ ui = Path(sys.argv[1]).read_text()
 for required in (
     "handleBackup(ev)", "handleRestore(ev)", "handleSysupgrade(storage_size",
     "handleSysupgradeConfirm(btn", "handleBackupSave(m", "handleBackupList(ev)",
-    "online_upgrade", "在线固件更新（pzcn OTA）", "otaAskInstall()",
+    "online_upgrade", "在线固件更新", "otaAskInstall()",
     "otaRefresh()", "otaConfirmInstall()", "sysupgrade', [ '--test'",
 ):
     assert required in ui, f"Stock Backup / Flash Firmware feature or OTA missing: {required}"

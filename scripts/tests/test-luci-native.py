@@ -62,4 +62,28 @@ assert "gate.lnu.edu.cn/0.htm" in legacy and "gate.lnu.edu.cn/F.htm" in legacy
 for guard in ('[ -z "$username" ]', '[ -z "$password" ]', '[ "$remember" != 1 ]', '[ "$auto" != 1 ]'):
     assert guard in legacy, "Legacy migration must not clear remembered credentials"
 subprocess.run(["sh", "-n", str(overlay / "etc/uci-defaults/98-drcom-clear-unused-legacy-url")], check=True)
-print("PASS: native LuCI, versioned RPC with explicit errors, UCI persisted URL readback, safe default migration")
+# User-facing pages and documentation should use device/function names.
+# Keep immutable GitHub owner URLs and old OTA asset names in the transport
+# layer for backward compatibility with already installed firmware.
+visible = [
+    overlay / "www/luci-static/resources/view/status/ppe-nss-monitor-native.js",
+    overlay / "www/luci-static/resources/view/network/drcom-native.js",
+    overlay / "www/luci-static/resources/view/system/flash.js",
+    overlay / "www/luci-static/resources/view/system/ppe-update.js",
+    overlay / "usr/share/luci/menu.d/luci-app-ppe-update.json",
+    root / "README.md",
+    root / "docs/PPE-NSS-MONITOR.md",
+    root / "docs/DRCOM-CAMPUS.md",
+    root / "docs/CUSTOM-OTA.md",
+]
+for item in visible:
+    content = item.read_text(encoding="utf-8").lower()
+    assert "pzcn" not in content, f"Identity label in user-facing content: {item}"
+    for phrase in ("不会", "不再", "不会回退", "不会修改"):
+        assert phrase not in content, f"Defensive phrase {phrase}: {item}"
+build_script = (root / "scripts/build.sh").read_text(encoding="utf-8")
+notes = build_script.split('cat > "$WORK/notes.md" <<EOF', 1)[1].split("\nEOF", 1)[0]
+assert "pzcn" not in notes.lower()
+assert "不会" not in notes
+assert "在线固件更新" in notes
+print("PASS: native LuCI, versioned RPC, concise user-facing copy and URL readback")
