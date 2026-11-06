@@ -181,7 +181,7 @@ def main():
             assert not req.exists(), "Unsafe request was not cleaned up"
             # Idempotent midnight cron installation must preserve other jobs.
             cron = tmp / "root.cron"
-            cron.write_text("10 3 * * * echo other-job\\n")
+            cron.write_text("10 3 * * * echo other-job\n")
             cron.chmod(0o600)
             schedule_env = env.copy()
             schedule_env["DRCOM_CRONTAB"] = str(cron)
