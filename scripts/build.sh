@@ -9,9 +9,9 @@ AURORA_TAG=v1.4.0
 AURORA_APK=luci-theme-aurora-1.4.0-r20260920.apk
 STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-native2
-OTA_REV=custom-ota4
+OTA_REV=custom-ota5
 I18N_REV=zhcn-lmo1
-DRCOM_REV=campus-drcom11
+DRCOM_REV=campus-drcom12
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
@@ -19,11 +19,16 @@ if [[ -z "$TAG" ]]; then
   TAG="$(gh release view --repo "$UPSTREAM_REPO" --json tagName --jq '.tagName')"
 fi
 [[ "$TAG" == ppe-nss-* ]] || { echo "::error::Unexpected upstream tag: $TAG"; exit 1; }
-RELEASE_TAG="ota-$TAG-$AURORA_TAG-$STORAGE_FIX_REV-$MONITOR_REV-$OTA_REV-$I18N_REV-$DRCOM_REV"
+# A source change must produce a distinct firmware even if upstream is unchanged.
+# The same source and upstream tag still share a release on scheduled runs.
+SOURCE_REV="$(git -C "$GITHUB_WORKSPACE" rev-parse --short=8 HEAD)"
+[[ "$SOURCE_REV" =~ ^[0-9a-f]{8,}$ ]] || { echo "::error::Invalid source commit"; exit 1; }
+RELEASE_TAG="ota-$TAG-$AURORA_TAG-$STORAGE_FIX_REV-$MONITOR_REV-$OTA_REV-$I18N_REV-$DRCOM_REV-g$SOURCE_REV"
 if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
   RELEASE_TAG="$RELEASE_TAG-$GITHUB_RUN_NUMBER"
-elif gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-  echo "Already published: $RELEASE_TAG"
+fi
+if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+  echo "Already published for source $SOURCE_REV: $RELEASE_TAG"
   exit 0
 fi
 
@@ -195,9 +200,8 @@ cat > "$WORK/notes.md" <<EOF
 ## 本版内容
 
 - **状态 → PPE / NSS 硬件加速：** 连接统计、NSS 状态和内核诊断
-- **网络 → 校园网认证：** 自定义地址、登录注销、保存账号及每日 00:00 自动认证
-- **系统 → 备份 / 升级 → 在线固件更新：** 检查版本并下载安装
-- **系统 → 自动更新设置：** 管理自动更新计划
+- **网络 → 校园网认证：** 单一网关地址、账号密码、登录注销及每日 00:00 自动认证
+- **系统 → 备份 / 升级 → 在线固件更新：** 检查版本、在线安装及自动更新设置
 - **界面文案：** 使用 LuCI 原生风格，统一菜单和帮助文字
 
 包含常用 LuCI 应用、简体中文语言包、PPE QoS 汉化、WireGuard 和 Aurora 主题。
@@ -211,6 +215,7 @@ cat > "$WORK/notes.md" <<EOF
 
 ## 版本标识
 
+- 源代码提交：$SOURCE_REV
 - 监控：$MONITOR_REV
 - 校园网认证：$DRCOM_REV
 - 在线更新：$OTA_REV
