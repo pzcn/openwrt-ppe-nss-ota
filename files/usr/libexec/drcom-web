@@ -33,21 +33,10 @@ config_get() {
 	uci -q get "drcom.main.$1" 2>/dev/null || true
 }
 
-base="$(config_get server)"
-[ -n "$base" ] || base='http://gate.lnu.edu.cn'
-case "$base" in */) base="${base%/}" ;; esac
-
+# No implicit campus portal or legacy hostname fallback. A missing URL
+# must remain missing and produce a visible error, not silently use old data.
 login_url="$(config_get login_url)"
-[ -n "$login_url" ] || login_url="$base/0.htm"
 logout_url="$(config_get logout_url)"
-if [ -z "$logout_url" ]; then
-	logout_path="$(config_get logout_path)"
-	[ -n "$logout_path" ] || logout_path='/F.htm'
-	logout_url="$base$logout_path"
-fi
-
-valid_url "$login_url" || fail '登录地址格式不正确（需完整的 HTTP/HTTPS URL）'
-valid_url "$logout_url" || fail '注销地址格式不正确（需完整的 HTTP/HTTPS URL）'
 
 
 ipv4_ok() {
@@ -148,6 +137,12 @@ if [ "$ACTION" = auto ] &&
 	emit true unknown '自动认证已关闭或未保存凭据'
 	exit 0
 fi
+case "$ACTION" in
+	status | login | auto)
+		valid_url "$login_url" || fail '请先填写并保存完整的登录 URL' ;;
+	logout)
+		valid_url "$logout_url" || fail '请先填写并保存完整的注销 URL' ;;
+esac
 case "$ACTION" in status | login | logout | auto) wan_preflight ;; esac
 
 case "$ACTION" in

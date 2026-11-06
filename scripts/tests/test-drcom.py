@@ -163,6 +163,19 @@ def main():
             env["DRCOM_TEST_DNS"] = "127.0.0.1"
             env["DRCOM_TEST_ROUTE_DEV"] = "lo"
 
+            # Fresh installs have NO default authentication domain. With
+            # missing URLs, status / logout / automatic login must fail closed.
+            saved_login = env["DRCOM_TEST_LOGIN_URL"]
+            saved_logout = env["DRCOM_TEST_LOGOUT_URL"]
+            env["DRCOM_TEST_LOGIN_URL"] = ""
+            status = call("status", env)
+            assert not status["ok"] and "URL" in status["message"], status
+            env["DRCOM_TEST_LOGOUT_URL"] = ""
+            status = call("logout", env)
+            assert not status["ok"], status
+            env["DRCOM_TEST_LOGIN_URL"] = saved_login
+            env["DRCOM_TEST_LOGOUT_URL"] = saved_logout
+
             response = call("status", env)
             assert response["state"] == "offline", response
 

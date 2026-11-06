@@ -1,0 +1,339 @@
+'use strict';
+'require view';
+'require rpc';
+'require ui';
+
+const getConfig = rpc.declare({ object: 'luci.drcom', method: 'get_config', expect: {} });
+const getStatus = rpc.declare({ object: 'luci.drcom', method: 'get_status', expect: {} });
+const login = rpc.declare({
+	object: 'luci.drcom', method: 'login',
+	params: [ 'username', 'password', 'remember', 'login_url', 'logout_url' ], expect: {}
+});
+const logout = rpc.declare({ object: 'luci.drcom', method: 'logout', expect: {} });
+const forget = rpc.declare({ object: 'luci.drcom', method: 'forget', expect: {} });
+const saveUrls = rpc.declare({
+	object: 'luci.drcom', method: 'save_urls',
+	params: [ 'login_url', 'logout_url' ], expect: {}
+});
+const setAuto = rpc.declare({
+	object: 'luci.drcom', method: 'set_auto', params: [ 'enabled' ], expect: {}
+});
+
+function field(label, input, help) {
+	return E('div', { 'class': 'cbi-value' }, [
+		E('label', { 'class': 'cbi-value-title', 'for': input.id }, label),
+		E('div', { 'class': 'cbi-value-field' }, [
+			input,
+			help ? E('div', { 'class': 'cbi-value-description' }, help) : E([])
+		])
+	]);
+}
+
+function button(label, handler, cls) {
+	return E('button', {
+		'type': 'button', 'class': 'btn cbi-button ' + (cls || ''),
+		'click': handler
+	}, label);
+}
+
+return view.extend({
+	handleSave: null,
+	handleSaveApply: null,
+	handleReset: null,
+	_busy: false,
+	_nodes: null,
+
+	load: function() {
+		return Promise.all([
+			L.resolveDefault(getConfig(), {}),
+			L.resolveDefault(getStatus(), {
+				ok: false, state: 'unknown', message: '无法取得认证状态'
+			})
+		]);
+	},
+
+	n: function(key) {
+		return this._nodes && this._nodes[key];
+	},
+
+	setText: function(key, value) {
+		if (this.n(key))
+			this.n(key).textContent = value;
+	},
+
+	setBusy: function(isBusy) {
+		this._busy = isBusy;
+		[ 'saveUrls', 'login', 'logout', 'refresh', 'forget', 'setAuto' ].forEach(L.bind(function(key) {
+			if (this.n(key))
+				this.n(key).disabled = isBusy;
+		}, this));
+	},
+
+	notify: function(message, success) {
+		ui.addNotification(null, E('p', message), success ? 'info' : 'error');
+	},
+
+	showStatus: function(result) {
+		var state = result && result.state || 'unknown';
+		var name = state === 'online' ? '已认证'
+			: state === 'offline' ? '未认证'
+			: state === 'unreachable' ? '无法连接'
+			: '未确认';
+		if (!result || result.ok !== true)
+			name = '需要检查';
+		this.setText('connection', name);
+		this.setText('response', result && result.message || '尚无网关响应');
+	},
+
+	syncConfig: function() {
+		return getConfig().then(L.bind(function(c) {
+			if (!c || typeof c !== 'object')
+				throw new Error('获取校园网配置失败');
+			this.n('loginUrl').value = c.login_url || '';
+			this.n('logoutUrl').value = c.logout_url || '';
+			this.n('username').value = c.username || '';
+			this.n('remember').checked = !!c.remember;
+			this.n('auto').checked = !!c.auto;
+			this._nodes.hasSaved = !!c.has_password;
+			this.setText('saved', c.has_password
+				? '路由器已保存此账号的密码；密码框留空可以重新认证。'
+				: '没有保存密码，勾选“记住账号密码”后登录才会保存。');
+			this.setText('autoStatus', c.auto ? '已启用，每天 00:00 执行' : '未启用');
+			return c;
+		}, this));
+	},
+
+	addresses: function() {
+		return {
+			login: this.n('loginUrl').value.trim(),
+			logout: this.n('logoutUrl').value.trim()
+		};
+	},
+
+	validateAddresses: function() {
+		var url = this.addresses();
+		if (!/^https?:\/\/[A-Za-z0-9]/.test(url.login) ||
+			!/^https?:\/\/[A-Za-z0-9]/.test(url.logout)) {
+			this.notify('请先填写完整的登录 URL 和注销 URL（包括 http:// 或 https://）。', false);
+			return null;
+		}
+		return url;
+	},
+
+	doSaveUrls: function() {
+		if (this._busy)
+			return Promise.resolve();
+		var target = this.validateAddresses();
+		if (!target)
+			return Promise.resolve();
+
+		this.setBusy(true);
+		this.setText('saveState', '正在保存并校验…');
+		return saveUrls(target.login, target.logout).then(L.bind(function(result) {
+			// Do not trust an RPC success flag without persisted read-back.
+			if (!result || result.ok !== true ||
+				result.login_url !== target.login || result.logout_url !== target.logout)
+				throw new Error(result && result.message || '保存结果与填写的地址不一致');
+			return getConfig().then(L.bind(function(c) {
+				if (!c || c.login_url !== target.login || c.logout_url !== target.logout)
+					throw new Error('重新读取的地址与刚保存的内容不一致，请检查 UCI 配置');
+				this.setText('saveState', '已保存并验证：刷新页面后仍会使用新地址');
+				this.notify('认证地址已保存并核对成功', true);
+			}, this));
+		}, this)).catch(L.bind(function(e) {
+			this.setText('saveState', '保存失败，当前输入没有被重置');
+			this.notify('认证地址保存失败：' + (e.message || e), false);
+		}, this)).finally(L.bind(function() { this.setBusy(false); }, this));
+	},
+
+	doLogin: function() {
+		if (this._busy)
+			return Promise.resolve();
+		var urls = this.validateAddresses();
+		if (!urls)
+			return Promise.resolve();
+		var user = this.n('username').value.trim();
+		var secret = this.n('password').value;
+		var remember = this.n('remember').checked;
+		if (!user || (!secret && !this._nodes.hasSaved)) {
+			this.notify('请输入账号和密码。', false);
+			return Promise.resolve();
+		}
+
+		this.setBusy(true);
+		this.setText('response', '正在通过 WAN 发起认证…');
+		return login(user, secret, remember, urls.login, urls.logout).then(L.bind(function(result) {
+			this.showStatus(result);
+			if (result && result.saved === true) {
+				this.n('password').value = '';
+				return this.syncConfig();
+			}
+			this.notify(result && result.message || '认证请求失败', false);
+		}, this)).catch(L.bind(function(e) {
+			this.notify('认证请求失败：' + (e.message || e), false);
+		}, this)).finally(L.bind(function() { this.setBusy(false); }, this));
+	},
+
+	doLogout: function() {
+		if (this._busy)
+			return Promise.resolve();
+		this.setBusy(true);
+		return logout().then(L.bind(function(r) {
+			this.showStatus(r);
+			if (!r || r.ok !== true)
+				this.notify(r && r.message || '注销请求失败', false);
+		}, this)).catch(L.bind(function(e) {
+			this.notify('注销失败：' + (e.message || e), false);
+		}, this)).finally(L.bind(function() { this.setBusy(false); }, this));
+	},
+
+	doRefresh: function() {
+		if (this._busy)
+			return Promise.resolve();
+		this.setBusy(true);
+		return getStatus().then(L.bind(this.showStatus, this))
+			.catch(L.bind(function() {
+				this.showStatus({ ok: false, message: '无法读取 WAN 认证状态' });
+			}, this))
+			.finally(L.bind(function() { this.setBusy(false); }, this));
+	},
+
+	doAuto: function() {
+		if (this._busy)
+			return Promise.resolve();
+		var enabled = !!this.n('auto').checked;
+		this.setBusy(true);
+		return setAuto(enabled).then(L.bind(function(r) {
+			if (!r || r.ok !== true)
+				this.notify(r && r.message || '保存自动认证设置失败', false);
+			else
+				this.notify(r.message || '自动认证设置已保存', true);
+			return this.syncConfig();
+		}, this)).catch(L.bind(function(e) {
+			this.notify('自动认证设置失败：' + (e.message || e), false);
+			return this.syncConfig();
+		}, this)).finally(L.bind(function() { this.setBusy(false); }, this));
+	},
+
+	doForget: function() {
+		if (this._busy)
+			return Promise.resolve();
+		if (!window.confirm('确定清除路由器保存的校园网账号和密码？这不会立即注销网络。'))
+			return Promise.resolve();
+
+		this.setBusy(true);
+		return forget().then(L.bind(function(r) {
+			if (r && r.ok === true) {
+				this.n('password').value = '';
+				return this.syncConfig().then(L.bind(function() {
+					this.notify('账号密码已清除，每日自动认证也已关闭', true);
+				}, this));
+			}
+			this.notify(r && r.message || '清除失败', false);
+		}, this)).catch(L.bind(function(e) {
+			this.notify('清除凭据失败：' + (e.message || e), false);
+		}, this)).finally(L.bind(function() { this.setBusy(false); }, this));
+	},
+
+	render: function(data) {
+		var config = data[0] || {};
+		var result = data[1] || {};
+		var n = this._nodes = { hasSaved: !!config.has_password };
+		n.loginUrl = E('input', {
+			'id': 'drcom-login-url', 'type': 'url', 'class': 'cbi-input-text',
+			'value': config.login_url || '', 'placeholder': 'http://认证网关IP/0.htm',
+			'maxlength': 512, 'autocomplete': 'off'
+		});
+		n.logoutUrl = E('input', {
+			'id': 'drcom-logout-url', 'type': 'url', 'class': 'cbi-input-text',
+			'value': config.logout_url || '', 'placeholder': 'http://认证网关IP/F.htm',
+			'maxlength': 512, 'autocomplete': 'off'
+		});
+		n.username = E('input', {
+			'id': 'drcom-user', 'type': 'text', 'class': 'cbi-input-text',
+			'value': config.username || '', 'placeholder': '校园网账号',
+			'maxlength': 128, 'autocomplete': 'username'
+		});
+		n.password = E('input', {
+			'id': 'drcom-password', 'type': 'password', 'class': 'cbi-input-password',
+			'value': '', 'placeholder': config.has_password ? '已保存密码，可留空' : '校园网密码',
+			'maxlength': 256, 'autocomplete': 'off'
+		});
+		n.remember = E('input', { 'id': 'drcom-remember', 'type': 'checkbox',
+			'class': 'cbi-input-checkbox', 'checked': !!config.remember });
+		n.auto = E('input', { 'id': 'drcom-auto', 'type': 'checkbox',
+			'class': 'cbi-input-checkbox', 'checked': !!config.auto });
+		n.connection = E('strong', '读取中');
+		n.response = E('span', '正在读取状态…');
+		n.saved = E('div', { 'class': 'cbi-value-description' },
+			config.has_password ? '已保存密码，留空可直接认证。' : '目前没有保存密码。');
+		n.autoStatus = E('span', config.auto ? '已启用，每天 00:00 执行' : '未启用');
+		n.saveState = E('span', '尚未保存修改');
+
+		n.saveUrls = button('保存认证地址', L.bind(this.doSaveUrls, this), 'cbi-button-apply');
+		n.login = button('连接校园网', L.bind(this.doLogin, this), 'cbi-button-action');
+		n.logout = button('注销认证', L.bind(this.doLogout, this), 'cbi-button-reset');
+		n.refresh = button('检查状态', L.bind(this.doRefresh, this));
+		n.forget = button('清除已保存的账号密码', L.bind(this.doForget, this), 'cbi-button-reset');
+		n.setAuto = button('保存自动认证设置', L.bind(this.doAuto, this), 'cbi-button-apply');
+
+		var root = E('div', { 'class': 'cbi-map' }, [
+			E('h2', '校园网认证（Dr.COM）'),
+			E('div', { 'class': 'cbi-map-descr' },
+				'通过路由器 WAN 接口登录 Dr.COM 校园网。认证请求不会经由 WireGuard。'),
+			E('div', { 'class': 'cbi-section' }, [
+				E('h3', '认证状态'),
+				E('table', { 'class': 'table' }, [
+					E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td left' }, '当前状态'),
+						E('td', { 'class': 'td' }, n.connection) ]),
+					E('tr', { 'class': 'tr' }, [ E('td', { 'class': 'td left' }, '网关返回'),
+						E('td', { 'class': 'td' }, n.response) ])
+				]),
+				E('div', { 'class': 'cbi-page-actions' }, [n.refresh])
+			]),
+			E('div', { 'class': 'cbi-section' }, [
+				E('h3', '认证地址'),
+				E('div', { 'class': 'cbi-section-descr' },
+					'首次安装不预设任何学校或网关地址。请填写真实的完整 URL，并点击保存。支持域名、IPv4、端口和路径。'),
+				field('登录 URL', n.loginUrl, '向此地址 POST 账号、密码（DDDDD、upass、0MKKey）。'),
+				field('注销 URL', n.logoutUrl, '注销时向此地址发送 GET 请求；实际路径应按校园网门户确定。'),
+				E('div', { 'class': 'cbi-page-actions' }, [
+					n.saveState, n.saveUrls
+				])
+			]),
+			E('div', { 'class': 'cbi-section' }, [
+				E('h3', '账号认证'),
+				field('校园网账号', n.username),
+				field('校园网密码', n.password),
+				E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title', 'for': 'drcom-remember' }, '记住账号密码'),
+					E('div', { 'class': 'cbi-value-field' }, [
+						n.remember, E('div', {}, n.saved)
+					])
+				]),
+				E('div', { 'class': 'cbi-page-actions' }, [
+					n.forget, n.logout, n.login
+				])
+			]),
+			E('div', { 'class': 'cbi-section' }, [
+				E('h3', '自动认证'),
+				E('div', { 'class': 'cbi-section-descr' },
+					'开启前需勾选记住账号密码并完成一次登录。每天路由器本地时间 00:00 执行一次，不做持续重连。'),
+				E('div', { 'class': 'cbi-value' }, [
+					E('label', { 'class': 'cbi-value-title', 'for': 'drcom-auto' }, '每天零点认证'),
+					E('div', { 'class': 'cbi-value-field' }, [ n.auto, '　', n.autoStatus ])
+				]),
+				E('div', { 'class': 'cbi-page-actions' }, [n.setAuto])
+			]),
+			E('div', { 'class': 'cbi-section' }, [
+				E('h3', '注意事项'),
+				E('div', { 'class': 'cbi-section-descr' }, [
+					E('p', '当 WAN 或 WAN DNS 不可用时，插件不会回退到 WireGuard。使用认证网关 IPv4 地址通常更可靠。'),
+					E('p', '如果认证服务器只支持 HTTP，账号密码在校园网链路上会明文传输；保存的密码仅允许 root 读取，并可能被包含在配置备份中。')
+				])
+			])
+		]);
+		this.showStatus(result);
+		return root;
+	}
+});

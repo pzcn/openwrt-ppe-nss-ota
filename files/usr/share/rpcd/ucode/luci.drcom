@@ -11,8 +11,6 @@ import { open, readfile, unlink, chmod, popen } from 'fs';
 
 const SCRIPT = '/usr/libexec/drcom-web';
 const SCHEDULE = '/usr/libexec/drcom-schedule';
-const DEFAULT_LOGIN = 'http://gate.lnu.edu.cn/0.htm';
-const DEFAULT_LOGOUT = 'http://gate.lnu.edu.cn/F.htm';
 
 function valid_url(url) {
 	// No URL userinfo, shell metacharacters, whitespace or fragments. Paths,
@@ -31,18 +29,14 @@ function valid_secret(value, maximum) {
 }
 
 function config() {
+	// Only explicit UCI values are returned; no hardcoded school host and no
+	// legacy hostname fallback that could replace newly saved URL values.
 	const uci = cursor();
-	uci.load('drcom');
-
-	// Existing installations had a hostname "server" + "logout_path".
-	// Preserve them when the new fully specified URLs are not yet present.
-	let base = uci.get('drcom', 'main', 'server') || 'http://gate.lnu.edu.cn';
-	base = replace(base, /\/$/, '');
-	let legacy_logout = uci.get('drcom', 'main', 'logout_path') || '/F.htm';
-
+	if (uci.load('drcom') != true)
+		return null;
 	const saved = {
-		login_url: uci.get('drcom', 'main', 'login_url') || (base + '/0.htm'),
-		logout_url: uci.get('drcom', 'main', 'logout_url') || (base + legacy_logout),
+		login_url: uci.get('drcom', 'main', 'login_url') || '',
+		logout_url: uci.get('drcom', 'main', 'logout_url') || '',
 		remember: uci.get('drcom', 'main', 'remember') == '1',
 		auto: uci.get('drcom', 'main', 'auto') == '1',
 		username: uci.get('drcom', 'main', 'username') || '',
@@ -54,20 +48,50 @@ function config() {
 
 function save_changes(changes, forget_password) {
 	const uci = cursor();
-	uci.load('drcom');
-	for (let key, value in changes)
-		uci.set('drcom', 'main', key, value);
+	if (uci.load('drcom') != true)
+		return false;
 
+	// Verify every change, not merely a successful commit return value.
+	for (let key, value in changes) {
+		if (uci.set('drcom', 'main', key, value) != true) {
+			uci.unload();
+			return false;
+		}
+	}
 	if (forget_password) {
 		uci.delete('drcom', 'main', 'username');
 		uci.delete('drcom', 'main', 'password');
-		uci.set('drcom', 'main', 'auto', '0');
+		if (uci.set('drcom', 'main', 'auto', '0') != true) {
+			uci.unload();
+			return false;
+		}
 	}
-
-	let ok = uci.commit('drcom');
+	const committed = uci.commit('drcom') == true;
 	uci.unload();
-	chmod('/etc/config/drcom', 0600);
-	return ok == true;
+	if (!committed)
+		return false;
+
+	// The router stores passwords in root-only UCI config, including on ext4/
+	// F2FS overlay. Verify persistence using an independent cursor.
+	if (chmod('/etc/config/drcom', 0600) != true)
+		return false;
+	const verify = cursor();
+	if (verify.load('drcom') != true)
+		return false;
+	let correct = true;
+	for (let key, value in changes) {
+		if ((verify.get('drcom', 'main', key) || '') != value) {
+			correct = false;
+			break;
+		}
+	}
+	if (forget_password)
+		correct = correct &&
+			!verify.get('drcom', 'main', 'username') &&
+			!verify.get('drcom', 'main', 'password') &&
+			verify.get('drcom', 'main', 'auto') == '0';
+	verify.unload();
+	return correct;
 }
 
 function run(action, payload) {
@@ -111,6 +135,9 @@ const methods = {
 	get_config: {
 		call: function() {
 			const s = config();
+			if (!s)
+				return { error: '无法读取校园网 UCI 配置', login_url: '', logout_url: '',
+					remember: false, auto: false, username: '', has_password: false };
 			return {
 				login_url: s.login_url,
 				logout_url: s.logout_url,
@@ -123,6 +150,9 @@ const methods = {
 	},
 	get_status: {
 		call: function() {
+			const s = config();
+			if (!s || !valid_url(s.login_url))
+				return { ok: false, state: 'unknown', message: '请先填写并保存认证地址' };
 			return run('status', null);
 		}
 	},
@@ -134,8 +164,12 @@ const methods = {
 				return { ok: false, message: '请输入完整的 HTTP 或 HTTPS 认证地址，包含域名/IP 和路径' };
 
 			if (!save_changes({ login_url: a.login_url, logout_url: a.logout_url }, false))
-				return { ok: false, message: '保存认证地址失败' };
-			return { ok: true, message: '登录地址与注销地址已保存' };
+				return { ok: false, message: 'UCI 保存或读回验证失败，地址未确认更新' };
+			const saved = config();
+			if (!saved || saved.login_url != a.login_url || saved.logout_url != a.logout_url)
+				return { ok: false, message: '刷新后地址与提交的值不一致' };
+			return { ok: true, login_url: saved.login_url, logout_url: saved.logout_url,
+				message: '认证地址已保存并重新读取验证' };
 		}
 	},
 	login: {
@@ -143,8 +177,10 @@ const methods = {
 		call: function(request) {
 			let a = request.args || {};
 			let saved = config();
-			let url = a.login_url || saved.login_url || DEFAULT_LOGIN;
-			let logout_url = a.logout_url || saved.logout_url || DEFAULT_LOGOUT;
+			if (!saved)
+				return { ok: false, state: 'unknown', message: '读取校园网配置失败' };
+			let url = a.login_url || '';
+			let logout_url = a.logout_url || '';
 
 			if (!valid_url(url) || !valid_url(logout_url))
 				return { ok: false, state: 'unknown', message: '请填写有效的 HTTP(S) 登录与注销地址' };
@@ -167,7 +203,9 @@ const methods = {
 			}, !remember))
 				return { ok: false, state: 'unknown', message: '保存校园网配置失败' };
 
-			return run('login', { username, password });
+			const result = run('login', { username, password });
+			result.saved = true;
+			return result;
 		}
 	},
 	set_auto: {
@@ -175,6 +213,8 @@ const methods = {
 		call: function(request) {
 			let enabled = request.args?.enabled === true;
 			let saved = config();
+			if (!saved)
+				return { ok: false, auto: false, message: '无法读取校园网配置' };
 			if (enabled && (!saved.remember || !saved.username || !saved.password))
 				return { ok: false, auto: false, message: '先勾选“记住账号密码”并登录一次，才能开启每天 00:00 自动认证' };
 			if (enabled && (!valid_url(saved.login_url) || !valid_url(saved.logout_url)))
@@ -195,7 +235,9 @@ const methods = {
 	},
 	logout: {
 		call: function() {
-			// Explicit logout does not initiate reconnect. Cron runs at 00:00.
+			const s = config();
+			if (!s || !valid_url(s.logout_url))
+				return { ok: false, state: 'unknown', message: '请先填写并保存注销地址' };
 			return run('logout', null);
 		}
 	},

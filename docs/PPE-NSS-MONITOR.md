@@ -8,7 +8,7 @@
 
 **状态 → PPE / NSS 硬件加速**
 
-页面完全本地运行，不调用第三方在线服务，也不上传设备状态。默认每 **8 秒** 更新一次，支持暂停和手动刷新。曲线仅保留当前浏览器页面的最近 24 个样本，不写入 eMMC。
+使用 **LuCI 原生的 cbi-map、cbi-section 和 table 布局**，跟随 OpenWrt 当前主题（包括 Aurora）的颜色与排版，不使用自定义深色 CSS。默认每 **8 秒** 更新一次，支持暂停和手动刷新。最近 24 个样本以简洁的字符趋势显示，只保留在当前浏览器页面，不写入 eMMC。
 
 ## 真实数据来源
 
@@ -29,8 +29,7 @@
 
 ## 实现文件
 
-- `files/www/luci-static/resources/view/status/ppe-nss-monitor.js`：LuCI 页面、实时采样和趋势图
-- `files/www/luci-static/resources/ppe-nss-monitor.css`：独立 CSS，移动端自适应，无外部字体/CDN
+- `files/www/luci-static/resources/view/status/ppe-nss-monitor-native.js`：原生 LuCI 状态页面、实时采样和趋势显示（不加载自定义样式）
 - `files/usr/share/rpcd/ucode/luci.ppe-nss-monitor`：只读 ubus 采集接口
 - `files/usr/share/rpcd/acl.d/luci-app-ppe-nss-monitor.json`：**只有 get_status 读取权限**
 - `files/usr/share/luci/menu.d/luci-app-ppe-nss-monitor.json`：菜单入口

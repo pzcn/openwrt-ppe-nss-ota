@@ -11,7 +11,7 @@ This repository **does not compile Linux, PPE, NSS or Wi-Fi drivers**. It downlo
 - Simplified Chinese LuCI language packs, including SQM and BCP38; native Chinese LMO catalogs for upstream PPE Hardware QoS and the firmware update menu
 - File manager, web terminal, per-client bandwidth, statistics, Wi-Fi station history, irqbalance UI, LLDP, PBR
 - WireGuard UI/tools and diagnosis: tcpdump, ip-full, conntrack, conntrack netlink
-- **Custom premium PPE / NSS monitor:** LuCI Status page with real hardware connection history, driver health and read-only debug counters
+- **PPE / NSS monitor (native LuCI):** standard status tables, last-24-sample trend, driver status and read-only debug counters; no custom dark styling.
 - **Customized OTA update:** only follows this repository's GitHub Releases, checks exact device and build metadata, validates SHA256, and uses the upstream package migration logic
 - **Dr.COM campus authentication (WAN-only):** editable login/logout URLs, optional saved credentials, daily 00:00 cron login; every HTTP request binds to the actual WAN L3 device and domain lookups use validated WAN DNS, never a WireGuard fallback.
 - **Standard OpenWrt rootfs_data persistence:** include matching `kmod-fs-f2fs`, `f2fs-tools` and `mkf2fs`; p18 SquashFS tail is the normal writable overlay
@@ -48,7 +48,7 @@ Expected: `/overlay` is backed by a loop device with F2FS, and `/mnt/storage` is
 
 ## LNU Dr.COM campus login
 
-Go to **Network → 校园网认证** in LuCI. Enter your account and password, optionally tick **记住账号与密码**, then click **连接校园网**. Both the **full login URL** and **full logout URL** can be edited and saved independently (including IP/domain, port, path, query parameters). Defaults are `http://gate.lnu.edu.cn/0.htm` and `http://gate.lnu.edu.cn/F.htm`.
+Go to **Network → 校园网认证** in LuCI. Enter your account and password, optionally tick **记住账号与密码**, then click **连接校园网**. Both the **full login URL** and **full logout URL** can be edited and saved independently (including IP/domain, port, path, query parameters). **No domain or gateway URL is prefilled in a new installation.** Fill in the two complete URLs, click **保存认证地址**, and only trust the success message when both values have been committed and read back from UCI.
 
 To enable **每天 00:00 自动认证一次**, first save a remembered account and password, then enable the checkbox and click **保存自动认证设置**. Cron performs one POST at **00:00 router-local time** every day; verify that the router timezone is Asia/Shanghai for Beijing midnight. Auto-auth remains off by default. No periodic retries or boot-time login are included. Clearing remembered credentials disables auto-auth. **All login/logout/status/cron requests are pinned to WAN** using curl's `if!` interface binding and never fall back to WireGuard. For hostnames, DNS must also have a verified WAN route; if WAN-only DNS is unavailable, use a numeric IPv4 gateway URL.
 
@@ -100,7 +100,8 @@ No Wi-Fi password is embedded in this **public** firmware or workflow. Configure
 - `scripts/resolve_packages.py` — reconstruct upstream package manifest and custom additions/removals
 - `config/add.txt` — software packages to install
 - `config/remove.txt` — default packages to leave out
-- `files/www/luci-static/resources/view/status/ppe-nss-monitor.js` — PPE / NSS status dashboard
+- `files/www/luci-static/resources/view/status/ppe-nss-monitor-native.js` — native LuCI PPE/NSS monitor
+- `files/www/luci-static/resources/view/network/drcom-native.js` — native LuCI Dr.COM form and saved URL verification
 - `files/usr/share/rpcd/ucode/luci.ppe-nss-monitor` — read-only telemetry endpoint
 - `files/etc/config/fstab` — separate ext4 storage mount at `/mnt/storage` (no extroot)
 - `files/etc/uci-defaults/96-migrate-legacy-extroot` — converts the previous preserved p27 extroot configuration

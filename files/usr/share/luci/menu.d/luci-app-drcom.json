@@ -4,7 +4,7 @@
     "order": 90,
     "action": {
       "type": "view",
-      "path": "network/drcom"
+      "path": "network/drcom-native"
     },
     "depends": {
       "acl": [

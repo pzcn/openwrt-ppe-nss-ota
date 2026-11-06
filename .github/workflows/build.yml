@@ -44,6 +44,9 @@ jobs:
       - name: Test LuCI Chinese catalogs (offline)
         run: python3 scripts/tests/test-luci-i18n.py
 
+      - name: Verify native LuCI pages and persisted URLs (offline)
+        run: python3 scripts/tests/test-luci-native.py
+
       - name: Test Dr.COM login and logout (local mock portal)
         run: python3 scripts/tests/test-drcom.py
 

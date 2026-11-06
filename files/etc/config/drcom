@@ -1,6 +1,7 @@
-# Configurable Dr.COM web authentication. No secret is shipped in firmware.
+# Dr.COM: the firmware does not assume a particular campus gateway.
+# Fill in both full URLs in LuCI (Network -> Campus network authentication).
 config drcom 'main'
-	option login_url 'http://gate.lnu.edu.cn/0.htm'
-	option logout_url 'http://gate.lnu.edu.cn/F.htm'
+	option login_url ''
+	option logout_url ''
 	option remember '0'
 	option auto '0'

@@ -8,10 +8,10 @@ PROFILE=jdcloud_re-ss-01
 AURORA_TAG=v1.4.0
 AURORA_APK=luci-theme-aurora-1.4.0-r20260920.apk
 STORAGE_FIX_REV=f2fsrootfsdata1
-MONITOR_REV=ppe-nss-dashboard1
+MONITOR_REV=ppe-nss-native1
 OTA_REV=custom-ota1
 I18N_REV=zhcn-lmo1
-DRCOM_REV=campus-drcom5
+DRCOM_REV=campus-drcom6
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
@@ -52,8 +52,7 @@ test -s "$DRCOM_FILES/usr/libexec/drcom-web"
 test -s "$DRCOM_FILES/usr/libexec/drcom-schedule"
 test -s "$DRCOM_FILES/etc/init.d/drcom"
 test -s "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
-test -s "$DRCOM_FILES/www/luci-static/resources/view/network/drcom.js"
-test -s "$DRCOM_FILES/www/luci-static/resources/drcom-campus.css"
+test -s "$DRCOM_FILES/www/luci-static/resources/view/network/drcom-native.js"
 chmod +x "$DRCOM_FILES/usr/libexec/drcom-web" "$DRCOM_FILES/usr/libexec/drcom-schedule" "$DRCOM_FILES/etc/init.d/drcom"
 sh -n "$DRCOM_FILES/usr/libexec/drcom-web"
 sh -n "$DRCOM_FILES/usr/libexec/drcom-schedule"
@@ -61,7 +60,7 @@ sh -n "$DRCOM_FILES/etc/init.d/drcom"
 sh -n "$DRCOM_FILES/etc/uci-defaults/97-drcom-credentials-permissions"
 python3 -m json.tool "$DRCOM_FILES/usr/share/luci/menu.d/luci-app-drcom.json" >/dev/null
 python3 -m json.tool "$DRCOM_FILES/usr/share/rpcd/acl.d/luci-app-drcom.json" >/dev/null
-node --check "$DRCOM_FILES/www/luci-static/resources/view/network/drcom.js"
+node --check "$DRCOM_FILES/www/luci-static/resources/view/network/drcom-native.js"
 grep -Fq "return { 'luci.drcom': methods };" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
 grep -Fq 'data-urlencode = "DDDDD=%s"' "$DRCOM_FILES/usr/libexec/drcom-web"
 grep -Fq 'data-urlencode = "upass=%s"' "$DRCOM_FILES/usr/libexec/drcom-web"
@@ -69,7 +68,12 @@ grep -Fq "ubus call network.interface.wan status" "$DRCOM_FILES/usr/libexec/drco
 grep -Fq -- '--interface "if!$WAN_DEVICE"' "$DRCOM_FILES/usr/libexec/drcom-web"
 grep -Fq "nslookup -type=A" "$DRCOM_FILES/usr/libexec/drcom-web"
 grep -Fq -- '--resolve "$CURL_RESOLVE"' "$DRCOM_FILES/usr/libexec/drcom-web"
-grep -Fq "WAN-ONLY" "$DRCOM_FILES/www/luci-static/resources/view/network/drcom.js"
+grep -Fq "'class': 'cbi-map'" "$DRCOM_FILES/www/luci-static/resources/view/network/drcom-native.js"
+grep -Fq "const verify = cursor();" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
+grep -Fq "option login_url ''" "$DRCOM_FILES/etc/config/drcom"
+grep -Fq "option logout_url ''" "$DRCOM_FILES/etc/config/drcom"
+! grep -Fq 'gate.lnu.edu.cn' "$DRCOM_FILES/etc/config/drcom"
+! grep -Fq 'gate.lnu.edu.cn' "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
 grep -Fq '0 0 * * * /usr/libexec/drcom-web auto' "$DRCOM_FILES/usr/libexec/drcom-schedule"
 grep -Fq "option auto '0'" "$DRCOM_FILES/etc/config/drcom"
 grep -Fq 'save_urls:' "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
@@ -114,12 +118,11 @@ grep -qx 'jsonfilter' "$GITHUB_WORKSPACE/config/add.txt"
 
 # Validate the custom LuCI status dashboard before publishing a firmware.
 MONITOR_FILES="$WORK/ib/files"
-test -s "$MONITOR_FILES/www/luci-static/resources/view/status/ppe-nss-monitor.js"
-test -s "$MONITOR_FILES/www/luci-static/resources/ppe-nss-monitor.css"
+test -s "$MONITOR_FILES/www/luci-static/resources/view/status/ppe-nss-monitor-native.js"
 test -s "$MONITOR_FILES/usr/share/rpcd/ucode/luci.ppe-nss-monitor"
 python3 -m json.tool "$MONITOR_FILES/usr/share/luci/menu.d/luci-app-ppe-nss-monitor.json" >/dev/null
 python3 -m json.tool "$MONITOR_FILES/usr/share/rpcd/acl.d/luci-app-ppe-nss-monitor.json" >/dev/null
-node --check "$MONITOR_FILES/www/luci-static/resources/view/status/ppe-nss-monitor.js"
+node --check "$MONITOR_FILES/www/luci-static/resources/view/status/ppe-nss-monitor-native.js"
 grep -Fq "return { 'luci.ppe-nss-monitor': methods };" "$MONITOR_FILES/usr/share/rpcd/ucode/luci.ppe-nss-monitor"
 grep -Fq '"get_status"' "$MONITOR_FILES/usr/share/rpcd/acl.d/luci-app-ppe-nss-monitor.json"
 
@@ -191,15 +194,17 @@ mounted as /mnt/storage. No GPT or U-Boot modifications.
 Legacy p27 extroot fstab settings are converted to /mnt/storage by a
 first-boot UCI default when config files are retained across sysupgrade.
 
-Includes a custom LuCI campus network Dr.COM Web portal app under Network.
+Includes a native OpenWrt LuCI campus Dr.COM app under Network, with no custom CSS.
 The login and logout addresses are fully editable HTTP(S) URLs, including
 hostname or IP, port, path and query string. All status, manual login, logout
 and midnight cron requests bind via curl --interface if!<WAN L3_DEVICE>.
 DNS for hostname URLs uses only an IPv4 WAN-advertised resolver when its
 route matches WAN, then curl --resolve pins the answer. No WG or system DNS
 fallback: use the numeric campus gateway IP if WAN-only DNS is unavailable.
-Default endpoints are
-http://gate.lnu.edu.cn/0.htm and http://gate.lnu.edu.cn/F.htm.
+No gateway address is preconfigured for clean installations.
+Users must enter the login and logout URLs explicitly in LuCI.
+The RPC backend commits UCI and reloads an independent cursor to confirm
+that the exact new URLs were persisted before reporting save success.
 Optional cron task runs exactly once per day at 00:00 ROUTER LOCAL TIME
 (not UTC unless the router timezone is set to UTC). Auto-auth is disabled
 by default and requires explicitly remembered credentials. The cron entry
@@ -211,7 +216,7 @@ Includes official Simplified Chinese language packs for SQM and BCP38, plus
 custom native LuCI translation catalogs for PPE Hardware QoS and the OTA menu.
 The PPE QoS application JavaScript and drivers are not modified.
 
-Includes a custom read-only PPE / NSS LuCI dashboard under Status, with live HW_OFFLOAD conntrack statistics, NSS ath11k/core status and optional kernel debugfs counters. Polls while the LuCI page is open and exposes no per-connection IPs or ports.
+Includes a native OpenWrt LuCI PPE / NSS status page (no custom dark theme), with live HW_OFFLOAD conntrack statistics, NSS ath11k/core status and optional kernel debugfs counters. Polls while the LuCI page is open and exposes no per-connection IPs or ports.
 
 Uses upstream Linux/PPE/NSS/ath11k binaries, with selected LuCI apps and Chinese language packs.
 Only sysupgrade, not factory/U-Boot. No Wi-Fi credentials are embedded.
@@ -220,4 +225,4 @@ The firmware embeds an immutable build number and verifies per-release ota.json,
 manifest SHA256, firmware SHA256, board and upstream group before sysupgrade.
 Automatic updates are OFF by default and must be explicitly opted in.
 EOF
-gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS Aurora + Dr.COM Campus Authentication ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST" ota.json
+gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS Native LuCI UI and Dr.COM URL Fix ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST" ota.json
