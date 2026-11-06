@@ -122,11 +122,15 @@ if (invalid.ok || invalid.code != 'invalid_password' || disk.username != 'studen
 print('PASS native ucode: full credential save/readback and password preservation\n');
 """
 save_suite = save_suite.replace("CREDENTIAL_METHOD", credential_method)
+# In ucode, functions resolve lexical symbols when compiled. Define the
+# cursor/chmod mocks before compiling config() and save_changes().
+mock_setup, tests = save_suite.split("try {\n    let initial = config();", 1)
+tests = "try {\n    let initial = config();" + tests
 
 with tempfile.TemporaryDirectory() as directory:
     script = Path(directory) / "check-drcom.uc"
     script.write_text(
-        functions + "\n" + config_functions + "\n" + suite + "\n" + save_suite,
+        functions + "\n" + mock_setup + "\n" + config_functions + "\n" + suite + "\n" + tests,
         encoding="utf-8",
     )
     subprocess.run([sys.argv[1], str(script)], check=True)
