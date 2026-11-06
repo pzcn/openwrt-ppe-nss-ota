@@ -10,7 +10,7 @@ AURORA_TAG=v1.4.0
 AURORA_APK=luci-theme-aurora-1.4.0-r20260920.apk
 STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-native2
-OTA_REV=custom-ota5
+OTA_REV=custom-ota6
 I18N_REV=zhcn-lmo1
 DRCOM_REV=campus-drcom12
 WORK="$RUNNER_TEMP/firmware-build"
@@ -117,7 +117,8 @@ test ! -e "$WORK/ib/files/usr/share/luci/menu.d/luci-app-ppe-update.json"
 grep -Fq "在线固件更新" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 grep -Fq "handleSysupgradeConfirm" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 grep -Fq "handleBackup(ev)" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
-grep -Fq 'if [ "$policy" = auto ]; then' "$WORK/ib/files/usr/sbin/ppe-update"
+grep -Fq 'cmd_auto() {' "$WORK/ib/files/usr/sbin/ppe-update"
+! grep -Fq 'preflight || die' "$WORK/ib/files/usr/sbin/ppe-update"
 grep -Fq 'sysupgrade -T "$WORK/$IMAGE"' "$WORK/ib/files/usr/sbin/ppe-update"
 
 

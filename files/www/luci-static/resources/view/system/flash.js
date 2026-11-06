@@ -95,6 +95,7 @@ return view.extend({
 
 
 	otaScheduleWidget() {
+		const view = this;
 		const auto = E('input', {
 			'type': 'checkbox', 'class': 'cbi-input-checkbox',
 			'checked': uci.get('ppe-update', 'main', 'auto') == '1',
@@ -141,6 +142,7 @@ return view.extend({
 					return uci.apply();
 				}).then(function() {
 					ui.addNotification(null, E('p', '自动更新设置已保存。'), 'info');
+					return view.otaRefresh();
 				}).catch(function(e) {
 					ui.addNotification(null, E('p', '保存自动更新设置失败：' + e), 'error');
 				}).finally(function() { save.disabled = isReadonlyView; });
@@ -169,8 +171,15 @@ return view.extend({
 
 		if (st.latest_time)
 			rows.push(customOTARow('发布时间', fmtOTARelease(st.latest_time)));
+		const autoOn = st.auto === '1';
+		const hour = ('0' + (uci.get('ppe-update', 'main', 'hour') || '4')).slice(-2);
+		const delay = uci.get('ppe-update', 'main', 'delay') || '1';
 		if (st.update === true) {
-			rows.push(customOTARow('更新状态', E('strong', '发现新版本，可手动升级')));
+			rows.push(customOTARow('更新状态', E('strong',
+				autoOn ? '发现新版本，已开启自动更新' : '发现新版本，可立即手动升级')));
+			rows.push(customOTARow('自动更新', autoOn
+				? '每天 ' + hour + ' 点检查，发布满 ' + delay + ' 天后自动安装。'
+				: '未开启，可在下方启用无人值守更新。'));
 			if (st.extras)
 				rows.push(customOTARow('额外软件包', E('span', {},
 					'升级后将尝试恢复额外安装的软件包。')));
@@ -179,6 +188,9 @@ return view.extend({
 			rows.push(customOTARow('检查结果', E('span', st.error + '。请确认 GitHub 可以从路由器访问。')));
 		} else {
 			rows.push(customOTARow('检查结果', '当前已是最新版本。'));
+			rows.push(customOTARow('自动更新', autoOn
+				? '已开启，每天 ' + hour + ' 点检查。'
+				: '未开启'));
 		}
 		if (st.pending)
 			rows.push(customOTARow('待恢复软件包', st.pending));

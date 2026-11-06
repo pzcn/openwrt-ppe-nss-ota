@@ -174,10 +174,33 @@ test_case 'manual update continues without optional APK preflight' '
     grep -q "luci-app-extra-test" "$STATE/packages"
 '
 
-test_case 'automatic update stays conservative on optional APK check failure' '
-    lookup() { LATEST="$TAG"; LATEST_BUILD=200; IMAGE="test.bin"; SIZE=1300000; }
+test_case 'automatic update installs a verified image even without APK mirror preflight' '
+    lookup() {
+        LATEST_BUILD=200; LATEST="$TAG"
+        IMAGE="openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
+        SIZE=1300000
+        SHA256=$(sha256sum "$FIXTURE/$IMAGE" | cut -d" " -f1)
+    }
     extras() { printf "luci-extra\n"; }
-    preflight() { return 2; }
+    preflight() { echo "UNEXPECTED" >"$WORK/unwanted"; return 2; }
+    fetch() { cp "$FIXTURE/$IMAGE" "$2"; }
+    sysupgrade() { printf "%s\n" "$1" >>"$WORK/auto.upgrade.calls"; return 0; }
+    rm -f "$WORK/unwanted" "$WORK/auto.upgrade.calls"
+    cmd_update "" "" auto
+    [ ! -f "$WORK/unwanted" ]
+    grep -qx -- "-T" "$WORK/auto.upgrade.calls"
+    grep -q "luci-extra" "$STATE/packages"
+'
+
+test_case 'automatic OTA still enforces SHA256 verification' '
+    lookup() {
+        LATEST_BUILD=200; LATEST="$TAG"
+        IMAGE="openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
+        SIZE=1300000
+        SHA256="0000000000000000000000000000000000000000000000000000000000000000"
+    }
+    extras() { printf "luci-extra\n"; }
+    fetch() { cp "$FIXTURE/$IMAGE" "$2"; }
     sysupgrade() { echo "UNSAFE_FLASH" >"$WORK/unsafe"; return 0; }
     rm -f "$WORK/unsafe"
     ! (cmd_update "" "" auto)

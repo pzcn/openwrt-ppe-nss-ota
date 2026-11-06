@@ -56,6 +56,10 @@ assert "buildPortalUrls" in campus.read_text()
 flash = (overlay / "www/luci-static/resources/view/system/flash.js").read_text()
 assert "otaScheduleWidget()" in flash
 assert "uci.apply()" in flash
+assert "发现新版本，已开启自动更新" in flash
+assert "发现新版本，可立即手动升级" in flash
+assert "发现新版本，可手动升级" not in flash
+assert "return view.otaRefresh();" in flash
 assert "L.url('admin/system/ppe-update')" not in flash
 assert not (overlay / "usr/share/luci/menu.d/luci-app-ppe-update.json").exists()
 assert "c.login_url !== target.login" in campus.read_text()
