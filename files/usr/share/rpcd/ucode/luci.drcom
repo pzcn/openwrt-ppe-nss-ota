@@ -20,6 +20,7 @@ function valid_url(url) {
 	// campus portal paths on domains, IPv4 hosts and nondefault ports.
 	return type(url) == 'string' &&
 		length(url) >= 11 && length(url) <= 512 &&
+		!match(url, /[\r\n\x00-\x1f\x7f]/) &&
 		!!match(url, /^https?:\/\/[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?(?:\/[A-Za-z0-9._~%!$&()*+,;=:@/?-]*)?$/);
 }
 

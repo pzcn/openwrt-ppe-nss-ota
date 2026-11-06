@@ -164,6 +164,15 @@ def main():
             assert response["ok"] and response["state"] == "offline", response
             assert Handler.logout_called
 
+            # Newline injection into a saved URL must not reach curl -K.
+            env["DRCOM_TEST_LOGIN_URL"] = env["DRCOM_TEST_URL"] + "/auth/0.htm\nurl = http://127.0.0.1"
+            env["DRCOM_TEST_AUTO"] = "1"
+            env["DRCOM_TEST_REMEMBER"] = "1"
+            before_attack = Handler.login_count
+            response = call("auto", env)
+            assert not response["ok"] and Handler.login_count == before_attack, response
+            env["DRCOM_TEST_LOGIN_URL"] = env["DRCOM_TEST_URL"] + "/auth/0.htm?session=1"
+
             # Changing the login URL is effective; no hardcoded /0.htm.
             env["DRCOM_TEST_LOGIN_URL"] = env["DRCOM_TEST_URL"] + "/wrong.htm"
             req = tmp / "wrong.json"

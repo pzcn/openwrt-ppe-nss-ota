@@ -23,6 +23,7 @@ fail() {
 # shell/config punctuation. Both DNS and numeric IP hosts are accepted.
 valid_url() {
 	[ -n "$1" ] && [ "${#1}" -le 512 ] &&
+		[ "$(printf '%s' "$1" | wc -l)" -eq 0 ] &&
 		printf '%s' "$1" |
 		LC_ALL=C grep -Eq '^https?://[[:alnum:]][[:alnum:].-]*(:[0-9]{1,5})?(/[[:alnum:]_~.%!$&()*+,;=:@/?-]*)?$'
 }
@@ -125,13 +126,12 @@ case "$ACTION" in
 
 		if code="$(
 			{
-				printf 'url = "%s"\n' "$login_url"
 				printf 'data-urlencode = "DDDDD=%s"\n' "$(curlquote "$username")"
 				printf 'data-urlencode = "upass=%s"\n' "$(curlquote "$password")"
 				printf 'data = "0MKKey="\n'
 			} | curl -sS --noproxy '*' --proto '=http,https' \
 				--connect-timeout 4 --max-time 12 \
-				-o "$BODY" -w '%{http_code}' -K - 2>/dev/null
+				-o "$BODY" -w '%{http_code}' -K - "$login_url" 2>/dev/null
 		)"; then
 			case "$code" in
 				2??|3??) classify login ;;
