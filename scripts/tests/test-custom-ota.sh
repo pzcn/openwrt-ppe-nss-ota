@@ -17,7 +17,8 @@ grep -Fq 'gh release create "$RELEASE_TAG"' "$BUILD_SCRIPT"
 # The OTA schedule is embedded in the native Backup / Flash Firmware view.
 test ! -e "$HERE/files/www/luci-static/resources/view/system/ppe-update.js"
 grep -Fq 'otaScheduleWidget()' "$HERE/files/www/luci-static/resources/view/system/flash.js"
-grep -Fq 'uci.apply()' "$HERE/files/www/luci-static/resources/view/system/flash.js"
+grep -Fq "commitOtaConfig('ppe-update')" "$HERE/files/www/luci-static/resources/view/system/flash.js"
+! grep -Fq 'uci.apply()' "$HERE/files/www/luci-static/resources/view/system/flash.js"
 grep -Fq '/开始刷写固件/.test(log)' "$HERE/files/www/luci-static/resources/view/system/flash.js"
 grep -Fq 'log "开始刷写固件：$LATEST"' "$OTA"
 

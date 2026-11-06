@@ -23,6 +23,16 @@ function fmtOTARelease(t) {
 
 const isReadonlyView = !L.hasViewPermission();
 
+// A schedule setting does not need the global UCI apply/rollback operation.
+// Commit only the OTA configuration. rpcd emits config.change for procd to
+// refresh the ppe-update cron entry.
+const commitOtaConfig = rpc.declare({
+	object: 'uci',
+	method: 'commit',
+	params: [ 'config' ],
+	reject: true
+});
+
 const callSystemValidateFirmwareImage = rpc.declare({
 	object: 'system',
 	method: 'validate_firmware_image',
@@ -134,18 +144,36 @@ return view.extend({
 					ui.addNotification(null, E('p', '请输入有效的发布后等待天数。'), 'error');
 					return;
 				}
+				const settings = {
+					auto: auto.checked ? '1' : '0',
+					hour: hour.value,
+					delay: String(days)
+				};
 				save.disabled = true;
-				uci.set('ppe-update', 'main', 'auto', auto.checked ? '1' : '0');
-				uci.set('ppe-update', 'main', 'hour', hour.value);
-				uci.set('ppe-update', 'main', 'delay', String(days));
-				return uci.save().then(function() {
-					return uci.apply();
-				}).then(function() {
-					ui.addNotification(null, E('p', '自动更新设置已保存。'), 'info');
-					return view.otaRefresh();
-				}).catch(function(e) {
-					ui.addNotification(null, E('p', '保存自动更新设置失败：' + e), 'error');
-				}).finally(function() { save.disabled = isReadonlyView; });
+				uci.set('ppe-update', 'main', 'auto', settings.auto);
+				uci.set('ppe-update', 'main', 'hour', settings.hour);
+				uci.set('ppe-update', 'main', 'delay', settings.delay);
+				return uci.save()
+					.then(function() { return commitOtaConfig('ppe-update'); })
+					.then(function() {
+						// Read back from the committed configuration, not LuCI's cache.
+						uci.unload('ppe-update');
+						return uci.load('ppe-update');
+					}).then(function() {
+						if (Object.keys(settings).some(function(key) {
+							return uci.get('ppe-update', 'main', key) !== settings[key];
+						}))
+							throw new Error('保存后的配置与填写内容不一致');
+
+						auto.checked = settings.auto === '1';
+						hour.value = settings.hour;
+						delay.value = settings.delay;
+						ui.addNotification(null, E('p', '自动更新设置已保存'), 'info');
+						// Update status independently; GitHub availability is not a save result.
+						view.otaRefresh().catch(function() {});
+					}).catch(function(e) {
+						ui.addNotification(null, E('p', '保存自动更新设置失败：' + (e.message || e)), 'error');
+					}).finally(function() { save.disabled = isReadonlyView; });
 			})
 		}, '保存自动更新设置');
 		return E('div', [

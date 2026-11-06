@@ -10,7 +10,7 @@ AURORA_TAG=v1.4.0
 AURORA_APK=luci-theme-aurora-1.4.0-r20260920.apk
 STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-native3
-OTA_REV=custom-ota7
+OTA_REV=custom-ota8
 I18N_REV=zhcn-lmo1
 DRCOM_REV=campus-drcom16
 WORK="$RUNNER_TEMP/firmware-build"
@@ -117,6 +117,11 @@ python3 -m json.tool "$WORK/ib/files/usr/share/rpcd/acl.d/luci-app-ppe-update.js
 grep -Fq "otaScheduleWidget()" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 test -s "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 node --check "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
+grep -Fq "commitOtaConfig('ppe-update')" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
+test -s "$WORK/ib/files/etc/init.d/ppe-update"
+grep -Fq 'procd_add_reload_trigger ppe-update' "$WORK/ib/files/etc/init.d/ppe-update"
+grep -Fq 'reload_service() {' "$WORK/ib/files/etc/init.d/ppe-update"
+! grep -Fq 'uci.apply()' "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 grep -Fq "'checked': uci.get('ppe-update', 'main', 'auto') == '1' ? '' : null" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 test ! -e "$WORK/ib/files/usr/share/luci/menu.d/luci-app-ppe-update.json"
 grep -Fq "在线固件更新" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"

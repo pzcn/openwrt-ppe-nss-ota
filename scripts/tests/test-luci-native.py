@@ -77,7 +77,15 @@ assert "drcom-remember" not in campus.read_text()
 assert "••••••••（已保存）" in campus.read_text()
 flash = (overlay / "www/luci-static/resources/view/system/flash.js").read_text()
 assert "otaScheduleWidget()" in flash
-assert "uci.apply()" in flash
+assert "object: 'uci'" in flash
+assert "method: 'commit'" in flash
+assert "params: [ 'config' ]" in flash
+assert "commitOtaConfig('ppe-update')" in flash
+assert "uci.save()" in flash
+assert "uci.unload('ppe-update')" in flash
+assert "uci.load('ppe-update')" in flash
+assert "保存后的配置与填写内容不一致" in flash
+assert "uci.apply()" not in flash
 assert "row('启用自动更新', auto)" in flash
 assert "启用无人值守更新" not in flash
 assert "'checked': uci.get('ppe-update', 'main', 'auto') == '1' ? '' : null" in flash

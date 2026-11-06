@@ -12,8 +12,10 @@ const vm = require('node:vm');
 
 const root = path.resolve(__dirname, '../..');
 
-function makeView(file, store) {
-	const elements = [];
+function makeView(file, store, options = {}) {
+	const elements = [], notices = [], events = [];
+	const cached = { ...store }, changes = {}, staged = {};
+
 	function E(tag, attributes, children) {
 		if (Array.isArray(tag))
 			return { tag: 'fragment', children: tag };
@@ -26,7 +28,8 @@ function makeView(file, store) {
 		const node = {
 			tag, attributes, children,
 			id: attributes.id ?? '',
-			value: attributes.value ?? '',
+			value: attributes.value ?? (tag === 'select' && Array.isArray(children)
+				? children.find(option => option.selected)?.value ?? '' : ''),
 			textContent: typeof children === 'string' ? children : '',
 			checked: attributes.checked != null,
 			selected: attributes.selected != null,
@@ -49,13 +52,46 @@ function makeView(file, store) {
 		form: {},
 		fs: {},
 		uci: {
-			get: (pkg, section, key) => store[key] ?? null,
-			set: (pkg, section, key, value) => { store[key] = value; },
-			save: async () => {},
-			apply: async () => {}
+			get: (pkg, section, key) => cached[key] ?? null,
+			set: (pkg, section, key, value) => {
+				assert.equal(pkg, 'ppe-update');
+				assert.equal(section, 'main');
+				if (cached[key] !== value) {
+					cached[key] = value;
+					changes[key] = value;
+				}
+			},
+			save: async () => {
+				events.push('save');
+				Object.assign(staged, changes);
+				for (const key of Object.keys(changes)) delete changes[key];
+			},
+			unload: config => {
+				assert.equal(config, 'ppe-update');
+				events.push('unload');
+				for (const key of Object.keys(cached)) delete cached[key];
+			},
+			load: async config => {
+				assert.equal(config, 'ppe-update');
+				events.push('load');
+				Object.assign(cached, store);
+				return [config];
+			},
+			apply: async () => { throw Error('Global UCI apply must not be called'); }
 		},
 		rpc: {
-			declare: ({ method }) => {
+			declare: ({ object, method }) => {
+				if (object === 'uci' && method === 'commit')
+					return async config => {
+						assert.equal(config, 'ppe-update');
+						events.push('commit');
+						if (options.failCommit)
+							throw new Error('UCI commit failed');
+						if (!options.skipPersistence)
+							Object.assign(store, staged);
+						for (const key of Object.keys(staged)) delete staged[key];
+						return {};
+					};
 				if (method === 'get_config')
 					return async () => ({
 						backend_revision: 'drcom-rpc12',
@@ -77,13 +113,15 @@ function makeView(file, store) {
 		ui: {
 			createHandlerFn: (ctx, fn) => (...args) =>
 				(typeof fn === 'function' ? fn : ctx[fn]).apply(ctx, args),
-			addNotification: () => {}
+			addNotification: (_title, node, level) => {
+				notices.push({ text: node?.textContent ?? '', level });
+			}
 		}
 	};
 
 	const src = fs.readFileSync(path.join(root, file), 'utf8');
 	const methods = vm.runInNewContext('(function() {\n' + src + '\n})()', sandbox, { filename: file });
-	return { methods, elements };
+	return { methods, elements, events, notices };
 }
 
 function only(elements, predicate) {
@@ -95,7 +133,7 @@ function only(elements, predicate) {
 async function testOta() {
 	const store = { auto: '0', hour: '9', delay: '2' };
 	const file = 'files/www/luci-static/resources/view/system/flash.js';
-	const { methods, elements } = makeView(file, store);
+	const { methods, elements, events, notices } = makeView(file, store);
 	methods.otaRefresh = async () => {};
 	methods.otaScheduleWidget();
 
@@ -110,6 +148,10 @@ async function testOta() {
 	box.checked = true;
 	await button.attributes.click();
 	assert.equal(store.auto, '1');
+	assert.equal(store.hour, '9');
+	assert.equal(store.delay, '2');
+	assert.deepEqual(events, ['save', 'commit', 'unload', 'load']);
+	assert(notices.some(n => n.text === '自动更新设置已保存'));
 	assert.equal(makeView(file, store).methods.otaScheduleWidget !== undefined, true);
 	const afterEnable = makeView(file, store);
 	afterEnable.methods.otaScheduleWidget();
@@ -122,6 +164,46 @@ async function testOta() {
 	afterDisable.methods.otaScheduleWidget();
 	assert.equal(only(afterDisable.elements, n => n.tag === 'input' && n.attributes.type === 'checkbox').checked, false,
 		'OTA must stay unchecked after save + page reload');
+
+	// Repeated saving of the same values is successful even when the
+	// remote session has no staged UCI changes (uci/apply used to error 5).
+	const count = notices.length;
+	await button.attributes.click();
+	assert.equal(events.filter(x => x === 'commit').length, 3);
+	assert.equal(notices.length, count + 1);
+	assert.equal(notices.at(-1).text, '自动更新设置已保存');
+
+	// A rejected UCI commit must not be reported as a successful save.
+	const failed = makeView(file, store, { failCommit: true });
+	failed.methods.otaRefresh = async () => {};
+	failed.methods.otaScheduleWidget();
+	const failedBox = only(failed.elements, n => n.tag === 'input' && n.attributes.type === 'checkbox');
+	failedBox.checked = true;
+	const failedButton = only(failed.elements, n => n.tag === 'button' && n.children === '保存自动更新设置');
+	await failedButton.attributes.click();
+	assert.equal(store.auto, '0');
+	assert(failed.notices.some(n => n.level === 'error' && n.text.includes('UCI commit failed')));
+	assert(!failed.notices.some(n => n.text === '自动更新设置已保存'));
+
+	// RPC returns success but an altered/missing persisted setting is detected.
+	const corrupted = makeView(file, store, { skipPersistence: true });
+	corrupted.methods.otaRefresh = async () => {};
+	corrupted.methods.otaScheduleWidget();
+	const badBox = only(corrupted.elements, n => n.tag === 'input' && n.attributes.type === 'checkbox');
+	badBox.checked = true;
+	const badButton = only(corrupted.elements, n => n.tag === 'button' && n.children === '保存自动更新设置');
+	await badButton.attributes.click();
+	assert.equal(store.auto, '0');
+	assert(corrupted.notices.some(n => n.level === 'error' && n.text.includes('保存后的配置与填写内容不一致')));
+
+	// A later status refresh can be unavailable while the UCI save succeeded.
+	const unavailable = makeView(file, store);
+	unavailable.methods.otaRefresh = async () => { throw Error('GitHub unavailable'); };
+	unavailable.methods.otaScheduleWidget();
+	const offlineSave = only(unavailable.elements, n => n.tag === 'button' && n.children === '保存自动更新设置');
+	await offlineSave.attributes.click();
+	assert(unavailable.notices.some(n => n.text === '自动更新设置已保存'));
+	assert(!unavailable.notices.some(n => n.level === 'error'));
 }
 
 async function testDrcom() {
