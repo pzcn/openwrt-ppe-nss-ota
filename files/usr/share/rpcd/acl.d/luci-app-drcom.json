@@ -14,7 +14,9 @@
         "luci.drcom": [
           "login",
           "logout",
-          "forget"
+          "forget",
+          "save_urls",
+          "set_auto"
         ]
       }
     }

@@ -11,7 +11,7 @@ STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-dashboard1
 OTA_REV=custom-ota1
 I18N_REV=zhcn-lmo1
-DRCOM_REV=campus-drcom1
+DRCOM_REV=campus-drcom2
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
@@ -49,11 +49,15 @@ test -s "$I18N_DIR/ppe-update.zh-cn.lmo"
 DRCOM_FILES="$WORK/ib/files"
 test -s "$DRCOM_FILES/etc/config/drcom"
 test -s "$DRCOM_FILES/usr/libexec/drcom-web"
+test -s "$DRCOM_FILES/usr/libexec/drcom-schedule"
+test -s "$DRCOM_FILES/etc/init.d/drcom"
 test -s "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
 test -s "$DRCOM_FILES/www/luci-static/resources/view/network/drcom.js"
 test -s "$DRCOM_FILES/www/luci-static/resources/drcom-campus.css"
-chmod +x "$DRCOM_FILES/usr/libexec/drcom-web"
+chmod +x "$DRCOM_FILES/usr/libexec/drcom-web" "$DRCOM_FILES/usr/libexec/drcom-schedule" "$DRCOM_FILES/etc/init.d/drcom"
 sh -n "$DRCOM_FILES/usr/libexec/drcom-web"
+sh -n "$DRCOM_FILES/usr/libexec/drcom-schedule"
+sh -n "$DRCOM_FILES/etc/init.d/drcom"
 sh -n "$DRCOM_FILES/etc/uci-defaults/97-drcom-credentials-permissions"
 python3 -m json.tool "$DRCOM_FILES/usr/share/luci/menu.d/luci-app-drcom.json" >/dev/null
 python3 -m json.tool "$DRCOM_FILES/usr/share/rpcd/acl.d/luci-app-drcom.json" >/dev/null
@@ -61,6 +65,10 @@ node --check "$DRCOM_FILES/www/luci-static/resources/view/network/drcom.js"
 grep -Fq "return { 'luci.drcom': methods };" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
 grep -Fq 'data-urlencode = "DDDDD=%s"' "$DRCOM_FILES/usr/libexec/drcom-web"
 grep -Fq 'data-urlencode = "upass=%s"' "$DRCOM_FILES/usr/libexec/drcom-web"
+grep -Fq '0 0 * * * /usr/libexec/drcom-web auto' "$DRCOM_FILES/usr/libexec/drcom-schedule"
+grep -Fq "option auto '0'" "$DRCOM_FILES/etc/config/drcom"
+grep -Fq 'save_urls:' "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
+grep -Fq 'set_auto:' "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
 chmod +x "$WORK/ib/files/etc/uci-defaults/"*
 # Keep upstream /etc/ppe-release untouched for the NSS kernel package feed.
 # A distinct ROM metadata file identifies ONLY this custom GitHub OTA channel.
@@ -179,10 +187,15 @@ Legacy p27 extroot fstab settings are converted to /mnt/storage by a
 first-boot UCI default when config files are retained across sysupgrade.
 
 Includes a custom LuCI campus network Dr.COM Web portal app under Network.
-The portal defaults to http://gate.lnu.edu.cn/0.htm for login and /F.htm for
-logout. Saved credentials are optional and root-only; passwords are not exposed
-in RPC config replies or curl argv. No auto-login is enabled. The actual logout
-endpoint and success markers require on-campus confirmation.
+The login and logout addresses are fully editable HTTP(S) URLs, including
+hostname or IP, port, path and query string. Default endpoints are
+http://gate.lnu.edu.cn/0.htm and http://gate.lnu.edu.cn/F.htm.
+Optional cron task runs exactly once per day at 00:00 ROUTER LOCAL TIME
+(not UTC unless the router timezone is set to UTC). Auto-auth is disabled
+by default and requires explicitly remembered credentials. The cron entry
+is recreated on boot and preserves all unrelated scheduled tasks.
+Saved credentials are root-only; secrets are never included in curl argv.
+The campus-specific response markers still require verification on-campus.
 
 Includes official Simplified Chinese language packs for SQM and BCP38, plus
 custom native LuCI translation catalogs for PPE Hardware QoS and the OTA menu.

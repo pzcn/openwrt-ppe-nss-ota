@@ -8,16 +8,16 @@
 - 记住账号和密码：需要主动勾选。保存到 `/etc/config/drcom`，文件权限 `0600`（仅 root）
 - 不记住：账号和密码只用于这次认证请求，不写入持久化配置；已保存的旧凭据会被清除
 - 再次登录：如果已经记住密码，界面显示保存的账号，密码框留空即可重新登录；RPC 永远不会返回已保存的密码
-- 注销：默认使用 GET `http://gate.lnu.edu.cn/F.htm`
+- 注销：向**可编辑的完整注销 URL** 发起 GET 请求，默认是 `http://gate.lnu.edu.cn/F.htm`
 - 检查状态：尝试从网关 HTML 中读取 Dr.COM 的 `Dr.COMWebLoginID_0.htm`、`_1.htm` 标记；如果没有标记则显示“状态待确认”
 - 清除已保存的凭据：与注销是两个独立操作，不会悄悄中断网络
-- 高级选项：认证服务器可填 HTTP/HTTPS 域名或 IPv4 地址（如 DNS 在未认证前不可用），注销路径可调整
+- 自定义地址：登录 URL 和注销 URL **分别独立填写并保存**，支持 HTTP/HTTPS、域名或 IP、端口、路径和查询参数（例如 `http://192.168.1.1/0.htm`）
 
-**不包含自动连接、自动重试、开机认证或定时保活**，因为本次只要求手动登录/记住密码/注销。如果日后需要可在明确网络行为后另加选项。
+**新增每日定时自动认证**：勾选“每天 00:00 自动认证一次”并保存，OpenWrt cron 将在路由器系统**本地时间**的每天 00:00 发起**一次**登录请求，不定时重试、不在开机时自动认证。默认关闭。启用前必须先勾选“记住账号与密码”并成功保存账号密码。取消记住或清除已保存凭据时，自动认证自动关闭。手动注销后不会立即重新登录，但若仍保留自动开关，次日 00:00 会再次认证。
 
 ## 网页认证协议
 
-默认登录 URL：
+默认登录 URL（支持在高级选项中完整修改 URL，并点击“保存认证地址”）：
 ```
 http://gate.lnu.edu.cn/0.htm
 ```
@@ -32,7 +32,7 @@ upass=<密码，URL 编码>
 
 等价于用户给出的 `curl --data-urlencode` 示例。实际运行时，密码通过仅 root 可读的临时请求文件，进入 curl 的标准输入配置（`curl -K -`），**不会出现在 curl 命令行参数、系统日志或 RPC 状态返回中**。
 
-注销路径 `/F.htm` 来自其他 Dr.COM Web Portal 的已知实现。**辽宁大学官方说明确认门户支持注销，但未公布该版本的具体 HTTP API**。如果实际注销失败，请在辽宁大学校园网浏览器中打开 `http://gate.lnu.edu.cn/`，执行注销操作并使用开发者工具查看准确请求；然后改高级选项中的路径，或进一步适配 POST/其他参数。
+默认注销 URL 的 `/F.htm` 路径来自其他 Dr.COM Web Portal 的已知实现。**辽宁大学官方说明确认门户支持注销，但未公布该版本的具体 HTTP API**。如果实际注销失败，请在辽宁大学校园网浏览器中打开 `http://gate.lnu.edu.cn/`，执行注销操作并使用开发者工具查看准确请求；然后修改高级选项中的完整注销 URL，或进一步适配 POST/其他参数。
 
 项目无法从当前环境访问辽宁大学校园网网关（可能仅允许校内访问），因此**没有进行真实校园网账号登录/注销验证**。
 
@@ -48,8 +48,8 @@ HTTP 200 只表明 HTTP 请求完成，不代表认证成功。插件只在返�
 2. 建议用 HTTPS 访问 LuCI 管理后台，设置强管理密码，并仅允许可信设备访问路由器。LuCI RPC 提交账号密码时使用当前管理连接的传输保护。
 3. 勾选记住密码意味着明文凭据会存在 root-only 的 `/etc/config/drcom`，并可能包含在 OpenWrt 系统配置备份中。不要公开分享配置备份。
 4. 密码不经过 shell 参数或环境变量。临时请求文件使用 `0600` 独占创建并在读取后立即删除；curl HTTP 响应只留在临时文件，且不会原样回传 HTML（防止暴露门户内的个人信息）。
-5. `rpcd` ACL 仅允许本插件的 `get_config/get_status/login/logout/forget` 方法，不对 LuCI 暴露任意 shell 命令权限。
-6. 不自动改变 `/etc/config/network`、WAN、防火墙或路由策略。
+5. `rpcd` ACL 仅允许本插件的 `get_config/get_status/login/logout/forget/save_urls/set_auto` 方法，不对 LuCI 暴露任意 shell 命令权限。
+6. 不自动改变 `/etc/config/network`、WAN、防火墙或路由策略。定时任务仅在用户主动开启并保存凭据后执行，且不上传完整响应或记录密码。
 
 ## 检查
 
@@ -72,8 +72,34 @@ which curl jsonfilter
 | `files/usr/share/luci/menu.d/luci-app-drcom.json` | LuCI 菜单入口 |
 | `files/usr/share/rpcd/acl.d/luci-app-drcom.json` | 最小 RPC 授权 |
 | `files/usr/share/rpcd/ucode/luci.drcom` | 账号处理、root-only 配置与 RPC |
-| `files/usr/libexec/drcom-web` | 最小 curl 登录、注销、状态采集 |
+| `files/usr/libexec/drcom-web` | curl 手动/定时登录、注销和状态采集 |
+| `files/usr/libexec/drcom-schedule` | 幂等维护 root crontab 的每日 0 点任务 |
+| `files/etc/init.d/drcom` | 每次启动时确保 cron 项存在，不启动驻留进程 |
+| `files/etc/uci-defaults/97-drcom-credentials-permissions` | 首次启动设置凭据权限并启用定时任务初始化 |
 | `files/etc/config/drcom` | 默认网关地址（不带账号、密码） |
-| `scripts/tests/test-drcom.py` | 本地模拟 HTTP 网关端到端测试（不访问真实学校） |
+| `scripts/tests/test-drcom.py` | 本地模拟 HTTP 网关端到端测试（含完整可编辑 URL、午夜 cron 幂等性及自动认证；不访问真实学校） |
 
 插件集成方式与 PPE/NSS 监控页面一样，是 ImageBuilder 的 `FILES=files` 文件覆盖层，因此不是 APK 商店里独立可更新的软件包。
+
+## 每天 00:00 自动认证的设置与验证
+
+在 LuCI 的「网络 → 校园网认证」中先填写账号、密码，勾选 **记住账号与密码**，然后点击“连接校园网”。在页面下方勾选 **每天 00:00 自动认证一次**，点击“保存自动认证设置”。如果没有保存的密码，插件会明确拒绝开启，不会创建无效登录。
+
+这条定时任务是：
+
+```cron
+0 0 * * * /usr/libexec/drcom-web auto >/dev/null 2>&1 # drcom-campus-auto
+```
+
+它在每次开机由 `/etc/init.d/drcom` 幂等维护，其他已有 cron 任务不会删除。即使开关关闭，任务仍可保留但自动登录程序直接退出，**不会向网关发送任何请求**。此行为避免多次启用后重复生成任务。路由器时区请设置为 **Asia/Shanghai（中国标准时间）**，否则会在实际系统本地时间 00:00 执行，而不是北京时间 00:00。若路由器在 00:00 断电，不会补跑漏掉的任务。
+
+```sh
+uci -q get drcom.main.auto
+uci -q get drcom.main.remember
+grep drcom-campus-auto /etc/crontabs/root
+date '+%Y-%m-%d %H:%M:%S %Z'
+```
+
+**手动触发同样的认证用于排查：** 在确认凭据和链接无误后，可以执行 `/usr/libexec/drcom-web auto`，它会按已存设置登录；如果没有开启自动认证则不发送请求。不要在日志中记录账号密码。
+
+**旧版迁移：** 如果先前版本保存的是 `drcom.main.server` 和 `drcom.main.logout_path`，新版本会从旧字段推导登录/注销 URL；首次在页面保存地址后采用新字段。不会清空保存的账号密码。

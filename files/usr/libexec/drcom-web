@@ -1,6 +1,7 @@
 #!/bin/sh
-# Dr.COM Web portal transport: curl reads the credentials from stdin config.
-# Credentials are never put in process arguments, environment or logs.
+# Dr.COM Web portal transport. One-time secrets are read from a private
+# /tmp file. Saved auto-login secrets come from root-only UCI config.
+# curl reads all POST data via stdin (-K -), never from command arguments.
 set -eu
 umask 077
 
@@ -17,24 +18,41 @@ fail() {
 	emit false unknown "$1"
 	exit 0
 }
-valid_server() {
-	printf '%s' "$1" | grep -Eq '^https?://[[:alnum:]][[:alnum:].-]*(:[0-9]{1,5})?/?$'
-}
-valid_path() {
-	printf '%s' "$1" | grep -Eq '^/[A-Za-z0-9._-]+$'
+
+# Full HTTP(S) URLs are editable; reject userinfo, fragments, controls and
+# shell/config punctuation. Both DNS and numeric IP hosts are accepted.
+valid_url() {
+	[ -n "$1" ] && [ "${#1}" -le 512 ] &&
+		printf '%s' "$1" |
+		LC_ALL=C grep -Eq '^https?://[[:alnum:]][[:alnum:].-]*(:[0-9]{1,5})?(/[[:alnum:]_~.%!$&()*+,;=:@/?-]*)?$'
 }
 
-server="$(uci -q get drcom.main.server 2>/dev/null || true)"
-[ -n "$server" ] || server='http://gate.lnu.edu.cn'
-case "$server" in */) server="${server%/}" ;; esac
-valid_server "$server" || fail '认证服务器地址不安全或格式错误'
+config_get() {
+	uci -q get "drcom.main.$1" 2>/dev/null || true
+}
 
-# Escape quotes and backslashes for libcurl config syntax.
+base="$(config_get server)"
+[ -n "$base" ] || base='http://gate.lnu.edu.cn'
+case "$base" in */) base="${base%/}" ;; esac
+
+login_url="$(config_get login_url)"
+[ -n "$login_url" ] || login_url="$base/0.htm"
+logout_url="$(config_get logout_url)"
+if [ -z "$logout_url" ]; then
+	logout_path="$(config_get logout_path)"
+	[ -n "$logout_path" ] || logout_path='/F.htm'
+	logout_url="$base$logout_path"
+fi
+
+valid_url "$login_url" || fail '登录地址格式不正确（需完整的 HTTP/HTTPS URL）'
+valid_url "$logout_url" || fail '注销地址格式不正确（需完整的 HTTP/HTTPS URL）'
+
+# Escape quotes and backslashes for curl's config file syntax.
 curlquote() {
 	printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
-# HTTP 200 is not evidence that authentication succeeded.
+# HTTP 200 only means the server replied, not that authentication succeeded.
 classify() {
 	case "$1" in
 		login)
@@ -43,14 +61,14 @@ classify() {
 			elif grep -Eq 'Dr\.COMWebLoginID_2\.htm|认证失败|登录失败|密码错误|账号或密码' "$BODY"; then
 				emit false offline '门户返回认证失败信息，请检查账号或密码'
 			else
-				emit true unknown '请求已提交，但尚未从返回页面确认认证成功，请检查在线状态'
+				emit true unknown '登录请求已发送，门户未返回可识别的成功标记'
 			fi
 			;;
 		logout)
 			if grep -Eq 'Dr\.COMWebLoginID_0\.htm|注销成功|退出成功|成功退出|Logout[[:space:]]+success' "$BODY"; then
 				emit true offline '门户返回注销成功页面'
 			else
-				emit true unknown '已向门户发送注销请求，但未确认下线结果'
+				emit true unknown '已发送注销请求，但未确认下线结果'
 			fi
 			;;
 		status)
@@ -59,7 +77,7 @@ classify() {
 			elif grep -Eq 'Dr\.COMWebLoginID_0\.htm|Dr\.COMWebLoginID_2\.htm' "$BODY"; then
 				emit true offline '门户显示尚未认证'
 			else
-				emit true unknown '门户可访问，但当前页面没有可识别的在线标记'
+				emit true unknown '门户可以访问，但没有可识别的在线标记'
 			fi
 			;;
 	esac
@@ -67,32 +85,47 @@ classify() {
 
 case "$ACTION" in
 	status)
+		# Try the root of the selected login URL as a non-credential status
+		# page; not all Dr.COM variants expose a usable status page.
+		status_url="$(printf '%s' "$login_url" | sed -E 's@^(https?://[^/]+).*@\1/@')"
 		if code="$(curl -sS --noproxy '*' --proto '=http,https' \
 			--connect-timeout 4 --max-time 9 \
-			-o "$BODY" -w '%{http_code}' "$server/" 2>/dev/null)"; then
-			case "$code" in 2??) classify status ;; *) fail '门户返回非 2xx HTTP 状态' ;; esac
+			-o "$BODY" -w '%{http_code}' "$status_url" 2>/dev/null)"; then
+			case "$code" in 2??) classify status ;; *) fail '认证门户状态查询返回非 2xx HTTP 状态' ;; esac
 		else
-			fail '无法连接校园网认证门户，请确认路由器已接入校园网'
+			fail '无法连接校园网认证门户'
 		fi
 		;;
-	login)
-		[ -n "$REQUEST" ] && [ -f "$REQUEST" ] && [ ! -L "$REQUEST" ] ||
-			fail '缺少有效的临时认证凭据'
-		[ "$(stat -c '%a' "$REQUEST" 2>/dev/null)" = 600 ] ||
-			fail '临时认证凭据权限不安全'
-		username="$(jsonfilter -i "$REQUEST" -e '@.username' 2>/dev/null || true)"
-		password="$(jsonfilter -i "$REQUEST" -e '@.password' 2>/dev/null || true)"
-		rm -f "$REQUEST"
-		REQUEST=''
-		[ -n "$username" ] && [ -n "$password" ] || fail '没有可用的认证账号或密码'
-		if printf '%s' "$username$password" | LC_ALL=C grep -q '[[:cntrl:]]'; then
-			fail '账号或密码不能包含控制字符'
+	login | auto)
+		if [ "$ACTION" = 'auto' ]; then
+			# The cron line may always exist. Login only when explicitly
+			# enabled and a remembered account/password is available.
+			[ "$(config_get auto)" = '1' ] &&
+			[ "$(config_get remember)" = '1' ] || {
+				emit true unknown '自动认证已关闭或未保存凭据'
+				exit 0
+			}
+			username="$(config_get username)"
+			password="$(config_get password)"
+		else
+			[ -n "$REQUEST" ] && [ -f "$REQUEST" ] && [ ! -L "$REQUEST" ] ||
+				fail '缺少临时认证凭据'
+			[ "$(stat -c '%a' "$REQUEST" 2>/dev/null)" = 600 ] ||
+				fail '临时凭据权限不安全'
+			username="$(jsonfilter -i "$REQUEST" -e '@.username' 2>/dev/null || true)"
+			password="$(jsonfilter -i "$REQUEST" -e '@.password' 2>/dev/null || true)"
+			rm -f "$REQUEST"
+			REQUEST=''
 		fi
-		# --data-urlencode behaves like the user's example; the password never
-		# appears in /proc/PID/cmdline, only the private pipe to curl.
+
+		[ -n "$username" ] && [ -n "$password" ] || fail '请先保存有效的账号和密码'
+		if printf '%s' "$username$password" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+			fail '账号或密码不允许包含控制字符'
+		fi
+
 		if code="$(
 			{
-				printf 'url = "%s/0.htm"\n' "$server"
+				printf 'url = "%s"\n' "$login_url"
 				printf 'data-urlencode = "DDDDD=%s"\n' "$(curlquote "$username")"
 				printf 'data-urlencode = "upass=%s"\n' "$(curlquote "$password")"
 				printf 'data = "0MKKey="\n'
@@ -102,22 +135,19 @@ case "$ACTION" in
 		)"; then
 			case "$code" in
 				2??|3??) classify login ;;
-				*) fail '认证门户拒绝请求，请检查连接或参数' ;;
+				*) fail '认证门户拒绝请求，请检查地址和参数' ;;
 			esac
 		else
-			fail '认证请求失败，请检查校园网连接或网关地址'
+			fail '认证请求失败，请检查上联网关或登录地址'
 		fi
 		;;
 	logout)
-		logout_path="$(uci -q get drcom.main.logout_path 2>/dev/null || true)"
-		[ -n "$logout_path" ] || logout_path='/F.htm'
-		valid_path "$logout_path" || fail '注销路径配置不正确'
 		if code="$(curl -sS --noproxy '*' --proto '=http,https' \
 			--connect-timeout 4 --max-time 9 \
-			-o "$BODY" -w '%{http_code}' "$server$logout_path" 2>/dev/null)"; then
+			-o "$BODY" -w '%{http_code}' "$logout_url" 2>/dev/null)"; then
 			case "$code" in 2??|3??) classify logout ;; *) fail '校园网门户拒绝注销请求' ;; esac
 		else
-			fail '无法连接到校园网注销接口'
+			fail '无法连接校园网注销地址'
 		fi
 		;;
 	*)

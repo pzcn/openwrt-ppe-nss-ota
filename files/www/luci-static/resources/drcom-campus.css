@@ -121,3 +121,23 @@
 	.dr-campus-root .dr-orbit::before { animation: none; }
 	.dr-campus-root .dr-button { transition: none; }
 }
+
+
+/* Daily scheduled authentication, designed to match the existing glass panel. */
+.dr-campus-root .dr-auto-section {
+	margin-top: 22px;
+	padding: 19px 19px 18px;
+	border-radius: 13px;
+	border: 1px solid rgba(109, 227, 212, .19);
+	background: linear-gradient(135deg, rgba(34, 113, 120, .17), rgba(23, 43, 73, .2));
+}
+.dr-campus-root .dr-auto-section .dr-section-eyebrow { margin-bottom: 6px; }
+.dr-campus-root .dr-auto-switch { padding-top: 9px; }
+.dr-campus-root .dr-auto-switch strong { font-size: 13px; }
+.dr-campus-root .dr-auto-switch small { max-width: 360px; }
+.dr-campus-root .dr-auto-state { font-size: 11px; margin: 12px 0 14px; color: #9fe9d1; font-weight: 680; }
+.dr-campus-root .dr-auto-save { width: 100%; min-height: 40px; padding: 9px 12px; }
+.dr-campus-root .dr-urls-actions { margin-top: 16px; }
+.dr-campus-root .dr-urls-save { width: 100%; padding: 10px 13px; }
+.dr-campus-root .dr-advanced .dr-field { margin-top: 14px; }
+.dr-campus-root .dr-advanced .dr-input { font-size: 12px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }

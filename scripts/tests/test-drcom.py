@@ -26,6 +26,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     status_marker = "Dr.COMWebLoginID_0.htm"
     login_received = None
     logout_called = False
+    login_count = 0
 
     def log_message(self, *_):
         pass
@@ -39,7 +40,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        if self.path == "/F.htm":
+        if self.path == "/auth/F.htm?session=1":
             Handler.logout_called = True
             Handler.status_marker = "Dr.COMWebLoginID_0.htm"
             self.reply("<html>注销成功</html>")
@@ -50,10 +51,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         from urllib.parse import parse_qs
-        if self.path != "/0.htm":
+        if self.path != "/auth/0.htm?session=1":
             self.send_error(404)
             return
         body = self.rfile.read(int(self.headers.get("Content-Length", "0")))
+        Handler.login_count += 1
         Handler.login_received = parse_qs(body.decode("utf-8"), keep_blank_values=True)
         Handler.status_marker = "Dr.COMWebLoginID_1.htm"
         self.reply("<html>Dr.COMWebLoginID_3.htm 登录成功</html>")
@@ -66,8 +68,14 @@ def create_mocks(tmp: Path) -> Path:
     uci.write_text(
         '#!/bin/sh\n'
         'case "$*" in\n'
-        '  *drcom.main.server) printf "%s\\\\n" "$DRCOM_TEST_URL" ;;\n'
-        '  *drcom.main.logout_path) printf "/F.htm\\\\n" ;;\n'
+        '  *drcom.main.login_url) printf "%s\\n" "$DRCOM_TEST_LOGIN_URL" ;;\n'
+        '  *drcom.main.logout_url) printf "%s\\n" "$DRCOM_TEST_LOGOUT_URL" ;;\n'
+        '  *drcom.main.auto) printf "%s\\n" "$DRCOM_TEST_AUTO" ;;\n'
+        '  *drcom.main.remember) printf "%s\\n" "$DRCOM_TEST_REMEMBER" ;;\n'
+        '  *drcom.main.username) printf "%s\\n" "$DRCOM_TEST_USER" ;;\n'
+        '  *drcom.main.password) printf "%s\\n" "$DRCOM_TEST_PASSWORD" ;;\n'
+        '  *drcom.main.server) printf "%s\\n" "$DRCOM_TEST_URL" ;;\n'
+        '  *drcom.main.logout_path) printf "/F.htm\\n" ;;\n'
         '  *) exit 1 ;;\n'
         'esac\n'
     )
@@ -104,6 +112,12 @@ def main():
             env = os.environ.copy()
             env["PATH"] = str(mockbin) + os.pathsep + env["PATH"]
             env["DRCOM_TEST_URL"] = f"http://127.0.0.1:{server.server_port}"
+            env["DRCOM_TEST_LOGIN_URL"] = env["DRCOM_TEST_URL"] + "/auth/0.htm?session=1"
+            env["DRCOM_TEST_LOGOUT_URL"] = env["DRCOM_TEST_URL"] + "/auth/F.htm?session=1"
+            env["DRCOM_TEST_AUTO"] = "0"
+            env["DRCOM_TEST_REMEMBER"] = "1"
+            env["DRCOM_TEST_USER"] = USER
+            env["DRCOM_TEST_PASSWORD"] = PASSWORD
 
             response = call("status", env)
             assert response["state"] == "offline", response
@@ -124,6 +138,24 @@ def main():
             response = call("status", env)
             assert response["state"] == "online", response
 
+            # Disabled cron job must never POST, even with stored credentials.
+            initial_posts = Handler.login_count
+            response = call("auto", env)
+            assert response["ok"] and Handler.login_count == initial_posts, response
+
+            # Enabled cron job must POST to the configured full URL.
+            env["DRCOM_TEST_AUTO"] = "1"
+            response = call("auto", env)
+            assert response["ok"] and response["state"] == "online", response
+            assert Handler.login_count == initial_posts + 1
+            assert Handler.login_received["DDDDD"] == [USER]
+
+            # Auto-login is disabled immediately when remember is unchecked.
+            env["DRCOM_TEST_REMEMBER"] = "0"
+            response = call("auto", env)
+            assert response["ok"] and Handler.login_count == initial_posts + 1
+            env["DRCOM_TEST_REMEMBER"] = "1"
+
             Handler.status_marker = "Unrecognized captive portal"
             response = call("status", env)
             assert response["ok"] and response["state"] == "unknown", response
@@ -132,13 +164,37 @@ def main():
             assert response["ok"] and response["state"] == "offline", response
             assert Handler.logout_called
 
+            # Changing the login URL is effective; no hardcoded /0.htm.
+            env["DRCOM_TEST_LOGIN_URL"] = env["DRCOM_TEST_URL"] + "/wrong.htm"
+            req = tmp / "wrong.json"
+            req.write_text(json.dumps({"username": USER, "password": PASSWORD}))
+            req.chmod(0o600)
+            response = call("login", env, str(req))
+            assert not response["ok"], response
+            env["DRCOM_TEST_LOGIN_URL"] = env["DRCOM_TEST_URL"] + "/auth/0.htm?session=1"
+
             req = tmp / "unsafe.json"
             req.write_text(json.dumps({"username": USER, "password": PASSWORD}))
             req.chmod(0o644)
             response = call("login", env, str(req))
             assert not response["ok"], "Insecure credential file was accepted"
             assert not req.exists(), "Unsafe request was not cleaned up"
-            print("PASS: Dr.COM login, logout, status and URL encoding against local portal")
+            # Idempotent midnight cron installation must preserve other jobs.
+            cron = tmp / "root.cron"
+            cron.write_text("10 3 * * * echo other-job\\n")
+            cron.chmod(0o600)
+            schedule_env = env.copy()
+            schedule_env["DRCOM_CRONTAB"] = str(cron)
+            schedule_env["DRCOM_SKIP_CRON_RELOAD"] = "1"
+            for _ in range(3):
+                subprocess.run(["/bin/sh", str(ROOT / "files/usr/libexec/drcom-schedule"), "sync"],
+                               env=schedule_env, check=True, capture_output=True, text=True)
+            lines = cron.read_text().splitlines()
+            assert len(lines) == 2, lines
+            assert lines[0] == "10 3 * * * echo other-job", lines
+            assert lines[1].startswith("0 0 * * * /usr/libexec/drcom-web auto"), lines
+            assert (cron.stat().st_mode & 0o777) == 0o600
+            print("PASS: configurable full URLs, manual/auto auth, logout, special character encoding, idempotent midnight cron")
         finally:
             server.shutdown()
             thread.join(timeout=3)

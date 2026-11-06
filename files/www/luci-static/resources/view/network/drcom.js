@@ -7,11 +7,19 @@ const getConfig = rpc.declare({ object: 'luci.drcom', method: 'get_config', expe
 const getStatus = rpc.declare({ object: 'luci.drcom', method: 'get_status', expect: {} });
 const login = rpc.declare({
 	object: 'luci.drcom', method: 'login',
-	params: [ 'username', 'password', 'remember', 'server', 'logout_path' ],
+	params: [ 'username', 'password', 'remember', 'login_url', 'logout_url' ],
 	expect: {}
 });
 const logout = rpc.declare({ object: 'luci.drcom', method: 'logout', expect: {} });
 const forget = rpc.declare({ object: 'luci.drcom', method: 'forget', expect: {} });
+const saveUrls = rpc.declare({
+	object: 'luci.drcom', method: 'save_urls',
+	params: [ 'login_url', 'logout_url' ], expect: {}
+});
+const setAuto = rpc.declare({
+	object: 'luci.drcom', method: 'set_auto',
+	params: [ 'enabled' ], expect: {}
+});
 
 return view.extend({
 	handleSave: null,
@@ -39,7 +47,7 @@ return view.extend({
 
 	busy: function(flag) {
 		this._busy = flag;
-		[ 'loginBtn', 'logoutBtn', 'refreshBtn', 'forgetBtn' ].forEach(L.bind(function(name) {
+		[ 'loginBtn', 'logoutBtn', 'refreshBtn', 'forgetBtn', 'autoBtn', 'urlsBtn' ].forEach(L.bind(function(name) {
 			var node = this.n(name);
 			if (node)
 				node.disabled = flag;
@@ -76,8 +84,11 @@ return view.extend({
 				return;
 			this._nodes.account.value = c.username || '';
 			this._nodes.remember.checked = !!c.remember;
-			this._nodes.server.value = c.server || 'http://gate.lnu.edu.cn';
-			this._nodes.logoutPath.value = c.logout_path || '/F.htm';
+			this._nodes.loginUrl.value = c.login_url || 'http://gate.lnu.edu.cn/0.htm';
+			this._nodes.logoutUrl.value = c.logout_url || 'http://gate.lnu.edu.cn/F.htm';
+			this._nodes.auto.checked = !!c.auto;
+			this._nodes.hasSaved = !!c.has_password;
+			this.put('autoState', c.auto ? '已开启 · 每天 00:00' : '未开启 · 手动认证');
 			this.put('saved', c.has_password
 				? '密码已保存在路由器内（此处不会回显）；留空可使用已保存密码'
 				: '尚未保存密码；勾选“记住账号密码”并登录后才会保存');
@@ -105,20 +116,18 @@ return view.extend({
 		var u = this.n('account').value.trim();
 		var p = this.n('password').value;
 		var r = this.n('remember').checked;
-		var server = this.n('server').value.trim();
-		var path = this.n('logoutPath').value.trim();
+		var loginUrl = this.n('loginUrl').value.trim();
+		var logoutUrl = this.n('logoutUrl').value.trim();
 		if (!u || (!p && !this._nodes.hasSaved)) {
 			ui.addNotification(null, E('p', '请填写账号和密码。'), 'warning');
 			return Promise.resolve();
 		}
 		this.busy(true);
 		this.put('activity', '正在发送 Dr.COM 认证请求…');
-		return login(u, p, r, server, path).then(L.bind(function(data) {
+		return login(u, p, r, loginUrl, logoutUrl).then(L.bind(function(data) {
 			this.show(data, '登录请求');
 			this.n('password').value = '';
-			return this.syncConfig().then(L.bind(function() {
-				this._nodes.hasSaved = !!this._nodes.remember.checked;
-			}, this));
+			return this.syncConfig();
 		}, this)).catch(L.bind(function() {
 			this.show({ ok: false, state: 'unknown', message: '认证服务暂时不可用' }, '登录');
 		}, this)).finally(L.bind(function() {
@@ -138,7 +147,44 @@ return view.extend({
 			this.show({ ok: false, state: 'unknown', message: '无法连接注销接口' });
 		}, this)).finally(L.bind(function() {
 			this.busy(false);
-			this.put('activity', '注销默认使用 /F.htm；实际接口需在辽宁大学校园网络中验证');
+			this.put('activity', '已向设置的注销地址发送请求；本日不会立即自动重连，下次计划执行是 00:00');
+		}, this));
+	},
+
+	doSaveUrls: function() {
+		if (this._busy)
+			return Promise.resolve();
+		var loginUrl = this.n('loginUrl').value.trim();
+		var logoutUrl = this.n('logoutUrl').value.trim();
+		if (!loginUrl || !logoutUrl) {
+			ui.addNotification(null, E('p', '请填写完整的登录和注销 URL。'), 'warning');
+			return Promise.resolve();
+		}
+		this.busy(true);
+		return saveUrls(loginUrl, logoutUrl).then(L.bind(function(result) {
+			ui.addNotification(null, E('p', result.message || '操作完成'), result.ok ? 'info' : 'error');
+			if (result.ok)
+				return this.syncConfig();
+		}, this)).catch(function() {
+			ui.addNotification(null, E('p', '无法保存认证地址'), 'error');
+		}).finally(L.bind(function() {
+			this.busy(false);
+		}, this));
+	},
+
+	doSaveAuto: function() {
+		if (this._busy)
+			return Promise.resolve();
+		var wanted = this.n('auto').checked;
+		this.busy(true);
+		return setAuto(wanted).then(L.bind(function(result) {
+			ui.addNotification(null, E('p', result.message || '保存结果未知'), result.ok ? 'info' : 'error');
+			return this.syncConfig();
+		}, this)).catch(L.bind(function() {
+			ui.addNotification(null, E('p', '保存每日自动认证设置失败'), 'error');
+			return this.syncConfig();
+		}, this)).finally(L.bind(function() {
+			this.busy(false);
 		}, this));
 	},
 
@@ -154,6 +200,8 @@ return view.extend({
 				this.n('password').value = '';
 				this.n('account').value = '';
 				this.n('remember').checked = false;
+				this.n('auto').checked = false;
+				this.put('autoState', '未开启 · 手动认证');
 				this.put('saved', '已清除保存在路由器上的账号密码');
 			}
 			ui.addNotification(null, E('p', result.message || '操作完成'), result.ok ? 'info' : 'error');
@@ -183,18 +231,21 @@ return view.extend({
 			'maxlength': '256'
 		});
 		var remember = E('input', { 'type': 'checkbox', 'checked': !!config.remember });
-		var server = E('input', {
+		var loginUrl = E('input', {
 			'class': 'dr-input',
 			'type': 'url',
-			'value': config.server || 'http://gate.lnu.edu.cn',
-			'placeholder': 'http://gate.lnu.edu.cn'
+			'value': config.login_url || 'http://gate.lnu.edu.cn/0.htm',
+			'placeholder': 'http://认证服务器IP/0.htm',
+			'maxlength': '512'
 		});
-		var logoutPath = E('input', {
+		var logoutUrl = E('input', {
 			'class': 'dr-input',
-			'type': 'text',
-			'value': config.logout_path || '/F.htm',
-			'placeholder': '/F.htm'
+			'type': 'url',
+			'value': config.logout_url || 'http://gate.lnu.edu.cn/F.htm',
+			'placeholder': 'http://认证服务器IP/F.htm',
+			'maxlength': '512'
 		});
+		var auto = E('input', { 'type': 'checkbox', 'checked': !!config.auto });
 
 		var loginBtn = E('button', {
 			'class': 'dr-button dr-button-primary',
@@ -211,6 +262,16 @@ return view.extend({
 			'type': 'button',
 			'click': L.bind(this.refresh, this)
 		}, '↻  检查状态');
+		var urlsBtn = E('button', {
+			'class': 'dr-button dr-button-muted dr-urls-save',
+			'type': 'button',
+			'click': L.bind(this.doSaveUrls, this)
+		}, '保存认证地址');
+		var autoBtn = E('button', {
+			'class': 'dr-button dr-button-primary dr-auto-save',
+			'type': 'button',
+			'click': L.bind(this.doSaveAuto, this)
+		}, '保存自动认证设置');
 		var forgetBtn = E('button', {
 			'class': 'dr-forget',
 			'type': 'button',
@@ -224,8 +285,11 @@ return view.extend({
 		this._nodes.account = account;
 		this._nodes.password = password;
 		this._nodes.remember = remember;
-		this._nodes.server = server;
-		this._nodes.logoutPath = logoutPath;
+		this._nodes.loginUrl = loginUrl;
+		this._nodes.logoutUrl = logoutUrl;
+		this._nodes.auto = auto;
+		this._nodes.autoBtn = autoBtn;
+		this._nodes.urlsBtn = urlsBtn;
 		this._nodes.loginBtn = loginBtn;
 		this._nodes.logoutBtn = logoutBtn;
 		this._nodes.refreshBtn = refreshBtn;
@@ -237,6 +301,9 @@ return view.extend({
 		var saved = E('p', { 'class': 'dr-saved' },
 			config.has_password ? '已记住密码；留空可直接使用' : '尚未保存密码');
 		this._nodes.saved = saved;
+		var autoState = E('span', { 'class': 'dr-auto-state-label' },
+			config.auto ? '已开启 · 每天 00:00' : '未开启 · 手动认证');
+		this._nodes.autoState = autoState;
 
 		var activity = E('div', { 'class': 'dr-activity' },
 			'请求由路由器执行；校园网将识别路由器出口 IP');
@@ -249,7 +316,7 @@ return view.extend({
 					E('span', { 'class': 'dr-sign' }, '◈'),
 					E('span', { 'class': 'dr-wordmark' }, 'DR.COM'),
 					E('span', { 'class': 'dr-top-sep' }),
-					E('span', { 'class': 'dr-campus-tag' }, 'LIAONING UNIVERSITY')
+					E('span', { 'class': 'dr-campus-tag' }, 'UNIVERSAL DR.COM WEB PORTAL')
 				]),
 				E('div', { 'class': 'dr-header-body' }, [
 					E('div', {}, [
@@ -257,7 +324,7 @@ return view.extend({
 						E('h2', { 'class': 'dr-title' }, [
 							'校园网络', E('span', '认证中心')
 						]),
-						E('p', { 'class': 'dr-intro' }, '为京东云亚瑟设计的轻量 Dr.COM 网页认证工具。填写账号、密码，一键认证或注销，无需安装独立客户端。')
+						E('p', { 'class': 'dr-intro' }, '为京东云亚瑟设计的 Dr.COM 认证工具。自定义认证地址，一键登录或注销；可选择在每天 00:00 自动认证。')
 					]),
 					E('div', { 'class': 'dr-orbit', 'aria-hidden': 'true' }, [
 						E('span', { 'class': 'dr-orbit-inner' }, 'LNU'),
@@ -288,14 +355,27 @@ return view.extend({
 						E('div', { 'class': 'dr-actions' }, [loginBtn, logoutBtn]),
 						E('div', { 'class': 'dr-divider' }),
 						E('details', { 'class': 'dr-advanced' }, [
-							E('summary', '高级选项 · 认证服务器与注销路径'),
+							E('summary', '高级选项 · 自定义完整认证地址'),
 							E('label', { 'class': 'dr-field' }, [
-								E('span', '认证服务器地址（支持域名或 IP）'), server
+								E('span', '登录 URL（POST 到此地址）'), loginUrl
 							]),
 							E('label', { 'class': 'dr-field' }, [
-								E('span', '注销路径'), logoutPath
+								E('span', '注销 URL（GET 到此地址）'), logoutUrl
 							]),
-							E('p', '默认 /F.htm 是常见 Dr.COM 注销入口；辽宁大学当前部署可能不同，如不能注销请核对浏览器的网络请求。设置在下次登录时保存。')
+							E('p', '支持完整 HTTP/HTTPS URL，包括域名/IP、端口、路径和查询参数。地址保存后，下次手动登录和每日自动认证都会使用它。'),
+							E('div', { 'class': 'dr-urls-actions' }, urlsBtn)
+						]),
+						E('div', { 'class': 'dr-auto-section' }, [
+							E('div', { 'class': 'dr-section-eyebrow' }, 'AUTOMATION · 每日自动认证'),
+							E('label', { 'class': 'dr-remember dr-auto-switch' }, [
+								auto,
+								E('span', {}, [
+									E('strong', '每天 00:00 自动认证一次'),
+									E('small', '按路由器系统本地时间执行；开启前必须记住账号与密码')
+								])
+							]),
+							E('div', { 'class': 'dr-auto-state' }, autoState),
+							autoBtn
 						]),
 						E('div', { 'class': 'dr-forget-wrap' }, forgetBtn)
 					]),
@@ -313,7 +393,7 @@ return view.extend({
 							E('h3', '认证流程'),
 							E('div', { 'class': 'dr-step' }, [
 								E('span', '01'), E('div', {}, [
-									E('b', '发送认证请求'), E('p', '向网关 /0.htm 提交 DDDDD、upass 和 0MKKey 参数。')
+									E('b', '发送认证请求'), E('p', '向你设置的完整登录 URL 提交 DDDDD、upass 和 0MKKey 参数。')
 								])
 							]),
 							E('div', { 'class': 'dr-step' }, [
@@ -336,7 +416,7 @@ return view.extend({
 			]),
 			E('div', { 'class': 'dr-footer' }, [
 				E('span', 'DR.COM  ·  CAMPUS AUTHENTICATION'),
-				E('span', 'LNU · OPENWRT · PZCN CUSTOM')
+				E('span', '00:00 SCHEDULE · OPENWRT · PZCN CUSTOM')
 			])
 		]);
 		this.show(status, '当前网关');

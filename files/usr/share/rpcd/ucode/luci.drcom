@@ -1,26 +1,26 @@
 #!/usr/bin/env ucode
 'use strict';
 
-/* Dr.COM Web portal, read/write RPC for the LuCI campus login page.
- * Credentials are never returned over get_config and never put in argv.
- * One-time login secrets are passed in a mode-0600 tempfile in /tmp.
+/*
+ * Dr.COM Web portal RPC backend.
+ * Login/logout URL are independent fully configurable HTTP(S) URLs.
+ * Stored passwords never leave get_config or appear in curl argv.
  */
 import { cursor } from 'uci';
 import { open, readfile, unlink, chmod, popen } from 'fs';
 
 const SCRIPT = '/usr/libexec/drcom-web';
-const DEFAULT_SERVER = 'http://gate.lnu.edu.cn';
-const DEFAULT_LOGOUT = '/F.htm';
+const SCHEDULE = '/usr/libexec/drcom-schedule';
+const DEFAULT_LOGIN = 'http://gate.lnu.edu.cn/0.htm';
+const DEFAULT_LOGOUT = 'http://gate.lnu.edu.cn/F.htm';
 
-function valid_server(value) {
-	return type(value) == 'string' &&
-		length(value) >= 12 && length(value) <= 180 &&
-		!!match(value, /^https?:\/\/[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?\/?$/);
-}
-
-function valid_path(value) {
-	return type(value) == 'string' && length(value) <= 80 &&
-		!!match(value, /^\/[A-Za-z0-9._-]+$/);
+function valid_url(url) {
+	// No URL userinfo, shell metacharacters, whitespace or fragments. Paths,
+	// URL-encoded values and query parameters are allowed, including arbitrary
+	// campus portal paths on domains, IPv4 hosts and nondefault ports.
+	return type(url) == 'string' &&
+		length(url) >= 11 && length(url) <= 512 &&
+		!!match(url, /^https?:\/\/[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?(?:\/[A-Za-z0-9._~%!$&'()*+,;=:@/?-]*)?$/);
 }
 
 function valid_secret(value, maximum) {
@@ -32,10 +32,18 @@ function valid_secret(value, maximum) {
 function config() {
 	const uci = cursor();
 	uci.load('drcom');
+
+	// Existing installations had a hostname "server" + "logout_path".
+	// Preserve them when the new fully specified URLs are not yet present.
+	let base = uci.get('drcom', 'main', 'server') || 'http://gate.lnu.edu.cn';
+	base = replace(base, /\/$/, '');
+	let legacy_logout = uci.get('drcom', 'main', 'logout_path') || '/F.htm';
+
 	const saved = {
-		server: uci.get('drcom', 'main', 'server') || DEFAULT_SERVER,
-		logout_path: uci.get('drcom', 'main', 'logout_path') || DEFAULT_LOGOUT,
+		login_url: uci.get('drcom', 'main', 'login_url') || (base + '/0.htm'),
+		logout_url: uci.get('drcom', 'main', 'logout_url') || (base + legacy_logout),
 		remember: uci.get('drcom', 'main', 'remember') == '1',
+		auto: uci.get('drcom', 'main', 'auto') == '1',
 		username: uci.get('drcom', 'main', 'username') || '',
 		password: uci.get('drcom', 'main', 'password') || ''
 	};
@@ -43,24 +51,44 @@ function config() {
 	return saved;
 }
 
+function save_changes(changes, forget_password) {
+	const uci = cursor();
+	uci.load('drcom');
+	for (let key in changes)
+		uci.set('drcom', 'main', key, changes[key]);
+
+	if (forget_password) {
+		uci.delete('drcom', 'main', 'username');
+		uci.delete('drcom', 'main', 'password');
+		uci.set('drcom', 'main', 'auto', '0');
+	}
+
+	let ok = uci.commit('drcom');
+	uci.unload();
+	chmod('/etc/config/drcom', 0600);
+	return ok == true;
+}
+
 function run(action, payload) {
 	let filepath = null;
 	if (payload != null) {
-		// Only a random filename appears in the invoked command; no secrets
-		// are written to logs, flash or the process argument list.
+		// A random 0600 file in tmpfs holds the one-time login credentials.
+		// No account names or passwords are passed through process argv.
 		let uuid = readfile('/proc/sys/kernel/random/uuid');
 		uuid = uuid ? trim(uuid) : '';
 		if (!match(uuid, /^[0-9a-f-]{36}$/))
-			return { ok: false, state: 'unknown', message: '无法建立安全的临时认证请求' };
+			return { ok: false, state: 'unknown', message: '无法创建安全的认证请求' };
+
 		filepath = '/tmp/drcom-request-' + uuid + '.json';
 		let file = open(filepath, 'wx', 0600);
 		if (!file)
-			return { ok: false, state: 'unknown', message: '无法创建安全的临时文件' };
-		let wrote = file.write(sprintf('%J', payload));
+			return { ok: false, state: 'unknown', message: '无法创建临时认证文件' };
+
+		let written = file.write(sprintf('%J', payload));
 		file.close();
-		if (wrote == null || wrote <= 0) {
+		if (written == null || written <= 0) {
 			unlink(filepath);
-			return { ok: false, state: 'unknown', message: '写入临时认证请求失败' };
+			return { ok: false, state: 'unknown', message: '认证请求写入失败' };
 		}
 	}
 
@@ -78,36 +106,15 @@ function run(action, payload) {
 	return result;
 }
 
-function save_settings(server, logout_path, remember, username, password) {
-	const uci = cursor();
-	uci.load('drcom');
-	if (!uci.set('drcom', 'main', 'server', server) ||
-		!uci.set('drcom', 'main', 'logout_path', logout_path) ||
-		!uci.set('drcom', 'main', 'remember', remember ? '1' : '0')) {
-		uci.unload();
-		return false;
-	}
-	if (remember) {
-		uci.set('drcom', 'main', 'username', username);
-		uci.set('drcom', 'main', 'password', password);
-	} else {
-		uci.delete('drcom', 'main', 'username');
-		uci.delete('drcom', 'main', 'password');
-	}
-	let ok = uci.commit('drcom');
-	uci.unload();
-	chmod('/etc/config/drcom', 0600);
-	return ok == true;
-}
-
 const methods = {
 	get_config: {
 		call: function() {
-			let s = config();
+			const s = config();
 			return {
-				server: s.server,
-				logout_path: s.logout_path,
+				login_url: s.login_url,
+				logout_url: s.logout_url,
 				remember: s.remember,
+				auto: s.auto,
 				username: s.remember ? s.username : '',
 				has_password: s.remember && !!s.password
 			};
@@ -118,16 +125,28 @@ const methods = {
 			return run('status', null);
 		}
 	},
-	login: {
-		args: { username: '', password: '', remember: true, server: '', logout_path: '' },
+	save_urls: {
+		args: { login_url: '', logout_url: '' },
 		call: function(request) {
 			let a = request.args || {};
-			let server = a.server || DEFAULT_SERVER;
-			let path = a.logout_path || DEFAULT_LOGOUT;
-			let saved = config();
+			if (!valid_url(a.login_url) || !valid_url(a.logout_url))
+				return { ok: false, message: '请输入完整的 HTTP 或 HTTPS 认证地址，包含域名/IP 和路径' };
 
-			if (!valid_server(server) || !valid_path(path))
-				return { ok: false, state: 'unknown', message: '认证服务器或注销路径格式不正确' };
+			if (!save_changes({ login_url: a.login_url, logout_url: a.logout_url }, false))
+				return { ok: false, message: '保存认证地址失败' };
+			return { ok: true, message: '登录地址与注销地址已保存' };
+		}
+	},
+	login: {
+		args: { username: '', password: '', remember: true, login_url: '', logout_url: '' },
+		call: function(request) {
+			let a = request.args || {};
+			let saved = config();
+			let url = a.login_url || saved.login_url || DEFAULT_LOGIN;
+			let logout_url = a.logout_url || saved.logout_url || DEFAULT_LOGOUT;
+
+			if (!valid_url(url) || !valid_url(logout_url))
+				return { ok: false, state: 'unknown', message: '请填写有效的 HTTP(S) 登录与注销地址' };
 
 			let username = a.username || '';
 			let password = a.password || '';
@@ -135,27 +154,55 @@ const methods = {
 				password = saved.password;
 
 			if (!valid_secret(username, 128) || !valid_secret(password, 256))
-				return { ok: false, state: 'unknown', message: '请填写有效的账号和密码（禁止换行）' };
+				return { ok: false, state: 'unknown', message: '请填写有效的账号和密码（不允许换行）' };
 
-			// Persist only when explicitly requested, otherwise clear any
-			// previously remembered credentials before issuing the request.
-			if (!save_settings(server, path, a.remember === true, username, password))
-				return { ok: false, state: 'unknown', message: '无法保存校园网配置' };
+			let remember = a.remember === true;
+			if (!save_changes({
+				login_url: url,
+				logout_url: logout_url,
+				remember: remember ? '1' : '0',
+				username: remember ? username : '',
+				password: remember ? password : ''
+			}, !remember))
+				return { ok: false, state: 'unknown', message: '保存校园网配置失败' };
 
-			return run('login', { username, password, server });
+			return run('login', { username, password });
+		}
+	},
+	set_auto: {
+		args: { enabled: false },
+		call: function(request) {
+			let enabled = request.args?.enabled === true;
+			let saved = config();
+			if (enabled && (!saved.remember || !saved.username || !saved.password))
+				return { ok: false, auto: false, message: '先勾选“记住账号密码”并登录一次，才能开启每天 00:00 自动认证' };
+			if (enabled && (!valid_url(saved.login_url) || !valid_url(saved.logout_url)))
+				return { ok: false, auto: false, message: '认证地址无效，请先保存正确的地址' };
+
+			// Every boot installs exactly one cron line. Also repair it when
+			// changing settings so a lost crontab never silently disables auto.
+			if (system(SCHEDULE + ' sync >/dev/null 2>&1') != 0)
+				return { ok: false, auto: saved.auto, message: '无法安装定时任务，请检查 cron 服务' };
+
+			if (!save_changes({ auto: enabled ? '1' : '0' }, false))
+				return { ok: false, auto: saved.auto, message: '保存自动认证开关失败' };
+			return {
+				ok: true, auto: enabled,
+				message: enabled ? '已开启：每天路由器本地时间 00:00 自动认证一次' : '已关闭每日自动认证'
+			};
 		}
 	},
 	logout: {
 		call: function() {
+			// Explicit logout does not initiate reconnect. Cron runs at 00:00.
 			return run('logout', null);
 		}
 	},
 	forget: {
 		call: function() {
-			let s = config();
-			if (!save_settings(s.server, s.logout_path, false, '', ''))
+			if (!save_changes({ remember: '0' }, true))
 				return { ok: false, message: '清除已保存凭据失败' };
-			return { ok: true, message: '已清除保存在路由器上的校园网账号和密码，不影响当前认证会话' };
+			return { ok: true, message: '已清除账号与密码，并关闭每日自动认证；当前认证会话不受影响' };
 		}
 	}
 };

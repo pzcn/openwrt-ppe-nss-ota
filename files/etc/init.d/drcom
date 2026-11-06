@@ -1,0 +1,16 @@
+#!/bin/sh /etc/rc.common
+# The cron scheduler is synchronized once per boot. No daemon process.
+START=95
+STOP=05
+
+start() {
+	/usr/libexec/drcom-schedule sync
+}
+
+reload() {
+	start
+}
+
+stop() {
+	:
+}

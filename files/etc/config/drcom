@@ -1,5 +1,6 @@
-# LNU Dr.COM Web Portal settings. No secret is included in the firmware.
+# Configurable Dr.COM web authentication. No secret is shipped in firmware.
 config drcom 'main'
-	option server 'http://gate.lnu.edu.cn'
-	option logout_path '/F.htm'
+	option login_url 'http://gate.lnu.edu.cn/0.htm'
+	option logout_url 'http://gate.lnu.edu.cn/F.htm'
 	option remember '0'
+	option auto '0'
