@@ -56,7 +56,7 @@ make image PROFILE="$PROFILE" PACKAGES="$PACKAGES" FILES=files EXTRA_IMAGE_NAME=
 
 cd "$GITHUB_WORKSPACE/out"
 mapfile -t imgs < <(find . -maxdepth 1 -name '*-squashfs-sysupgrade.bin' -printf '%f\n')
-test 1 -eq "$(printf '%s\n' "$IMAGE" | wc -l)"
+test 1 -eq "$(find . -maxdepth 1 -name '*-squashfs-sysupgrade.bin' -printf '%f\n' | wc -l)"
 IMAGE="$(find . -maxdepth 1 -name '*-squashfs-sysupgrade.bin' -printf '%f\n' | head -n 1)"
 test -n "$IMAGE"
 sha256sum "$IMAGE" > sha256sums
