@@ -9,7 +9,7 @@ AURORA_TAG=v1.4.0
 AURORA_APK=luci-theme-aurora-1.4.0-r20260920.apk
 STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-native1
-OTA_REV=custom-ota1
+OTA_REV=custom-ota2
 I18N_REV=zhcn-lmo1
 DRCOM_REV=campus-drcom9
 WORK="$RUNNER_TEMP/firmware-build"
@@ -101,6 +101,14 @@ grep -Fq 'PZCN_RELEASE' "$WORK/ib/files/usr/sbin/ppe-update"
 grep -Fq 'sysupgrade -T' "$WORK/ib/files/usr/sbin/ppe-update"
 python3 -m json.tool "$WORK/ib/files/usr/share/rpcd/acl.d/luci-app-ppe-update.json" >/dev/null
 node --check "$WORK/ib/files/www/luci-static/resources/view/system/ppe-update.js"
+test -s "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
+node --check "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
+python3 -m json.tool "$WORK/ib/files/usr/share/luci/menu.d/luci-app-ppe-update.json" >/dev/null
+grep -Fq "在线固件更新（pzcn OTA）" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
+grep -Fq "handleSysupgradeConfirm" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
+grep -Fq "handleBackup(ev)" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
+grep -Fq 'if [ "$policy" = auto ]; then' "$WORK/ib/files/usr/sbin/ppe-update"
+grep -Fq 'sysupgrade -T "$WORK/$IMAGE"' "$WORK/ib/files/usr/sbin/ppe-update"
 
 
 # Leave rootfs_data to stock fstools; p27 must be a separate data filesystem.
@@ -231,8 +239,14 @@ Includes a native OpenWrt LuCI PPE / NSS status page (no custom dark theme), wit
 Uses upstream Linux/PPE/NSS/ath11k binaries, with selected LuCI apps and Chinese language packs.
 Only sysupgrade, not factory/U-Boot. No Wi-Fi credentials are embedded.
 The bundled ppe-update now targets only pzcn/openwrt-ppe-nss-ota GitHub Releases.
+The native System -> Backup / Flash page includes an ONLINE firmware update
+sibling section, preserving official backup / restore and local flashing.
+Manual OTA no longer depends on optional APK dependency simulations and will
+attempt to reinstall extra packages after reboot, warning of possible losses.
+Firmware device/channel metadata, image SHA256 and sysupgrade -T stay mandatory.
+Automatic unattended updates remain conservative about optional packages.
 The firmware embeds an immutable build number and verifies per-release ota.json,
 manifest SHA256, firmware SHA256, board and upstream group before sysupgrade.
 Automatic updates are OFF by default and must be explicitly opted in.
 EOF
-gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS Native LuCI UI and Dr.COM URL Fix ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST" ota.json
+gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS Native Backup + Online OTA ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST" ota.json

@@ -1,0 +1,15 @@
+{
+  "admin/system/ppe-update": {
+    "title": "OTA 自动更新设置",
+    "order": 75,
+    "action": {
+      "type": "view",
+      "path": "system/ppe-update"
+    },
+    "depends": {
+      "acl": [
+        "luci-app-ppe-update"
+      ]
+    }
+  }
+}

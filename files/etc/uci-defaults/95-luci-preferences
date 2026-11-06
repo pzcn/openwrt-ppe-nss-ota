@@ -7,9 +7,13 @@ if [ -f /etc/config/luci ]; then
     uci -q set luci.main.lang='zh_cn'
     uci -q commit luci
 fi
-# Do not auto-flash a vanilla upstream image over this custom Aurora image.
+# OTA now targets this repo only. Preserve the user's explicit choice on
+# sysupgrade; initialize disabled ONLY if the setting did not exist.
 if [ -f /etc/config/ppe-update ]; then
-    uci -q set ppe-update.main.auto='0'
-    uci -q commit ppe-update
+    auto="$(uci -q get ppe-update.main.auto 2>/dev/null || true)"
+    if [ -z "$auto" ]; then
+        uci -q set ppe-update.main.auto='0'
+        uci -q commit ppe-update
+    fi
 fi
 exit 0

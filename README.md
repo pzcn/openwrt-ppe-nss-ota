@@ -12,7 +12,7 @@ This repository **does not compile Linux, PPE, NSS or Wi-Fi drivers**. It downlo
 - File manager, web terminal, per-client bandwidth, statistics, Wi-Fi station history, irqbalance UI, LLDP, PBR
 - WireGuard UI/tools and diagnosis: tcpdump, ip-full, conntrack, conntrack netlink
 - **PPE / NSS monitor (native LuCI):** standard status tables, last-24-sample trend, driver status and read-only debug counters; no custom dark styling.
-- **Customized OTA update:** only follows this repository's GitHub Releases, checks exact device and build metadata, validates SHA256, and uses the upstream package migration logic
+- **Online OTA alongside Backup / Flash Firmware:** native LuCI sister section in **System → Backup / Flash Firmware**; manual OTA only requires matching custom device, checksums and `sysupgrade -T`, with extra-package migration as a warning rather than a blocker. Auto OTA remains stricter.
 - **Dr.COM campus authentication (WAN-only):** editable login/logout URLs, optional saved credentials, daily 00:00 cron login; every HTTP request binds to the actual WAN L3 device and domain lookups use validated WAN DNS, never a WireGuard fallback.
 - **Standard OpenWrt rootfs_data persistence:** include matching `kmod-fs-f2fs`, `f2fs-tools` and `mkf2fs`; p18 SquashFS tail is the normal writable overlay
 - **Separate data partition:** p27 keeps its existing ext4 filesystem and mounts at `/mnt/storage` instead of `/overlay`
@@ -70,9 +70,9 @@ This outputs **sysupgrade only**. Use it from an existing compatible OpenWrt/PPE
 
 ### Device updates
 
-The custom `ppe-update` bundled in this image now tracks **only this repository's GitHub Releases**, rather than fetching an uncustomized upstream image. It checks a release's `ota.json` metadata (board, build number, source), hashes the firmware and package manifest, simulates reinstallation of extra packages and uses `sysupgrade` with settings preservation. If the package check fails, the one-click update is disabled. **Automatic updates remain OFF until enabled explicitly** in LuCI.
+The custom `ppe-update` tracks **only this repository's GitHub Releases**, rather than fetching an uncustomized upstream image. It verifies `ota.json`, the board and custom release channel, hashes the firmware and package manifest, and runs `sysupgrade -T` before installing. **Manual updates are not blocked by inability to simulate reinstalling optional APK packages**; users see a warning and these packages are restored on a best-effort basis after reboot. Unattended updates still require preflight of optional packages and are OFF until enabled explicitly.
 
-Starting with this OTA-enabled image, go to **System → Firmware update / 系统 → 固件更新** to check your customized release channel. The previous images lack this implementation and must be upgraded manually once. See [Custom OTA design and troubleshooting](docs/CUSTOM-OTA.md).
+Go to **System → Backup / Flash Firmware（系统 → 备份/升级）** for **online OTA**, directly below the standard local firmware flash module; these features now share the same native LuCI page. The old separate page is called **OTA 自动更新设置** and controls the optional unattended schedule. Existing firmware using the previous strict OTA may need **one manual upload of the latest sysupgrade.bin** to obtain the relaxed upgrade behavior. See [Custom OTA design and troubleshooting](docs/CUSTOM-OTA.md).
 
 **Warning:** No firmware upgrade is guaranteed to preserve all configuration or user-installed software. Export a configuration backup to your PC first. Never use `sysupgrade -F`.
 
@@ -92,7 +92,9 @@ No Wi-Fi password is embedded in this **public** firmware or workflow. Configure
 - `files/etc/init.d/drcom` — refreshes the cron schedule on boot
 - `config/translations/` — source Chinese dictionaries for PPE QoS and OTA
 - `scripts/build_luci_i18n.py` — compiles native LuCI LMO catalogs
-- `files/usr/sbin/ppe-update` — customized OTA with an upstream-compatible CLI
+- `files/usr/sbin/ppe-update` — customized OTA with manual vs unattended package policy
+- `files/www/luci-static/resources/view/system/flash.js` — native Backup / Flash view with embedded online OTA sibling section
+- `files/www/luci-static/resources/view/system/ppe-update.js` — advanced automatic OTA schedule settings
 - `scripts/write_ota_metadata.py` — creates per-release `ota.json`
 - `scripts/tests/test-custom-ota.sh` — offline CLI and metadata tests
 - `.github/workflows/build.yml` — scheduled/manual GitHub Actions and Releases

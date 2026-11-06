@@ -10,6 +10,23 @@ trap 'rm -rf "$WORKDIR"' EXIT
 
 sh -n "$OTA"
 node --check "$HERE/files/www/luci-static/resources/view/system/ppe-update.js"
+node --check "$HERE/files/www/luci-static/resources/view/system/flash.js"
+python3 - "$HERE/files/www/luci-static/resources/view/system/flash.js" <<'PY'
+from pathlib import Path
+import sys
+ui = Path(sys.argv[1]).read_text()
+for required in (
+    "handleBackup(ev)", "handleRestore(ev)", "handleSysupgrade(storage_size",
+    "handleSysupgradeConfirm(btn", "handleBackupSave(m", "handleBackupList(ev)",
+    "online_upgrade", "在线固件更新（pzcn OTA）", "otaAskInstall()",
+    "otaRefresh()", "otaConfirmInstall()", "sysupgrade', [ '--test'",
+):
+    assert required in ui, f"Stock Backup / Flash Firmware feature or OTA missing: {required}"
+assert "checked !== true" not in ui
+assert "missing)" not in ui
+print("PASS stock LuCI flash actions preserved and sibling online OTA section embedded")
+PY
+python3 -m json.tool "$HERE/files/usr/share/luci/menu.d/luci-app-ppe-update.json" >/dev/null
 python3 -m json.tool "$HERE/files/usr/share/rpcd/acl.d/luci-app-ppe-update.json" >/dev/null
 test "$(python3 - "$HERE/files/usr/share/rpcd/acl.d/luci-app-ppe-update.json" <<'PY'
 import json,sys
@@ -120,6 +137,74 @@ test_case 'manifest SHA256 mismatch blocks use' \
 # Reset manifest for subsequent tests.
 head -n -1 "$MANIFEST" >"$WORKDIR/manifest.saved"
 mv "$WORKDIR/manifest.saved" "$MANIFEST"
+
+
+test_case 'check update succeeds without APK mirror preflight' \
+    'preflight() { echo "called" >"$WORK/unwanted"; return 2; }; cmd_status >"$WORK/status.json"; grep -q "\"update\":true" "$WORK/status.json"; grep -q "\"checked\":false" "$WORK/status.json"; [ ! -f "$WORK/unwanted" ]'
+
+# All test firmware invocations use a mocked shell sysupgrade() function.
+# The real /sbin/sysupgrade command can never be reached in these tests.
+test_case 'manual update continues without optional APK preflight' '
+    lookup() {
+        LATEST_BUILD=200
+        LATEST="$TAG"
+        IMAGE="openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
+        SIZE=1300000
+        SHA256=$(sha256sum "$FIXTURE/$IMAGE" | cut -d" " -f1)
+    }
+    extras() { printf "luci-app-extra-test\n"; }
+    preflight() { echo "CALLED" >"$WORK/unwanted"; return 2; }
+    fetch() { cp "$FIXTURE/$IMAGE" "$2"; }
+    sysupgrade() { printf "%s\n" "$1" >>"$WORK/upgrade.calls"; return 0; }
+    rm -f "$WORK/unwanted" "$WORK/upgrade.calls"
+    cmd_update "" "" manual
+    [ ! -f "$WORK/unwanted" ]
+    grep -qx -- "-T" "$WORK/upgrade.calls"
+    grep -q "luci-app-extra-test" "$STATE/packages"
+'
+
+test_case 'automatic update stays conservative on optional APK check failure' '
+    lookup() { LATEST="$TAG"; LATEST_BUILD=200; IMAGE="test.bin"; SIZE=1300000; }
+    extras() { printf "luci-extra\n"; }
+    preflight() { return 2; }
+    sysupgrade() { echo "UNSAFE_FLASH" >"$WORK/unsafe"; return 0; }
+    rm -f "$WORK/unsafe"
+    ! (cmd_update "" "" auto)
+    [ ! -f "$WORK/unsafe" ]
+'
+
+test_case 'sysupgrade -T failure still blocks manual OTA' '
+    lookup() {
+        LATEST_BUILD=200; LATEST="$TAG"
+        IMAGE="openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
+        SIZE=1300000
+        SHA256=$(sha256sum "$FIXTURE/$IMAGE" | cut -d" " -f1)
+    }
+    extras() { printf "luci-extra\n"; }
+    fetch() { cp "$FIXTURE/$IMAGE" "$2"; }
+    sysupgrade() {
+        [ "$1" = "-T" ] && return 1
+        echo "UNSAFE_FLASH" >"$WORK/unsafe"
+    }
+    rm -f "$WORK/unsafe"
+    ! (cmd_update "" "" manual)
+    [ ! -f "$WORK/unsafe" ]
+'
+
+test_case 'image SHA256 mismatch still blocks manual OTA' '
+    lookup() {
+        LATEST_BUILD=200; LATEST="$TAG"
+        IMAGE="openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
+        SIZE=1300000
+        SHA256="0000000000000000000000000000000000000000000000000000000000000000"
+    }
+    extras() { printf "luci-extra\n"; }
+    fetch() { cp "$FIXTURE/$IMAGE" "$2"; }
+    sysupgrade() { echo "UNSAFE_FLASH" >"$WORK/unsafe"; return 0; }
+    rm -f "$WORK/unsafe"
+    ! (cmd_update "" "" manual)
+    [ ! -f "$WORK/unsafe" ]
+'
 
 # Valid metadata is required; never allow a stray or old Release.
 printf '%s\n' '{"tag_name":"unrelated/release"}' >"$WORKDIR/fixture/github.json"

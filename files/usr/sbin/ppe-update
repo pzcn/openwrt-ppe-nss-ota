@@ -10,8 +10,9 @@
 # board, group and a strictly increasing build number.
 #
 # No automatic updates until the operator explicitly enables them in LuCI.
-# No force-upgrade with missing packages. Standard sysupgrade still performs
-# the configuration backup/restore; back up settings separately before use.
+# Optional package restoration is a warning for MANUAL upgrades, but unattended
+# automatic updates postpone when package dependencies cannot be verified.
+# Device identity, SHA256 and sysupgrade -T remain mandatory.
 
 [ -r "${PPE_RELEASE:=/etc/ppe-release}" ] && . "$PPE_RELEASE"
 [ -r "${PZCN_RELEASE:=/etc/pzcn-ota-release}" ] && . "$PZCN_RELEASE"
@@ -188,21 +189,16 @@ cmd_status() {
 	pending=$(tr "\n" " " 2>/dev/null <"$STATE/packages")
 	(
 		lookup ""
-		checked=true
-		missing=''
+		# Release discovery must not depend on APK mirror health or optional
+		# package compatibility simulations (which can be slow or unreliable).
 		if newer; then
 			avail=true
-			if preflight; then
-				missing=$(tr '\n' ' ' <"$WORK/missing")
-			else
-				checked=false
-			fi
 		else
 			avail=false
 		fi
-		printf '{"board":"%s","current":"%s","build":%s,"group":"%s","latest":"%s","latest_time":%s,"update":%s,"image":"%s","size":%s,"extras":"%s","missing":"%s","checked":%s,"pending":"%s","auto":"%s","source":"%s"}\n' \
+		printf '{"board":"%s","current":"%s","build":%s,"group":"%s","latest":"%s","latest_time":%s,"update":%s,"image":"%s","size":%s,"extras":"%s","missing":"","checked":false,"pending":"%s","auto":"%s","source":"%s"}\n' \
 			"$BOARD" "$OTA_TAG" "$OTA_BUILD" "$GROUP" "$LATEST" "$LATEST_TIME" "$avail" "$IMAGE" "$SIZE" \
-			"$(extras | tr '\n' ' ')" "$missing" "$checked" "$pending" "${auto:-0}" "$RELEASE_REPO"
+			"$(extras | tr '\n' ' ')" "$pending" "${auto:-0}" "$RELEASE_REPO"
 	) 2>/dev/null ||
 		printf '{"board":"%s","current":"%s","group":"%s","error":"custom OTA source unavailable or metadata rejected","pending":"%s","auto":"%s","source":"%s"}\n' \
 			"$BOARD" "$OTA_TAG" "$GROUP" "$pending" "${auto:-0}" "$RELEASE_REPO"
@@ -212,9 +208,7 @@ cmd_check() {
 	lookup ""
 	if newer; then
 		echo "custom update available: $OTA_TAG -> $LATEST ($IMAGE)"
-		preflight || die "cannot verify extra package compatibility"
-		[ ! -s "$WORK/missing" ] ||
-			die "missing packages: $(tr '\n' ' ' <"$WORK/missing")"
+		echo "Optional package compatibility is checked before installing, but will not block MANUAL updates."
 		return 0
 	fi
 	echo "custom firmware is up to date: $OTA_TAG"
@@ -222,14 +216,32 @@ cmd_check() {
 }
 
 cmd_update() {
-	[ "$2" != "-f" ] || die "unsafe force-upgrade is disabled for custom OTA"
+	[ "$2" != "-f" ] || die "sysupgrade -F is not supported"
+	policy="${3:-manual}"
+	case "$policy" in manual | auto) ;; *) die "unknown OTA policy" ;; esac
 	lookup "$1"
 	newer || { echo "up to date: $OTA_TAG"; return 1; }
-	preflight || die "cannot verify extra packages; OTA cancelled"
-	[ ! -s "$WORK/missing" ] ||
-		die "new image cannot install $(tr '\n' ' ' <"$WORK/missing"); OTA cancelled"
-	free=$(awk '/^MemAvailable/ { print $2 * 1024 }' /proc/meminfo)
-	[ "$free" -gt $((SIZE * 3)) ] || die "not enough memory for OTA image"
+
+	# Always keep a best-effort list of packages to reinstall after reboot.
+	# Manual updates do not contact APK feeds or depend on their health.
+	extras >"$WORK/extras" ||
+		{ : >"$WORK/extras"; log "WARNING: could not enumerate extra packages"; }
+	if [ "$policy" = auto ]; then
+		# Only unattended updates need to verify extras before flashing.
+		preflight || die "automatic OTA postponed: optional APK feeds unavailable"
+		[ ! -s "$WORK/missing" ] ||
+			die "automatic OTA postponed: missing extras $(tr '\n' ' ' <"$WORK/missing")"
+	elif [ -s "$WORK/extras" ]; then
+		log "NOTICE: manual OTA preserves config and attempts to restore extra packages after reboot, but some may be unavailable"
+	fi
+
+	# Check actual free download space, not an arbitrary 3x RAM requirement.
+	need_kb=$((SIZE / 1024 + 8192))
+	avail_kb=$(df -Pk "$WORK" 2>/dev/null | awk 'NR == 2 {print $4}')
+	if valid_integer "$avail_kb" && [ "$avail_kb" -gt 0 ] &&
+	   [ "$avail_kb" -lt "$need_kb" ]; then
+		die "not enough free space: need ${need_kb}K, have ${avail_kb}K"
+	fi
 
 	log "downloading $IMAGE from CUSTOM repo $RELEASE_REPO / $LATEST"
 	fetch "$RELEASE_ASSETS/$LATEST/$IMAGE" "$WORK/$IMAGE" || die "download failed"
@@ -246,7 +258,8 @@ cmd_update() {
 }
 
 cmd_start() {
-	(cmd_update "" "$1" </dev/null >/tmp/ppe-update.log 2>&1; echo "exit $?" >>/tmp/ppe-update.log) &
+	: > /tmp/ppe-update.log
+	(cmd_update "" "$1" manual </dev/null >/tmp/ppe-update.log 2>&1; echo "exit $?" >>/tmp/ppe-update.log) &
 }
 
 cmd_auto() {
@@ -257,7 +270,7 @@ cmd_auto() {
 	valid_integer "$delay" || die "invalid automatic update delay"
 	now=$(date +%s)
 	[ "$now" -ge $((LATEST_TIME + delay * 86400)) ] || return 0
-	cmd_update "$LATEST" ""
+	cmd_update "$LATEST" "" auto
 }
 
 # Installs the kept list in one transaction. When that fails, each package is
