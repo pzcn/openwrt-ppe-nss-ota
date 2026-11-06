@@ -106,7 +106,7 @@ return view.extend({
 			this.show({ ok: false, state: 'unreachable', message: '状态检查失败' });
 		}, this)).finally(L.bind(function() {
 			this.busy(false);
-			this.put('activity', '由路由器发起请求，按当前网络默认路由访问认证门户');
+			this.put('activity', '仅使用 WAN 出口访问认证服务器；不经 WireGuard。域名解析也需通过 WAN DNS 校验。');
 		}, this));
 	},
 
@@ -132,7 +132,7 @@ return view.extend({
 			this.show({ ok: false, state: 'unknown', message: '认证服务暂时不可用' }, '登录');
 		}, this)).finally(L.bind(function() {
 			this.busy(false);
-			this.put('activity', '如显示“待确认”，请点击“检查状态”，或在校园网内实际测试外网访问');
+			this.put('activity', '请求强制走 WAN，不走 WireGuard；如果 WAN DNS 不可用，请使用校园网网关 IP。');
 		}, this));
 	},
 
@@ -316,7 +316,7 @@ return view.extend({
 					E('span', { 'class': 'dr-sign' }, '◈'),
 					E('span', { 'class': 'dr-wordmark' }, 'DR.COM'),
 					E('span', { 'class': 'dr-top-sep' }),
-					E('span', { 'class': 'dr-campus-tag' }, 'UNIVERSAL DR.COM WEB PORTAL')
+					E('span', { 'class': 'dr-campus-tag' }, 'WAN-ONLY · DR.COM WEB PORTAL')
 				]),
 				E('div', { 'class': 'dr-header-body' }, [
 					E('div', {}, [
@@ -324,7 +324,7 @@ return view.extend({
 						E('h2', { 'class': 'dr-title' }, [
 							'校园网络', E('span', '认证中心')
 						]),
-						E('p', { 'class': 'dr-intro' }, '为京东云亚瑟设计的 Dr.COM 认证工具。自定义认证地址，一键登录或注销；可选择在每天 00:00 自动认证。')
+						E('p', { 'class': 'dr-intro' }, '为京东云亚瑟设计的 Dr.COM 认证工具。自定义服务器地址，所有请求只走 WAN、不走 WireGuard；支持每天 00:00 自动认证。')
 					]),
 					E('div', { 'class': 'dr-orbit', 'aria-hidden': 'true' }, [
 						E('span', { 'class': 'dr-orbit-inner' }, 'LNU'),
@@ -362,7 +362,7 @@ return view.extend({
 							E('label', { 'class': 'dr-field' }, [
 								E('span', '注销 URL（GET 到此地址）'), logoutUrl
 							]),
-							E('p', '支持完整 HTTP/HTTPS URL，包括域名/IP、端口、路径和查询参数。地址保存后，下次手动登录和每日自动认证都会使用它。'),
+							E('p', '支持完整 HTTP/HTTPS 地址。所有请求固定 WAN；域名通过 WAN DNS 解析，如果无法确定 DNS 也走 WAN，请直接填写网关 IP。'),
 							E('div', { 'class': 'dr-urls-actions' }, urlsBtn)
 						]),
 						E('div', { 'class': 'dr-auto-section' }, [

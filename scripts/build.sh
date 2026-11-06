@@ -11,7 +11,7 @@ STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-dashboard1
 OTA_REV=custom-ota1
 I18N_REV=zhcn-lmo1
-DRCOM_REV=campus-drcom4
+DRCOM_REV=campus-drcom5
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
@@ -65,6 +65,11 @@ node --check "$DRCOM_FILES/www/luci-static/resources/view/network/drcom.js"
 grep -Fq "return { 'luci.drcom': methods };" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
 grep -Fq 'data-urlencode = "DDDDD=%s"' "$DRCOM_FILES/usr/libexec/drcom-web"
 grep -Fq 'data-urlencode = "upass=%s"' "$DRCOM_FILES/usr/libexec/drcom-web"
+grep -Fq "ubus call network.interface.wan status" "$DRCOM_FILES/usr/libexec/drcom-web"
+grep -Fq -- '--interface "if!$WAN_DEVICE"' "$DRCOM_FILES/usr/libexec/drcom-web"
+grep -Fq "nslookup -type=A" "$DRCOM_FILES/usr/libexec/drcom-web"
+grep -Fq -- '--resolve "$CURL_RESOLVE"' "$DRCOM_FILES/usr/libexec/drcom-web"
+grep -Fq "WAN-ONLY" "$DRCOM_FILES/www/luci-static/resources/view/network/drcom.js"
 grep -Fq '0 0 * * * /usr/libexec/drcom-web auto' "$DRCOM_FILES/usr/libexec/drcom-schedule"
 grep -Fq "option auto '0'" "$DRCOM_FILES/etc/config/drcom"
 grep -Fq 'save_urls:' "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
@@ -188,7 +193,12 @@ first-boot UCI default when config files are retained across sysupgrade.
 
 Includes a custom LuCI campus network Dr.COM Web portal app under Network.
 The login and logout addresses are fully editable HTTP(S) URLs, including
-hostname or IP, port, path and query string. Default endpoints are
+hostname or IP, port, path and query string. All status, manual login, logout
+and midnight cron requests bind via curl --interface if!<WAN L3_DEVICE>.
+DNS for hostname URLs uses only an IPv4 WAN-advertised resolver when its
+route matches WAN, then curl --resolve pins the answer. No WG or system DNS
+fallback: use the numeric campus gateway IP if WAN-only DNS is unavailable.
+Default endpoints are
 http://gate.lnu.edu.cn/0.htm and http://gate.lnu.edu.cn/F.htm.
 Optional cron task runs exactly once per day at 00:00 ROUTER LOCAL TIME
 (not UTC unless the router timezone is set to UTC). Auto-auth is disabled

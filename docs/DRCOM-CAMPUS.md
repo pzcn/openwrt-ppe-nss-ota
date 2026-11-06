@@ -1,6 +1,6 @@
 # 辽宁大学 Dr.COM 校园网认证（LuCI 自定义插件）
 
-这个插件集成在定制版 OpenWrt 的 **网络 → 校园网认证** 菜单中，以 `curl` 完成网页登录与注销。它不安装旧版 Dr.COM 客户端、不修改路由表、防火墙、PPE/NSS 内核或者原有 OTA 系统。
+这个插件集成在定制版 OpenWrt 的 **网络 → 校园网认证** 菜单中，以 `curl` 完成网页登录与注销。**所有请求固定通过 OpenWrt 逻辑 WAN 接口的实际 L3 设备，不使用 WireGuard，也不修改系统的默认路由。** 它不安装旧版 Dr.COM 客户端、不修改路由表、防火墙、PPE/NSS 内核或者原有 OTA 系统。
 
 ## 功能
 
@@ -40,7 +40,7 @@ upass=<密码，URL 编码>
 
 HTTP 200 只表明 HTTP 请求完成，不代表认证成功。插件只在返回可识别的 Dr.COM 页面标记（或明确的中文成功/失败文案）时判断认证结果，否则显示“状态待确认”。建议在 **实际连接的校园网** 中验证结果。
 
-你的亚瑟对外认证是通过它的默认路由和出口 IP 进行的，如果校园网认证绑定单个客户端 IP，那么识别的将是**路由器自身上联 IP**。请确保网线/AP 上联拓扑符合校园网规则；不保证学校支持把一个账户共享给多个设备。网关若会检测或限制路由器，插件不会绕过该限制。
+你的亚瑟对外认证始终绑定 WAN 的实际 L3 出口接口（例如 `wan`、`eth0.2` 或 `pppoe-wan`），如果校园网认证绑定单个客户端 IP，那么识别的将是**WAN 上联 IP**。请确保网线/AP 上联拓扑符合校园网规则；不保证学校支持把一个账户共享给多个设备。网关若会检测或限制路由器，插件不会绕过该限制。
 
 ## 安全
 
@@ -49,7 +49,7 @@ HTTP 200 只表明 HTTP 请求完成，不代表认证成功。插件只在返�
 3. 勾选记住密码意味着明文凭据会存在 root-only 的 `/etc/config/drcom`，并可能包含在 OpenWrt 系统配置备份中。不要公开分享配置备份。
 4. 密码不经过 shell 参数或环境变量。临时请求文件使用 `0600` 独占创建并在读取后立即删除；curl HTTP 响应只留在临时文件，且不会原样回传 HTML（防止暴露门户内的个人信息）。
 5. `rpcd` ACL 仅允许本插件的 `get_config/get_status/login/logout/forget/save_urls/set_auto` 方法，不对 LuCI 暴露任意 shell 命令权限。
-6. 不自动改变 `/etc/config/network`、WAN、防火墙或路由策略。定时任务仅在用户主动开启并保存凭据后执行，且不上传完整响应或记录密码。
+6. 不自动改变 `/etc/config/network`、WAN、防火墙或路由策略，也不修改 WireGuard 接口。定时任务仅在用户主动开启并保存凭据后执行，且不上传完整响应或记录密码。
 
 ## 检查
 
@@ -103,3 +103,26 @@ date '+%Y-%m-%d %H:%M:%S %Z'
 **手动触发同样的认证用于排查：** 在确认凭据和链接无误后，可以执行 `/usr/libexec/drcom-web auto`，它会按已存设置登录；如果没有开启自动认证则不发送请求。不要在日志中记录账号密码。
 
 **旧版迁移：** 如果先前版本保存的是 `drcom.main.server` 和 `drcom.main.logout_path`，新版本会从旧字段推导登录/注销 URL；首次在页面保存地址后采用新字段。不会清空保存的账号密码。
+
+## 仅 WAN 出口：避开 WireGuard 与 PBR
+
+本版本的手动登录、注销、状态检查和每日 00:00 自动登录都采用以下流程：
+
+1. 使用 `ubus call network.interface.wan status` 检查 WAN 必须处于 `up: true` 状态，动态提取 `l3_device`，例如 `wan`、`eth0.2`、`pppoe-wan`。如果 WAN 不可用或实际出口是 WireGuard/tun/tailscale 等隧道设备，直接拒绝发送认证。不会回退系统默认路由。
+2. 对实际 `curl` 请求强制加入 `--interface "if!$WAN_DEVICE"`、`--noproxy '*'`、`--ipv4`，不自动追踪跳转。这限制了 HTTP/HTTPS 数据连接的物理出口，即使你的 WireGuard/PBR 将普通默认路由改到隧道也不会让认证连接转向 WG。
+3. **域名解析单独约束。** OpenWrt 官方 curl 使用 `--disable-ares`，`--interface` 不会约束 DNS。对于域名 URL，插件只使用 `network.interface.wan status` 中由 WAN 提供的 IPv4 DNS，并检查 `ip -4 route get <DNS>` 的出口必须是相同的 WAN L3 设备。通过该 DNS 的 `nslookup -type=A` 返回 IPv4 后，使用 curl `--resolve 域名:端口:IP`，阻止 curl 再通过系统 DNS 查询。
+4. 如果无法确认 WAN DNS 能走 WAN、DNS 失败或者 WAN 已断开，**认证会失败并给出提示**，不会偷偷改用 WireGuard。对于学校认证网关，最稳定的方式是将完整登录/注销 URL 直接填写成 IPv4 地址，如 `http://192.168.1.1/0.htm` 和 `http://192.168.1.1/F.htm`（这里仅为地址格式示例，不是学校实际网关）。这样完全不需要域名解析。
+
+**局限：** `ip route get` 检查的是内核普通路由。若用户另装非常规 `nftables`/PBR OUTPUT 强制标记规则，可能对独立执行的 `nslookup` DNS 查询重定向，单靠路由查询无法覆盖所有自定义策略。若必须在任意 PBR 规则下确保 DNS 绝对不经过 WG，**请使用认证服务器的 IPv4 地址，不要使用域名**；这种模式不会发起 DNS 请求。
+
+可在 SSH 上检查：
+
+```sh
+ubus call network.interface.wan status
+ip -4 route show
+# 使用实际 WAN 设备名替换 WAN_L3：
+curl -q -sS --noproxy '*' --interface 'if!WAN_L3' --ipv4 \
+  --connect-timeout 4 --max-time 8 -I http://192.168.1.1/
+```
+
+上述 IP 仅用于展示用法，测试时请替换成你所在校园网的实际认证网关地址。真正的请求不应使用公共 IP 测试，因为可能对未授权网站发起多余请求。

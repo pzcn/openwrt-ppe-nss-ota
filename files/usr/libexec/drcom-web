@@ -8,7 +8,8 @@ umask 077
 ACTION="${1:-}"
 REQUEST="${2:-}"
 BODY="$(mktemp /tmp/drcom-response.XXXXXX)" || exit 1
-trap 'rm -f "$BODY"; [ -z "$REQUEST" ] || rm -f "$REQUEST"' EXIT
+WAN_JSON="$(mktemp /tmp/drcom-wan.XXXXXX)" || { rm -f "$BODY"; exit 1; }
+trap 'rm -f "$BODY" "$WAN_JSON"; [ -z "$REQUEST" ] || rm -f "$REQUEST"' EXIT
 trap 'exit 1' HUP INT TERM
 
 emit() {
@@ -48,6 +49,63 @@ fi
 valid_url "$login_url" || fail '登录地址格式不正确（需完整的 HTTP/HTTPS URL）'
 valid_url "$logout_url" || fail '注销地址格式不正确（需完整的 HTTP/HTTPS URL）'
 
+
+ipv4_ok() {
+	printf '%s\n' "$1" | awk -F. 'NF==4 {for(i=1;i<=4;i++) if ($i !~ /^[0-9]+$/ || length($i)>3 || $i+0>255) exit 1; exit 0} {exit 1}'
+}
+# WAN can be PPPoE, VLAN or DSA; resolve the live L3 device via netifd.
+wan_preflight() {
+	ubus call network.interface.wan status >"$WAN_JSON" 2>/dev/null ||
+		fail '无法读取 WAN 状态，认证已取消'
+	wan_up="$(jsonfilter -i "$WAN_JSON" -e '@.up' 2>/dev/null || true)"
+	WAN_DEVICE="$(jsonfilter -i "$WAN_JSON" -e '@.l3_device' 2>/dev/null || true)"
+	[ "$wan_up" = true ] || fail 'WAN 未连接，不会改走 WireGuard'
+	[ -n "$WAN_DEVICE" ] && [ "${#WAN_DEVICE}" -le 32 ] &&
+		printf '%s\n' "$WAN_DEVICE" | LC_ALL=C grep -Eq '^[A-Za-z0-9_][A-Za-z0-9_.:-]*$' ||
+		fail 'WAN 没有有效的 L3 出口设备'
+	case "$WAN_DEVICE" in
+		wg* | tun* | tap* | tailscale* | ts_* | zerotier* )
+			fail 'WAN 实际是隧道接口，拒绝发送认证' ;;
+	esac
+	ip link show dev "$WAN_DEVICE" >/dev/null 2>&1 ||
+		fail 'WAN 设备不存在，不会回退默认路由'
+}
+# OpenWrt curl lacks c-ares; --interface does not bind DNS.
+# Only use WAN DNS when route-to-DNS is WAN; pin IPv4 with curl --resolve.
+resolve_target() {
+	target_url="$1"
+	authority="${target_url#*://}"; authority="${authority%%/*}"
+	target_host="${authority%%:*}"
+	if [ "$authority" = "$target_host" ]; then
+		case "$target_url" in https:*) target_port=443 ;; *) target_port=80 ;; esac
+	else
+		target_port="${authority##*:}"
+	fi
+	case "$target_port" in '' | *[!0-9]*) fail '认证 URL 端口无效' ;; esac
+	[ "$target_port" -gt 0 ] && [ "$target_port" -le 65535 ] ||
+		fail '认证 URL 端口超出范围'
+	CURL_RESOLVE=''
+	ipv4_ok "$target_host" && return 0
+	printf '%s\n' "$target_host" | LC_ALL=C grep -Eq '^[A-Za-z0-9][A-Za-z0-9.-]*$' ||
+		fail '认证 URL 域名无效'
+	wan_dns=''
+	for server in $(jsonfilter -i "$WAN_JSON" -e '@["dns-server"][*]' 2>/dev/null); do
+		ipv4_ok "$server" || continue
+		route="$(ip -4 route get "$server" 2>/dev/null || true)"
+		case " $route " in
+			*" dev $WAN_DEVICE "*) wan_dns="$server"; break ;;
+		esac
+	done
+	[ -n "$wan_dns" ] ||
+		fail '找不到确认走 WAN 的 DNS；请将认证 URL 改为网关 IPv4 地址'
+	answer="$(nslookup -type=A "$target_host" "$wan_dns" 2>/dev/null)" ||
+		fail '无法通过 WAN DNS 解析门户，请填写网关 IP'
+	target_ip="$(printf '%s\n' "$answer" |
+		awk '/^Name:[[:space:]]*/ {found=1;next} found && /^Address[0-9 ]*:[[:space:]]*/ {print $2;exit}')"
+	ipv4_ok "$target_ip" || fail 'WAN DNS 未返回有效 IPv4，请使用认证网关 IP'
+	CURL_RESOLVE="$target_host:$target_port:$target_ip"
+}
+
 # Escape quotes and backslashes for curl's config file syntax.
 curlquote() {
 	printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
@@ -84,14 +142,24 @@ classify() {
 	esac
 }
 
+# Disabled cron never contacts WAN or DNS.
+if [ "$ACTION" = auto ] &&
+   { [ "$(config_get auto)" != 1 ] || [ "$(config_get remember)" != 1 ]; }; then
+	emit true unknown '自动认证已关闭或未保存凭据'
+	exit 0
+fi
+case "$ACTION" in status | login | logout | auto) wan_preflight ;; esac
+
 case "$ACTION" in
 	status)
 		# Try the root of the selected login URL as a non-credential status
 		# page; not all Dr.COM variants expose a usable status page.
 		status_url="$(printf '%s' "$login_url" | sed -E 's@^(https?://[^/]+).*@\1/@')"
-		if code="$(curl -sS --noproxy '*' --proto '=http,https' \
-			--connect-timeout 4 --max-time 9 \
-			-o "$BODY" -w '%{http_code}' "$status_url" 2>/dev/null)"; then
+		resolve_target "$status_url"
+		set -- -q -sS --noproxy '*' --proto '=http,https' --ipv4 --max-redirs 0 \
+			--interface "if!$WAN_DEVICE" --connect-timeout 4 --max-time 9
+		[ -z "$CURL_RESOLVE" ] || set -- "$@" --resolve "$CURL_RESOLVE"
+		if code="$(curl "$@" -o "$BODY" -w '%{http_code}' "$status_url" 2>/dev/null)"; then
 			case "$code" in 2??) classify status ;; *) fail '认证门户状态查询返回非 2xx HTTP 状态' ;; esac
 		else
 			fail '无法连接校园网认证门户'
@@ -124,14 +192,16 @@ case "$ACTION" in
 			fail '账号或密码不允许包含控制字符'
 		fi
 
+		resolve_target "$login_url"
+		set -- -q -sS --noproxy '*' --proto '=http,https' --ipv4 --max-redirs 0 \
+			--interface "if!$WAN_DEVICE" --connect-timeout 4 --max-time 12
+		[ -z "$CURL_RESOLVE" ] || set -- "$@" --resolve "$CURL_RESOLVE"
 		if code="$(
 			{
 				printf 'data-urlencode = "DDDDD=%s"\n' "$(curlquote "$username")"
 				printf 'data-urlencode = "upass=%s"\n' "$(curlquote "$password")"
 				printf 'data = "0MKKey="\n'
-			} | curl -sS --noproxy '*' --proto '=http,https' \
-				--connect-timeout 4 --max-time 12 \
-				-o "$BODY" -w '%{http_code}' -K - "$login_url" 2>/dev/null
+			} | curl "$@" -o "$BODY" -w '%{http_code}' -K - "$login_url" 2>/dev/null
 		)"; then
 			case "$code" in
 				2??|3??) classify login ;;
@@ -142,9 +212,11 @@ case "$ACTION" in
 		fi
 		;;
 	logout)
-		if code="$(curl -sS --noproxy '*' --proto '=http,https' \
-			--connect-timeout 4 --max-time 9 \
-			-o "$BODY" -w '%{http_code}' "$logout_url" 2>/dev/null)"; then
+		resolve_target "$logout_url"
+		set -- -q -sS --noproxy '*' --proto '=http,https' --ipv4 --max-redirs 0 \
+			--interface "if!$WAN_DEVICE" --connect-timeout 4 --max-time 9
+		[ -z "$CURL_RESOLVE" ] || set -- "$@" --resolve "$CURL_RESOLVE"
+		if code="$(curl "$@" -o "$BODY" -w '%{http_code}' "$logout_url" 2>/dev/null)"; then
 			case "$code" in 2??|3??) classify logout ;; *) fail '校园网门户拒绝注销请求' ;; esac
 		else
 			fail '无法连接校园网注销地址'

@@ -13,7 +13,7 @@ This repository **does not compile Linux, PPE, NSS or Wi-Fi drivers**. It downlo
 - WireGuard UI/tools and diagnosis: tcpdump, ip-full, conntrack, conntrack netlink
 - **Custom premium PPE / NSS monitor:** LuCI Status page with real hardware connection history, driver health and read-only debug counters
 - **Customized OTA update:** only follows this repository's GitHub Releases, checks exact device and build metadata, validates SHA256, and uses the upstream package migration logic
-- **Dr.COM campus authentication:** LuCI page with fully editable login/logout URLs, optional remembered credentials, login/logout/status and opt-in daily 00:00 authentication using curl + cron
+- **Dr.COM campus authentication (WAN-only):** editable login/logout URLs, optional saved credentials, daily 00:00 cron login; every HTTP request binds to the actual WAN L3 device and domain lookups use validated WAN DNS, never a WireGuard fallback.
 - **Standard OpenWrt rootfs_data persistence:** include matching `kmod-fs-f2fs`, `f2fs-tools` and `mkf2fs`; p18 SquashFS tail is the normal writable overlay
 - **Separate data partition:** p27 keeps its existing ext4 filesystem and mounts at `/mnt/storage` instead of `/overlay`
 - Keeps Bootstrap as fallback
@@ -50,7 +50,7 @@ Expected: `/overlay` is backed by a loop device with F2FS, and `/mnt/storage` is
 
 Go to **Network → 校园网认证** in LuCI. Enter your account and password, optionally tick **记住账号与密码**, then click **连接校园网**. Both the **full login URL** and **full logout URL** can be edited and saved independently (including IP/domain, port, path, query parameters). Defaults are `http://gate.lnu.edu.cn/0.htm` and `http://gate.lnu.edu.cn/F.htm`.
 
-To enable **每天 00:00 自动认证一次**, first save a remembered account and password, then enable the checkbox and click **保存自动认证设置**. Cron performs one POST at **00:00 router-local time** every day; verify that the router timezone is Asia/Shanghai for Beijing midnight. Auto-auth remains off by default. No periodic retries or boot-time login are included. Clearing remembered credentials disables auto-auth.
+To enable **每天 00:00 自动认证一次**, first save a remembered account and password, then enable the checkbox and click **保存自动认证设置**. Cron performs one POST at **00:00 router-local time** every day; verify that the router timezone is Asia/Shanghai for Beijing midnight. Auto-auth remains off by default. No periodic retries or boot-time login are included. Clearing remembered credentials disables auto-auth. **All login/logout/status/cron requests are pinned to WAN** using curl's `if!` interface binding and never fall back to WireGuard. For hostnames, DNS must also have a verified WAN route; if WAN-only DNS is unavailable, use a numeric IPv4 gateway URL.
 
 **Important:** HTTP sends the account and password without transport encryption; only use on the trusted campus network and preferably manage LuCI over HTTPS. Remembered credentials are stored only in root-readable OpenWrt configuration and may be included in sysupgrade configuration backups. Logout endpoint and login-result markers must still be verified on the campus network. The app does not auto-reconnect, modify network routes or circumvent school gateway policy.
 
