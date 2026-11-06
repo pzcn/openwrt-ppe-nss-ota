@@ -1,0 +1,38 @@
+name: Build RE-SS-01 firmware
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "Optional upstream PPE+NSS release tag; blank = latest"
+        required: false
+        type: string
+  schedule:
+    - cron: "23 4 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: re-ss-01-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      UPSTREAM_TAG: ${{ inputs.upstream_tag || '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install image build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zstd rsync python3 file jq curl
+          chmod +x scripts/build.sh
+
+      - name: Build sysupgrade image and publish GitHub Release
+        run: bash scripts/build.sh
