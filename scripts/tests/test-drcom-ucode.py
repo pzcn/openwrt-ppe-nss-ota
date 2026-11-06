@@ -91,10 +91,10 @@ let saved = handler.save_credentials.call({
     args: { login_url: url1, logout_url: url2, username: 'student', password: secret }
 });
 if (!saved.ok || saved.username != 'student' || !saved.has_password)
-    die('Native ucode credential save failed: ' + json(saved));
+    die('Native ucode credential save failed: ' + sprintf('%J', saved));
 if (saved.password != null || disk.password != secret)
     die('Password missing from UCI or leaked in response');
-if (index(json(saved), secret) != -1)
+if (index(sprintf('%J', saved), secret) != -1)
     die('Credential RPC response leaked password');
 let config_read = config();
 if (config_read.username != 'student' || config_read.password != secret || !config_read.remember)
