@@ -41,6 +41,9 @@ jobs:
           sudo apt-get install -y zstd rsync python3 file jq curl
           chmod +x scripts/build.sh
 
+      - name: Test LuCI Chinese catalogs (offline)
+        run: python3 scripts/tests/test-luci-i18n.py
+
       - name: Test custom OTA (offline, no flash)
         run: bash scripts/tests/test-custom-ota.sh
 

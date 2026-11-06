@@ -22,6 +22,9 @@ kmod-nf-conntrack-netlink
 luci-i18n-base-zh-cn
 luci-i18n-firewall-zh-cn
 luci-i18n-package-manager-zh-cn
+# The PPE+NSS base image already includes SQM and BCP38, but not their Chinese packs.
+luci-i18n-sqm-zh-cn
+luci-i18n-bcp38-zh-cn
 luci-app-filemanager
 luci-app-ttyd
 luci-app-nlbwmon

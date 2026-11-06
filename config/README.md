@@ -17,6 +17,13 @@
 The official RE-SS-01 device definition does not explicitly select F2FS packages, even though other official devices (for example Link NN6000) do. This repository is adding the packages to address the confirmed missing driver/tool problem; we are not changing upstream `fstools`, kernel images, GPT, U-Boot or NSS.
 
 
+**LuCI 简体中文本地化**:
+- 官方已经提供的翻译包直接从官方 LuCI APK 源安装（包括本次补充的 `luci-i18n-sqm-zh-cn` 和 `luci-i18n-bcp38-zh-cn`）。
+- `luci-app-qca-ppe-qos` 来自上游独立 LuCI 分支，当前没有 `po/zh_Hans` 翻译目录。通过本仓库 `config/translations/qca-ppe-qos.zh-cn.json` 编译标准 `qca-ppe-qos.zh-cn.lmo`，由 ImageBuilder 文件覆盖层安装，不替换 PPE QoS 的 JavaScript。
+- OTA 原有菜单 `Firmware update` 用 `ppe-update.zh-cn.lmo` 翻译，现有中文 OTA 页面保持不变。
+- 构建时运行 `scripts/build_luci_i18n.py` 和离线测试；显示英文的官方组件优先补官方 `luci-i18n-*-zh-cn`，不要随意覆盖同名官方翻译目录。
+- 用户仍可以在 LuCI 中切换英文；本仓库本地翻译只有 zh-cn 目录生效。
+
 **External third-party APK**: Aurora, pinned to a release from eamonxg/luci-theme-aurora. Requires APK, not IPK; included in the ImageBuilder local package repository. Its source commit may be newer than the latest published release.
 
 **Removal candidates**: ip-tiny, libopenssl-oqsprovider, liboqs. If a dependency requires them, image assembly fails, requiring an explicit decision, rather than silently overriding removals.

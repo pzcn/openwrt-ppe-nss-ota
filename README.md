@@ -8,7 +8,7 @@ This repository **does not compile Linux, PPE, NSS or Wi-Fi drivers**. It downlo
 
 - Modern Linux 6.18 PPE wired offload and NSS Wi-Fi offload: **unchanged upstream**
 - Aurora LuCI theme (prebuilt APK from [eamonxg/luci-theme-aurora/releases](https://github.com/eamonxg/luci-theme-aurora/releases))
-- Simplified Chinese LuCI language packs, including the selected apps
+- Simplified Chinese LuCI language packs, including SQM and BCP38; native Chinese LMO catalogs for upstream PPE Hardware QoS and the firmware update menu
 - File manager, web terminal, per-client bandwidth, statistics, Wi-Fi station history, irqbalance UI, LLDP, PBR
 - WireGuard UI/tools and diagnosis: tcpdump, ip-full, conntrack, conntrack netlink
 - **Custom premium PPE / NSS monitor:** LuCI Status page with real hardware connection history, driver health and read-only debug counters
@@ -18,7 +18,7 @@ This repository **does not compile Linux, PPE, NSS or Wi-Fi drivers**. It downlo
 - Keeps Bootstrap as fallback
 - Removes ip-tiny, libopenssl-oqsprovider and liboqs when dependency resolution permits
 
-All selected LuCI apps and their translations are from OpenWrt's official LuCI feed. **Only Aurora requires a third-party APK.** This intentionally reuses Aurora's released APK, not the newer unreleased GitHub source commit.
+Officially translated LuCI apps use the Chinese language packs from OpenWrt's LuCI feed. **PPE Hardware QoS and the OTA menu have custom local LMO translations because the upstream UI lacks a matching official zh-cn language package.** Only Aurora requires a third-party APK. This intentionally reuses Aurora's released APK, not the newer unreleased GitHub source commit.
 
 ## Standard OpenWrt rootfs_data storage
 
@@ -75,6 +75,9 @@ No Wi-Fi password is embedded in this **public** firmware or workflow. Configure
 
 - `docs/PPE-NSS-MONITOR.md` — monitor page data sources, limitations and troubleshooting
 - `docs/CUSTOM-OTA.md` — OTA data flow, safety checks and testing
+- `docs/CHINESE-LOCALIZATION.md` — localization coverage, how to edit the Chinese strings
+- `config/translations/` — source Chinese dictionaries for PPE QoS and OTA
+- `scripts/build_luci_i18n.py` — compiles native LuCI LMO catalogs
 - `files/usr/sbin/ppe-update` — customized OTA with an upstream-compatible CLI
 - `scripts/write_ota_metadata.py` — creates per-release `ota.json`
 - `scripts/tests/test-custom-ota.sh` — offline CLI and metadata tests
