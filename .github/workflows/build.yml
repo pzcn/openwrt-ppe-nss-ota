@@ -7,6 +7,13 @@ on:
         description: "Optional upstream PPE+NSS release tag; blank = latest"
         required: false
         type: string
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build.yml"
+      - "scripts/**"
+      - "config/**"
+      - "files/**"
   schedule:
     - cron: "23 4 * * *"
 
