@@ -81,6 +81,13 @@ function cursor() {
     };
 }
 function chmod(path, mode) { return path == '/etc/config/drcom' && mode == 384; }
+try {
+    let initial = config();
+    if (!initial || initial.remember)
+        die('Native mock initial UCI values unexpected');
+} catch (e) {
+    die('Native mock config read exception: ' + sprintf('%J', e));
+}
 let handler = {
 CREDENTIAL_METHOD
 };
