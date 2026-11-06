@@ -90,7 +90,7 @@ const url1 = 'http://192.168.15.1:8800/0.htm';
 const url2 = 'http://192.168.15.1:8800/F.htm';
 const result = save(url1, url2);
 assert.strictEqual(result.ok, true, JSON.stringify(result));
-assert.strictEqual(result.backend_revision, 'drcom-rpc10');
+assert.strictEqual(result.backend_revision, 'drcom-rpc11');
 assert.strictEqual(result.login_url, url1);
 assert.strictEqual(result.logout_url, url2);
 assert.strictEqual(state.disk.login_url, url1);
@@ -142,6 +142,6 @@ state.failChmod = false;
 
 const final = save(url3, url4);
 assert.strictEqual(final.ok, true);
-assert.strictEqual(get().backend_revision, 'drcom-rpc10');
+assert.strictEqual(get().backend_revision, 'drcom-rpc11');
 
 console.log('PASS: Dr.COM RPC saves UCI URLs, returns actual values and distinct failures');

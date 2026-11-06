@@ -47,6 +47,18 @@ jobs:
       - name: Verify native LuCI pages and persisted URLs (offline)
         run: python3 scripts/tests/test-luci-native.py
 
+      - name: Validate Dr.COM URLs using the native ucode interpreter
+        run: |
+          sudo apt-get install -y libjson-c-dev pkg-config cmake
+          git clone --quiet --depth 1 https://github.com/ucode-lang/ucode.git "$RUNNER_TEMP/ucode-src"
+          git -C "$RUNNER_TEMP/ucode-src" fetch --quiet --depth 1 origin a2c42eac6369a0bba0315007c7dc7b7130275340
+          git -C "$RUNNER_TEMP/ucode-src" checkout --quiet a2c42eac6369a0bba0315007c7dc7b7130275340
+          cmake -S "$RUNNER_TEMP/ucode-src" -B "$RUNNER_TEMP/ucode-build" \
+            -DUBUS_SUPPORT=OFF -DUCI_SUPPORT=OFF -DULOOP_SUPPORT=OFF \
+            -DCMAKE_BUILD_TYPE=Release >/dev/null
+          cmake --build "$RUNNER_TEMP/ucode-build" --parallel 2 --target ucode
+          python3 scripts/tests/test-drcom-ucode.py "$RUNNER_TEMP/ucode-build/ucode"
+
       - name: Test Dr.COM RPC URL saving (mock UCI)
         run: node scripts/tests/test-drcom-rpc.js
 
