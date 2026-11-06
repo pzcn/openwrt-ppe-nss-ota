@@ -25,17 +25,19 @@ function bool_file(path) {
 	let s = short_file(path, 32);
 	if (s == null)
 		return null;
-	if (match(s, /^\s*1\s*$/))
+	if (match(s, /^[[:space:]]*1[[:space:]]*$/))
 		return true;
-	if (match(s, /^\s*0\s*$/))
+	if (match(s, /^[[:space:]]*0[[:space:]]*$/))
 		return false;
 	return null;
 }
 
 function uci_value(pkg, section, key) {
 	let c = cursor();
+	if (c.load(pkg) != true)
+		return null;
 	let value = c.get(pkg, section, key);
-	c.unload();
+	c.unload(pkg);
 	return value == null ? null : value;
 }
 
@@ -48,7 +50,7 @@ function firewall_hw() {
 				enabled = s.flow_offloading_hw == '1';
 		});
 	}
-	c.unload();
+	c.unload('firewall');
 	return enabled;
 }
 

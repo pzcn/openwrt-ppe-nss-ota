@@ -1,38 +1,28 @@
-# PPE / NSS 硬件加速监控
+# PPE / NSS 硬件加速
 
 入口：**状态 → PPE / NSS 硬件加速**
 
-使用 OpenWrt LuCI 原生样式展示 PPE 硬件卸载连接、NSS Wi-Fi 数据路径和内核统计。页面每 **8 秒** 更新一次，支持手动刷新和暂停；最近 24 次采样仅保存在浏览器当前页面。
+页面沿用 OpenWrt LuCI 原生布局，每 **8 秒** 自动刷新一次。
 
-## 监控指标
+## 页面内容
 
-| 指标 | 数据来源 |
-| --- | --- |
-| 硬件卸载连接 | `/proc/net/nf_conntrack` 中的 `[HW_OFFLOAD]` |
-| 软件 Flowtable 连接 | conntrack 中的 `[OFFLOAD]` |
-| 连接跟踪总数 | `/proc/net/nf_conntrack` |
-| PPE 硬件卸载开关 | 防火墙 `flow_offloading_hw` |
-| PPE 内核统计 | `/sys/kernel/debug/*.ppe/offload` |
-| NSS Wi-Fi 路径 | `/sys/module/ath11k/parameters/nss_offload` |
-| NSS 核心状态 | `/sys/kernel/debug/*.nss/boot` |
-| NSS flows 接口 | `/sys/kernel/debug/*.nss/flows` |
+- **加速引擎**：PPE 硬件流量卸载、NSS Wi-Fi 加速、NSS 运行核心数。
+- **连接统计**：硬件卸载连接、软件卸载连接、Conntrack 总连接数。
+- **内核诊断**：默认折叠，展开后查看 PPE offload 统计和 NSS 驱动信息。
 
-这些指标反映当前连接与驱动状态。测试硬件卸载时，可从局域网客户端发起持续下载，观察 `HW_OFFLOAD` 连接数。
+连接统计来自 `/proc/net/nf_conntrack` 中的 `[HW_OFFLOAD]` 与 `[OFFLOAD]` 标记；硬件卸载开关来自防火墙 UCI，NSS 状态来自驱动和 debugfs。
 
-## 诊断
+## 诊断命令
 
 ```sh
 ubus call luci.ppe-nss-monitor get_status
-mount | grep debugfs
 grep -c HW_OFFLOAD /proc/net/nf_conntrack
 cat /sys/module/ath11k/parameters/nss_offload
 ```
 
-如果页面提示通信异常，先确认 `rpcd` 服务与对应 ubus 对象正常。驱动版本变化时，部分 debugfs 统计路径可能需要调整。
-
 ## 组件
 
-- `files/www/luci-static/resources/view/status/ppe-nss-monitor-native.js`：LuCI 监控页面
-- `files/usr/share/rpcd/ucode/luci.ppe-nss-monitor`：监控数据接口
+- `files/www/luci-static/resources/view/status/ppe-nss-monitor-native.js`：LuCI 页面
+- `files/usr/share/rpcd/ucode/luci.ppe-nss-monitor`：数据接口
 - `files/usr/share/rpcd/acl.d/luci-app-ppe-nss-monitor.json`：读取权限
 - `files/usr/share/luci/menu.d/luci-app-ppe-nss-monitor.json`：菜单

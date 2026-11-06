@@ -38,6 +38,20 @@ for filename, menu in (
 assert "gate.lnu.edu.cn" not in default
 assert "gate.lnu.edu.cn" not in backend
 assert "gate.lnu.edu.cn" not in transport
+monitor_view = monitor.read_text(encoding="utf-8")
+monitor_rpc = (overlay / "usr/share/rpcd/ucode/luci.ppe-nss-monitor").read_text(encoding="utf-8")
+assert "监控状态" not in monitor_view
+assert "最近 24 次采样" not in monitor_view
+assert "togglePause" not in monitor_view
+assert "manualRefresh" not in monitor_view
+assert "poll.add(this._poller, 8)" in monitor_view
+assert "E('h3', '加速引擎')" in monitor_view
+assert "E('h3', '连接统计')" in monitor_view
+assert "E('summary', '内核诊断')" in monitor_view
+assert "c.unload();" not in monitor_rpc
+assert "c.unload(pkg);" in monitor_rpc
+assert "c.unload('firewall');" in monitor_rpc
+
 assert "option login_url ''" in default
 assert "option logout_url ''" in default
 assert "backend_revision: 'drcom-rpc12'" in backend

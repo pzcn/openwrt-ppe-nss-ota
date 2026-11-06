@@ -9,7 +9,7 @@ PROFILE=jdcloud_re-ss-01
 AURORA_TAG=v1.4.0
 AURORA_APK=luci-theme-aurora-1.4.0-r20260920.apk
 STORAGE_FIX_REV=f2fsrootfsdata1
-MONITOR_REV=ppe-nss-native2
+MONITOR_REV=ppe-nss-native3
 OTA_REV=custom-ota7
 I18N_REV=zhcn-lmo1
 DRCOM_REV=campus-drcom16
@@ -152,6 +152,8 @@ test -s "$MONITOR_FILES/usr/share/rpcd/ucode/luci.ppe-nss-monitor"
 python3 -m json.tool "$MONITOR_FILES/usr/share/luci/menu.d/luci-app-ppe-nss-monitor.json" >/dev/null
 python3 -m json.tool "$MONITOR_FILES/usr/share/rpcd/acl.d/luci-app-ppe-nss-monitor.json" >/dev/null
 node --check "$MONITOR_FILES/www/luci-static/resources/view/status/ppe-nss-monitor-native.js"
+! grep -Fq "E('h3', '监控状态')" "$MONITOR_FILES/www/luci-static/resources/view/status/ppe-nss-monitor-native.js"
+! grep -Fq 'c.unload();' "$MONITOR_FILES/usr/share/rpcd/ucode/luci.ppe-nss-monitor"
 grep -Fq "return { 'luci.ppe-nss-monitor': methods };" "$MONITOR_FILES/usr/share/rpcd/ucode/luci.ppe-nss-monitor"
 grep -Fq '"get_status"' "$MONITOR_FILES/usr/share/rpcd/acl.d/luci-app-ppe-nss-monitor.json"
 
@@ -210,7 +212,7 @@ cat > "$WORK/notes.md" <<EOF
 
 ## 本版内容
 
-- **状态 → PPE / NSS 硬件加速：** 连接统计、NSS 状态和内核诊断
+- **状态 → PPE / NSS 硬件加速：** 简洁显示加速引擎、连接统计与折叠诊断
 - **网络 → 校园网认证：** 单一网关地址、账号密码、登录注销及每日 00:00 自动认证
 - **系统 → 备份 / 升级 → 在线固件更新：** 检查版本、在线安装及自动更新设置
 - **界面文案：** 使用 LuCI 原生风格，统一菜单和帮助文字

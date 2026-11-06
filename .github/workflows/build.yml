@@ -50,6 +50,9 @@ jobs:
       - name: Test saved LuCI checkbox states (mock DOM)
         run: node scripts/tests/test-luci-autocheckboxes.js
 
+      - name: Test compact PPE / NSS dashboard (mock DOM)
+        run: node scripts/tests/test-ppe-nss-monitor.js
+
       - name: Validate Dr.COM URLs using the native ucode interpreter
         run: |
           sudo apt-get install -y libjson-c-dev pkg-config cmake
