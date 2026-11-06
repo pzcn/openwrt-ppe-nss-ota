@@ -50,6 +50,14 @@ assert "for (let key in keys(changes))" in backend
 assert "for (let key, value in changes)" not in backend
 assert "return getConfig().then(" in campus.read_text()
 assert "result.login_url !== target.login" in campus.read_text()
+assert "field('认证地址', n.portalUrl)" in campus.read_text()
+assert "n.logoutUrl" not in campus.read_text()
+assert "buildPortalUrls" in campus.read_text()
+flash = (overlay / "www/luci-static/resources/view/system/flash.js").read_text()
+assert "otaScheduleWidget()" in flash
+assert "uci.apply()" in flash
+assert "L.url('admin/system/ppe-update')" not in flash
+assert not (overlay / "usr/share/luci/menu.d/luci-app-ppe-update.json").exists()
 assert "c.login_url !== target.login" in campus.read_text()
 assert "reject: true" in campus.read_text()
 assert campus.read_text().count("reject: true") == 7
@@ -69,8 +77,6 @@ visible = [
     overlay / "www/luci-static/resources/view/status/ppe-nss-monitor-native.js",
     overlay / "www/luci-static/resources/view/network/drcom-native.js",
     overlay / "www/luci-static/resources/view/system/flash.js",
-    overlay / "www/luci-static/resources/view/system/ppe-update.js",
-    overlay / "usr/share/luci/menu.d/luci-app-ppe-update.json",
     root / "README.md",
     root / "docs/PPE-NSS-MONITOR.md",
     root / "docs/DRCOM-CAMPUS.md",

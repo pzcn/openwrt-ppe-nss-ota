@@ -2,7 +2,7 @@
 
 入口：**系统 → 备份 / 升级 → 在线固件更新**
 
-与 OpenWrt 原生固件上传功能位于同一页面。提供版本检查、手动安装和更新日志。自动升级计划在「**系统 → 自动更新设置**」中配置。
+与 OpenWrt 原生固件上传功能位于同一页面。提供版本检查、手动安装和更新日志。自动升级计划也在本页面配置，直接位于在线固件更新区域内。
 
 ## 升级方式
 
@@ -46,7 +46,6 @@ cat /tmp/ppe-update.log
 ## 相关文件
 
 - `files/www/luci-static/resources/view/system/flash.js`：在线更新界面
-- `files/www/luci-static/resources/view/system/ppe-update.js`：自动更新设置
 - `files/usr/sbin/ppe-update`：检查与升级命令
 - `scripts/write_ota_metadata.py`：发布元数据
 - `scripts/tests/test-custom-ota.sh`：升级流程测试

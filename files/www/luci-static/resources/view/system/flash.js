@@ -5,6 +5,7 @@
 'require rpc';
 'require fs';
 'require ui';
+'require uci';
 
 
 // This build adds the custom OTA as an extra native LuCI action section.
@@ -85,12 +86,73 @@ return view.extend({
 			fs.trimmed('/proc/sys/kernel/hostname'),
 			fs.trimmed('/proc/mtd'),
 			fs.trimmed('/proc/partitions'),
-			fs.trimmed('/proc/mounts')
+			fs.trimmed('/proc/mounts'),
+			L.resolveDefault(uci.load('ppe-update'), null)
 		];
 
 		return Promise.all(tasks);
 	},
 
+
+	otaScheduleWidget() {
+		const auto = E('input', {
+			'type': 'checkbox', 'class': 'cbi-input-checkbox',
+			'checked': uci.get('ppe-update', 'main', 'auto') == '1',
+			'disabled': isReadonlyView || null
+		});
+		const hour = E('select', { 'class': 'cbi-input-select', 'disabled': isReadonlyView || null },
+			Array.from({ length: 24 }, function(_, i) {
+				return E('option', {
+					'value': String(i),
+					'selected': (uci.get('ppe-update', 'main', 'hour') || '4') == String(i)
+				}, ('0' + i).slice(-2) + ':00');
+			}));
+		const delay = E('input', {
+			'type': 'number', 'class': 'cbi-input-text',
+			'min': '0', 'max': '3650', 'step': '1',
+			'value': uci.get('ppe-update', 'main', 'delay') || '1',
+			'disabled': isReadonlyView || null
+		});
+		const row = function(label, element) {
+			return E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, label),
+				E('div', { 'class': 'cbi-value-field' }, element)
+			]);
+		};
+		const toggle = function() {
+			hour.disabled = delay.disabled = isReadonlyView || !auto.checked;
+		};
+		auto.addEventListener('change', toggle);
+		toggle();
+		const save = E('button', {
+			'type': 'button', 'class': 'btn cbi-button cbi-button-apply',
+			'disabled': isReadonlyView || null,
+			'click': ui.createHandlerFn(this, function() {
+				const days = Number(delay.value);
+				if (!Number.isInteger(days) || days < 0 || days > 3650) {
+					ui.addNotification(null, E('p', '请输入有效的发布后等待天数。'), 'error');
+					return;
+				}
+				save.disabled = true;
+				uci.set('ppe-update', 'main', 'auto', auto.checked ? '1' : '0');
+				uci.set('ppe-update', 'main', 'hour', hour.value);
+				uci.set('ppe-update', 'main', 'delay', String(days));
+				return uci.save().then(function() {
+					return uci.apply();
+				}).then(function() {
+					ui.addNotification(null, E('p', '自动更新设置已保存。'), 'info');
+				}).catch(function(e) {
+					ui.addNotification(null, E('p', '保存自动更新设置失败：' + e), 'error');
+				}).finally(function() { save.disabled = isReadonlyView; });
+			})
+		}, '保存自动更新设置');
+		return E('div', [
+			row('启用无人值守更新', auto),
+			row('每天检查的小时', hour),
+			row('发布后等待天数', delay),
+			E('div', { 'class': 'cbi-page-actions' }, save)
+		]);
+	},
 
 	otaShow(info) {
 		const root = this._otaInfo;
@@ -610,8 +672,7 @@ return view.extend({
 		o.onclick = L.bind(this.otaAskInstall, this);
 
 		o = ss.option(form.DummyValue, 'online_upgrade_schedule', '自动更新设置');
-		o.default = '设置自动更新计划';
-		o.href = L.url('admin/system/ppe-update');
+		o.renderWidget = L.bind(this.otaScheduleWidget, this);
 
 		s = m.section(form.NamedSection, 'config', 'config', _('Configuration'), _('This is a list of shell glob patterns for matching files and directories to include during sysupgrade. Modified files in /etc/config/ and certain other configurations are automatically preserved.'));
 		s.render = L.bind(function(view /*, ... */) {

@@ -100,10 +100,10 @@ grep -Fq "RELEASE_API='https://api.github.com/repos/pzcn/openwrt-ppe-nss-ota/rel
 grep -Fq 'PZCN_RELEASE' "$WORK/ib/files/usr/sbin/ppe-update"
 grep -Fq 'sysupgrade -T' "$WORK/ib/files/usr/sbin/ppe-update"
 python3 -m json.tool "$WORK/ib/files/usr/share/rpcd/acl.d/luci-app-ppe-update.json" >/dev/null
-node --check "$WORK/ib/files/www/luci-static/resources/view/system/ppe-update.js"
+grep -Fq "otaScheduleWidget()" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 test -s "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 node --check "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
-python3 -m json.tool "$WORK/ib/files/usr/share/luci/menu.d/luci-app-ppe-update.json" >/dev/null
+test ! -e "$WORK/ib/files/usr/share/luci/menu.d/luci-app-ppe-update.json"
 grep -Fq "在线固件更新" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 grep -Fq "handleSysupgradeConfirm" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 grep -Fq "handleBackup(ev)" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"

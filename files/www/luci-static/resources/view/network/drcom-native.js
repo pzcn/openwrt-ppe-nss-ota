@@ -19,6 +19,19 @@ const setAuto = rpc.declare({
 	object: 'luci.drcom', method: 'set_auto', params: [ 'enabled' ], expect: {}, reject: true
 });
 
+// The portal exposes /0.htm for login and /F.htm for logout.
+// Keep the LuCI field on the base address; the existing RPC stores full URLs.
+function normalizePortalAddress(url) {
+	return (url || '').trim()
+		.replace(/\/(?:0|F)\.htm(?:\?[^#]*)?$/i, '')
+		.replace(/\/+$/, '');
+}
+
+function buildPortalUrls(address) {
+	var base = normalizePortalAddress(address);
+	return { base: base, login: base + '/0.htm', logout: base + '/F.htm' };
+}
+
 function field(label, input, help) {
 	return E('div', { 'class': 'cbi-value' }, [
 		E('label', { 'class': 'cbi-value-title', 'for': input.id }, label),
@@ -89,8 +102,7 @@ return view.extend({
 		return getConfig().then(L.bind(function(c) {
 			if (!c || typeof c !== 'object' || c.error)
 				throw new Error(c && c.error || '获取校园网配置失败');
-			this.n('loginUrl').value = c.login_url || '';
-			this.n('logoutUrl').value = c.logout_url || '';
+			this.n('portalUrl').value = normalizePortalAddress(c.login_url);
 			this.n('username').value = c.username || '';
 			this.n('remember').checked = !!c.remember;
 			this.n('auto').checked = !!c.auto;
@@ -104,20 +116,16 @@ return view.extend({
 	},
 
 	addresses: function() {
-		return {
-			login: this.n('loginUrl').value.trim(),
-			logout: this.n('logoutUrl').value.trim()
-		};
+		return buildPortalUrls(this.n('portalUrl').value);
 	},
 
 	validateAddresses: function() {
-		var url = this.addresses();
-		if (!/^https?:\/\/[A-Za-z0-9]/.test(url.login) ||
-			!/^https?:\/\/[A-Za-z0-9]/.test(url.logout)) {
-			this.notify('请先填写完整的登录 URL 和注销 URL（包括 http:// 或 https://）。', false);
+		var urls = this.addresses();
+		if (!/^https?:\/\/[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?(?:\/[A-Za-z0-9._~%!$&()*+,;=:@/-]*)?$/.test(urls.base)) {
+			this.notify('请填写认证地址，例如 http://192.168.1.1（可包含端口和目录）。', false);
 			return null;
 		}
-		return url;
+		return urls;
 	},
 
 	doSaveUrls: function() {
@@ -128,7 +136,6 @@ return view.extend({
 			return Promise.resolve();
 
 		this.setBusy(true);
-		this.setText('saveState', '正在保存并校验…');
 		return saveUrls(target.login, target.logout).then(L.bind(function(result) {
 			// Distinguish RPC failures from a genuine UCI readback mismatch.
 			// Older versions silently turned ubus errors into numeric replies.
@@ -148,12 +155,10 @@ return view.extend({
 					throw new Error('rpcd 后端版本不匹配，请重启 rpcd');
 				if (c.login_url !== target.login || c.logout_url !== target.logout)
 					throw new Error('UCI 再次读取的地址与输入不一致，请检查 /overlay 和 /etc/config/drcom');
-				this.setText('saveState', '已保存并验证：刷新页面后仍会使用新地址');
-				this.notify('认证地址已保存并核对成功', true);
+						this.notify('认证地址已保存并核对成功', true);
 			}, this));
 		}, this)).catch(L.bind(function(e) {
-			this.setText('saveState', '保存失败，请查看提示并重试');
-			this.notify('认证地址保存失败：' + (e.message || e), false);
+				this.notify('认证地址保存失败：' + (e.message || e), false);
 		}, this)).finally(L.bind(function() { this.setBusy(false); }, this));
 	},
 
@@ -250,15 +255,11 @@ return view.extend({
 		var config = data[0] || {};
 		var result = data[1] || {};
 		var n = this._nodes = { hasSaved: !!config.has_password };
-		n.loginUrl = E('input', {
-			'id': 'drcom-login-url', 'type': 'url', 'class': 'cbi-input-text',
-			'value': config.login_url || '', 'placeholder': 'http://认证网关IP/0.htm',
-			'maxlength': 512, 'autocomplete': 'off'
-		});
-		n.logoutUrl = E('input', {
-			'id': 'drcom-logout-url', 'type': 'url', 'class': 'cbi-input-text',
-			'value': config.logout_url || '', 'placeholder': 'http://认证网关IP/F.htm',
-			'maxlength': 512, 'autocomplete': 'off'
+		n.portalUrl = E('input', {
+			'id': 'drcom-portal-url', 'type': 'url', 'class': 'cbi-input-text',
+			'value': normalizePortalAddress(config.login_url),
+			'placeholder': 'http://认证网关地址',
+			'maxlength': 500, 'autocomplete': 'url'
 		});
 		n.username = E('input', {
 			'id': 'drcom-user', 'type': 'text', 'class': 'cbi-input-text',
@@ -279,7 +280,6 @@ return view.extend({
 		n.saved = E('div', { 'class': 'cbi-value-description' },
 			config.has_password ? '已保存密码，留空可直接认证。' : '目前没有保存密码。');
 		n.autoStatus = E('span', config.auto ? '已启用，每天 00:00 执行' : '未启用');
-		n.saveState = E('span', '尚未保存修改');
 
 		n.saveUrls = button('保存认证地址', L.bind(this.doSaveUrls, this), 'cbi-button-apply');
 		n.login = button('连接校园网', L.bind(this.doLogin, this), 'cbi-button-action');
@@ -303,19 +303,12 @@ return view.extend({
 				E('div', { 'class': 'cbi-page-actions' }, [n.refresh])
 			]),
 			E('div', { 'class': 'cbi-section' }, [
-				E('h3', '认证地址'),
-				E('div', { 'class': 'cbi-section-descr' },
-					'填写登录和注销地址，支持域名、IP、端口和路径。'),
-				field('登录 URL', n.loginUrl, 'POST 登录接口。'),
-				field('注销 URL', n.logoutUrl, 'GET 注销接口。'),
-				E('div', { 'class': 'cbi-page-actions' }, [
-					n.saveState, n.saveUrls
-				])
-			]),
-			E('div', { 'class': 'cbi-section' }, [
 				E('h3', '账号认证'),
-				field('校园网账号', n.username),
-				field('校园网密码', n.password, 'HTTP 认证会明文传输密码。'),
+				E('div', { 'class': 'cbi-section-descr' },
+					'只需填写网关基础地址，登录和注销接口将分别使用 /0.htm 与 /F.htm。'),
+				field('认证地址', n.portalUrl),
+				field('用户名', n.username),
+				field('密码', n.password, 'HTTP 认证会明文传输密码。'),
 				E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title', 'for': 'drcom-remember' }, '记住账号密码'),
 					E('div', { 'class': 'cbi-value-field' }, [
@@ -323,7 +316,7 @@ return view.extend({
 					])
 				]),
 				E('div', { 'class': 'cbi-page-actions' }, [
-					n.forget, n.logout, n.login
+					n.saveUrls, n.forget, n.logout, n.login
 				])
 			]),
 			E('div', { 'class': 'cbi-section' }, [
