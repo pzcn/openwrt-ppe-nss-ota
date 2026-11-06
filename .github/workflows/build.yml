@@ -41,5 +41,8 @@ jobs:
           sudo apt-get install -y zstd rsync python3 file jq curl
           chmod +x scripts/build.sh
 
+      - name: Test custom OTA (offline, no flash)
+        run: bash scripts/tests/test-custom-ota.sh
+
       - name: Build sysupgrade image and publish GitHub Release
         run: bash scripts/build.sh

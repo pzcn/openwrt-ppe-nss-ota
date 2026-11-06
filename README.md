@@ -12,6 +12,7 @@ This repository **does not compile Linux, PPE, NSS or Wi-Fi drivers**. It downlo
 - File manager, web terminal, per-client bandwidth, statistics, Wi-Fi station history, irqbalance UI, LLDP, PBR
 - WireGuard UI/tools and diagnosis: tcpdump, ip-full, conntrack, conntrack netlink
 - **Custom premium PPE / NSS monitor:** LuCI Status page with real hardware connection history, driver health and read-only debug counters
+- **Customized OTA update:** only follows this repository's GitHub Releases, checks exact device and build metadata, validates SHA256, and uses the upstream package migration logic
 - **Standard OpenWrt rootfs_data persistence:** include matching `kmod-fs-f2fs`, `f2fs-tools` and `mkf2fs`; p18 SquashFS tail is the normal writable overlay
 - **Separate data partition:** p27 keeps its existing ext4 filesystem and mounts at `/mnt/storage` instead of `/overlay`
 - Keeps Bootstrap as fallback
@@ -60,7 +61,11 @@ This outputs **sysupgrade only**. Use it from an existing compatible OpenWrt/PPE
 
 ### Device updates
 
-This repository automates generating releases, **not on-device OTA**. The upstream `ppe-update` mechanism still points to upstream builds; automatic upstream replacement is disabled by our first-boot overlay to avoid silently replacing your custom image. Upgrade manually from this repository's Releases.
+The custom `ppe-update` bundled in this image now tracks **only this repository's GitHub Releases**, rather than fetching an uncustomized upstream image. It checks a release's `ota.json` metadata (board, build number, source), hashes the firmware and package manifest, simulates reinstallation of extra packages and uses `sysupgrade` with settings preservation. If the package check fails, the one-click update is disabled. **Automatic updates remain OFF until enabled explicitly** in LuCI.
+
+Starting with this OTA-enabled image, go to **System → Firmware update / 系统 → 固件更新** to check your customized release channel. The previous images lack this implementation and must be upgraded manually once. See [Custom OTA design and troubleshooting](docs/CUSTOM-OTA.md).
+
+**Warning:** No firmware upgrade is guaranteed to preserve all configuration or user-installed software. Export a configuration backup to your PC first. Never use `sysupgrade -F`.
 
 ### Wi-Fi credentials
 
@@ -69,6 +74,10 @@ No Wi-Fi password is embedded in this **public** firmware or workflow. Configure
 ## Files
 
 - `docs/PPE-NSS-MONITOR.md` — monitor page data sources, limitations and troubleshooting
+- `docs/CUSTOM-OTA.md` — OTA data flow, safety checks and testing
+- `files/usr/sbin/ppe-update` — customized OTA with an upstream-compatible CLI
+- `scripts/write_ota_metadata.py` — creates per-release `ota.json`
+- `scripts/tests/test-custom-ota.sh` — offline CLI and metadata tests
 - `.github/workflows/build.yml` — scheduled/manual GitHub Actions and Releases
 - `scripts/build.sh` — obtain and assemble upstream ImageBuilder + Aurora APK
 - `scripts/resolve_packages.py` — reconstruct upstream package manifest and custom additions/removals

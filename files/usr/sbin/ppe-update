@@ -1,0 +1,310 @@
+#!/bin/sh
+# ppe-update — customized OTA for pzcn/openwrt-ppe-nss-ota (RE-SS-01).
+# Derived from JuliusBairaktaris/Qualcommax_NSS_Builder ppe-update, GPL-2.0.
+#
+# Interfaces remain compatible with the upstream LuCI plugin:
+#   ppe-update status | check | update | start | auto | restore
+#
+# Unlike upstream, ONLY the GitHub Releases of pzcn/openwrt-ppe-nss-ota
+# are eligible, and only when their OTA metadata matches this ROM image,
+# board, group and a strictly increasing build number.
+#
+# No automatic updates until the operator explicitly enables them in LuCI.
+# No force-upgrade with missing packages. Standard sysupgrade still performs
+# the configuration backup/restore; back up settings separately before use.
+
+[ -r "${PPE_RELEASE:=/etc/ppe-release}" ] && . "$PPE_RELEASE"
+[ -r "${PZCN_RELEASE:=/etc/pzcn-ota-release}" ] && . "$PZCN_RELEASE"
+
+STATE=${PPE_STATE:-/etc/ppe-update}
+WORK=${PPE_WORK:-/tmp/ppe-update}
+BOARD=$(cat /tmp/sysinfo/board_name 2>/dev/null)
+RELEASE_REPO='pzcn/openwrt-ppe-nss-ota'
+RELEASE_API='https://api.github.com/repos/pzcn/openwrt-ppe-nss-ota/releases/latest'
+RELEASE_ASSETS='https://github.com/pzcn/openwrt-ppe-nss-ota/releases/download'
+RELEASE_CHANNEL='re-ss-01-custom'
+EXPECTED_BOARD='jdcloud,re-ss-01'
+EXPECTED_PROFILE='jdcloud_re-ss-01'
+EXPECTED_GROUP='ipq60xx-512m'
+EXPECTED_IMAGE='openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin'
+EXPECTED_MANIFEST='openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest'
+
+log() { logger -t ppe-update "$*"; echo "$*" >&2; }
+die() { log "$*"; exit 2; }
+
+fetch() {
+	uclient-fetch -q -T 30 -O "$2" "$1" 2>/dev/null
+}
+
+valid_integer() {
+	case "$1" in '' | *[!0-9]*) return 1 ;; *) return 0 ;; esac
+}
+
+valid_hash() {
+	[ "${#1}" -eq 64 ] || return 1
+	case "$1" in *[!0123456789abcdef]*) return 1 ;; esac
+}
+
+# The upstream /etc/ppe-release is left intact for matching kernel APK feeds.
+# Our independent /etc/pzcn-ota-release identifies the complete customized
+# image and is generated before the ROM image is assembled.
+# Query the selected latest *public* release, not the upstream PPE+NSS site.
+# Every candidate must ship an ota.json that matches our device/channel.
+index() {
+	[ -n "$OTA_TAG" ] && valid_integer "$OTA_BUILD" &&
+		[ "$OTA_CHANNEL" = "$RELEASE_CHANNEL" ] ||
+		die "not a pzcn custom OTA image (missing ROM metadata)"
+	[ "$BOARD" = "$EXPECTED_BOARD" ] &&
+		[ "$GROUP" = "$EXPECTED_GROUP" ] ||
+		die "board or PPE group mismatch: refusing OTA"
+	mkdir -p "$WORK"
+	fetch "$RELEASE_API" "$WORK/github.json" || die "cannot reach custom GitHub Releases API"
+	LATEST=$(jsonfilter -i "$WORK/github.json" -e '@.tag_name')
+	case "$LATEST" in
+	ota-ppe-nss-*) ;;
+	*) die "latest release is not a pzcn OTA build" ;;
+	esac
+	case "$LATEST" in *[!a-zA-Z0-9._-]*) die "unsafe release tag" ;; esac
+	# We do not trust arbitrary names or paths from a release.
+	fetch "$RELEASE_ASSETS/$LATEST/ota.json" "$WORK/ota.json" ||
+		die "latest release has no trusted OTA metadata"
+	meta() { jsonfilter -i "$WORK/ota.json" -e "@.$1"; }
+	[ "$(meta schema)" = 1 ] &&
+		[ "$(meta channel)" = "$RELEASE_CHANNEL" ] &&
+		[ "$(meta repository)" = "$RELEASE_REPO" ] &&
+		[ "$(meta tag)" = "$LATEST" ] &&
+		[ "$(meta board)" = "$EXPECTED_BOARD" ] &&
+		[ "$(meta profile)" = "$EXPECTED_PROFILE" ] &&
+		[ "$(meta group)" = "$EXPECTED_GROUP" ] ||
+		die "custom OTA metadata does not match this device"
+	[ "$(meta image)" = "$EXPECTED_IMAGE" ] &&
+		[ "$(meta manifest)" = "$EXPECTED_MANIFEST" ] ||
+		die "unexpected firmware or manifest asset in custom release"
+	LATEST_BUILD=$(meta build)
+	LATEST_TIME=$(meta epoch)
+	LATEST_UPSTREAM=$(meta upstream_tag)
+	SHA256=$(meta image_sha256)
+	MANIFEST_SHA256=$(meta manifest_sha256)
+	SIZE=$(meta image_size)
+	valid_integer "$LATEST_BUILD" && valid_integer "$LATEST_TIME" &&
+		valid_integer "$SIZE" && valid_hash "$SHA256" &&
+		valid_hash "$MANIFEST_SHA256" ||
+		die "invalid build, timestamp, size or checksum"
+	[ "$LATEST_BUILD" -gt 0 ] && [ "$SIZE" -gt 1000000 ] &&
+		[ "$LATEST_TIME" -gt 0 ] ||
+		die "invalid OTA release metadata values"
+	case "$LATEST_UPSTREAM" in
+	ppe-nss-*) ;;
+	*) die "invalid upstream PPE+NSS tag" ;;
+	esac
+	case "$LATEST_UPSTREAM" in *[!a-zA-Z0-9._-]*) die "unsafe upstream release tag" ;; esac
+	IMAGE="$EXPECTED_IMAGE"
+	MANIFEST="$EXPECTED_MANIFEST"
+	NEWGROUP="$EXPECTED_GROUP"
+}
+
+# The current build number is embedded in ROM. No string tag comparisons:
+# an older release promoted as "latest" must never downgrade the device.
+newer() {
+	[ "$LATEST" != "$OTA_TAG" ] && [ "$LATEST_BUILD" -gt "$OTA_BUILD" ]
+}
+
+# Save only package names, never release-controlled shell code.
+lookup() {
+	index
+	[ -z "$1" ] || [ "$1" = "$LATEST" ] ||
+		die "requested release is not the latest verified custom release"
+	[ "$LATEST" != "$OTA_TAG" ] || return 0
+	fetch "$RELEASE_ASSETS/$LATEST/$MANIFEST" "$WORK/manifest.full" ||
+		die "custom release package manifest is missing"
+	[ "$(sha256sum "$WORK/manifest.full" | cut -d' ' -f1)" = "$MANIFEST_SHA256" ] ||
+		die "package manifest checksum mismatch"
+	awk 'NF >= 2 { print $1 }' "$WORK/manifest.full" >"$WORK/manifest"
+	[ -s "$WORK/manifest" ] || die "empty package manifest"
+}
+
+
+# World entries the new image does not install by itself, and the packages of
+# this image that were removed, as conflicts so the new image drops them too.
+# Repository tags go: the ImageBuilder's @snapshot is not a feed on the router.
+extras() {
+	sed 's/[@<>=~].*//' /etc/apk/world | sort -u >"$WORK/world"
+	{
+		grep -vxF -f "$WORK/manifest" "$WORK/world"
+		sed 's/[@<>=~].*//' /rom/etc/apk/world 2>/dev/null | grep -v '^!' |
+			grep -vxF -f "$WORK/world" | sed 's/^/!/'
+	} | sort -u
+}
+
+# The packages apk names as not installable in its "unable to select" report:
+# those no feed has, and those whose dependencies or conflicts cannot be met.
+unresolved() {
+	sed -n -e 's/^  \([^ ]*\) (no such package):$/\1/p' \
+		-e 's/^  \([^ ]*\)-[0-9][^ ]*:$/\1/p' "$1" | sort -u
+}
+
+# Simulate reinstalling extra packages against the *new* upstream kernel
+# feed and current official userspace feeds. If this check cannot be completed,
+# fail CLOSED: no missing-package override in unattended or LuCI updates.
+preflight() {
+	extras >"$WORK/extras"
+	key=$(cat "$WORK/extras" | md5sum | cut -c1-8)
+	cache="$WORK/missing.$LATEST_BUILD.$key"
+	[ -f "$cache" ] && { cp "$cache" "$WORK/missing"; return 0; }
+	: >"$WORK/missing"
+	pkgs=$(grep -v '^!' "$WORK/extras")
+	[ -n "$pkgs" ] || return 0
+
+	# The upstream /etc/ppe-release remains the authority for SITE and TAG.
+	# Never use generic OpenWrt snapshot kmods for this NSS kernel.
+	[ -n "$SITE" ] && [ -n "$TAG" ] || return 2
+	feed="$SITE/$LATEST_UPSTREAM/$NEWGROUP/packages.adb"
+	sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' \
+		-e "s|^.*/$TAG/$GROUP/packages\\.adb$|$feed|" \
+		-e "s|^.*/targets/.*/packages/packages\\.adb$|$feed|" \
+		/etc/apk/repositories.d/*.list /etc/apk/repositories 2>/dev/null |
+		sort -u >"$WORK/repositories"
+	[ -s "$WORK/repositories" ] || return 2
+
+	sim="$WORK/sim.$LATEST_BUILD"
+	set -- --root "$sim" --arch "$(cat /etc/apk/arch)" --keys-dir /etc/apk/keys \
+		--repositories-file "$WORK/repositories" --no-logfile
+	[ -d "$sim/lib/apk/db" ] || apk add "$@" --initdb >/dev/null 2>&1 || return 2
+	apk update "$@" >"$WORK/check.log" 2>&1 || return 2
+	# shellcheck disable=SC2086
+	if ! apk add "$@" --simulate $pkgs >"$WORK/check.log" 2>&1; then
+		unresolved "$WORK/check.log" | grep -vxF -f "$WORK/manifest" >"$WORK/missing" || true
+		# Error messages can change between APK versions. Unknown failures
+		# must not be interpreted as a successful compatibility check.
+		[ -s "$WORK/missing" ] || return 2
+	fi
+	cp "$WORK/missing" "$cache"
+	return 0
+}
+
+
+cmd_status() {
+	auto=$(uci -q get ppe-update.main.auto)
+	pending=$(tr "\n" " " 2>/dev/null <"$STATE/packages")
+	(
+		lookup ""
+		checked=true
+		missing=''
+		if newer; then
+			avail=true
+			if preflight; then
+				missing=$(tr '\n' ' ' <"$WORK/missing")
+			else
+				checked=false
+			fi
+		else
+			avail=false
+		fi
+		printf '{"board":"%s","current":"%s","build":%s,"group":"%s","latest":"%s","latest_time":%s,"update":%s,"image":"%s","size":%s,"extras":"%s","missing":"%s","checked":%s,"pending":"%s","auto":"%s","source":"%s"}\n' \
+			"$BOARD" "$OTA_TAG" "$OTA_BUILD" "$GROUP" "$LATEST" "$LATEST_TIME" "$avail" "$IMAGE" "$SIZE" \
+			"$(extras | tr '\n' ' ')" "$missing" "$checked" "$pending" "${auto:-0}" "$RELEASE_REPO"
+	) 2>/dev/null ||
+		printf '{"board":"%s","current":"%s","group":"%s","error":"custom OTA source unavailable or metadata rejected","pending":"%s","auto":"%s","source":"%s"}\n' \
+			"$BOARD" "$OTA_TAG" "$GROUP" "$pending" "${auto:-0}" "$RELEASE_REPO"
+}
+
+cmd_check() {
+	lookup ""
+	if newer; then
+		echo "custom update available: $OTA_TAG -> $LATEST ($IMAGE)"
+		preflight || die "cannot verify extra package compatibility"
+		[ ! -s "$WORK/missing" ] ||
+			die "missing packages: $(tr '\n' ' ' <"$WORK/missing")"
+		return 0
+	fi
+	echo "custom firmware is up to date: $OTA_TAG"
+	return 1
+}
+
+cmd_update() {
+	[ "$2" != "-f" ] || die "unsafe force-upgrade is disabled for custom OTA"
+	lookup "$1"
+	newer || { echo "up to date: $OTA_TAG"; return 1; }
+	preflight || die "cannot verify extra packages; OTA cancelled"
+	[ ! -s "$WORK/missing" ] ||
+		die "new image cannot install $(tr '\n' ' ' <"$WORK/missing"); OTA cancelled"
+	free=$(awk '/^MemAvailable/ { print $2 * 1024 }' /proc/meminfo)
+	[ "$free" -gt $((SIZE * 3)) ] || die "not enough memory for OTA image"
+
+	log "downloading $IMAGE from CUSTOM repo $RELEASE_REPO / $LATEST"
+	fetch "$RELEASE_ASSETS/$LATEST/$IMAGE" "$WORK/$IMAGE" || die "download failed"
+	[ "$(sha256sum "$WORK/$IMAGE" | cut -d' ' -f1)" = "$SHA256" ] ||
+		{ rm -f "$WORK/$IMAGE"; die "image SHA256 mismatch"; }
+	sysupgrade -T "$WORK/$IMAGE" >/dev/null 2>&1 ||
+		{ rm -f "$WORK/$IMAGE"; die "sysupgrade rejected image"; }
+
+	mkdir -p "$STATE"
+	cp "$WORK/extras" "$STATE/packages"
+	[ -s "$STATE/packages" ] || rm -f "$STATE/packages"
+	log "flashing VERIFIED custom image $LATEST; attempting to keep settings"
+	sysupgrade "$WORK/$IMAGE"
+}
+
+cmd_start() {
+	(cmd_update "" "$1" </dev/null >/tmp/ppe-update.log 2>&1; echo "exit $?" >>/tmp/ppe-update.log) &
+}
+
+cmd_auto() {
+	[ "$(uci -q get ppe-update.main.auto)" = 1 ] || return 0
+	lookup ""
+	newer || return 0
+	delay=$(uci -q get ppe-update.main.delay || echo 1)
+	valid_integer "$delay" || die "invalid automatic update delay"
+	now=$(date +%s)
+	[ "$now" -ge $((LATEST_TIME + delay * 86400)) ] || return 0
+	cmd_update "$LATEST" ""
+}
+
+# Installs the kept list in one transaction. When that fails, each package is
+# tried on its own, with the removals beside it so a replacement can go in (pbr
+# taking ip-full for ip-tiny); what still fails stays in the list for the next
+# boot and is shown in LuCI.
+cmd_restore() {
+	[ -s "$STATE/packages" ] || return 0
+	lock -n /var/lock/ppe-update || return 0
+	# The network comes up after boot; retry for up to an hour.
+	i=0
+	until apk update >/dev/null 2>&1; do
+		i=$((i + 1))
+		[ $i -lt 120 ] || die "no package feed reachable; the list stays in $STATE/packages"
+		sleep 30
+	done
+	# shellcheck disable=SC2046
+	if apk add $(cat "$STATE/packages"); then
+		log "reinstalled: $(tr '\n' ' ' <"$STATE/packages")"
+		rm -f "$STATE/packages"
+		return 0
+	fi
+	del=$(grep '^!' "$STATE/packages")
+	: >"$WORK.left"
+	grep -v "^!" "$STATE/packages" | while read -r p; do
+		# shellcheck disable=SC2086
+		apk add $del "$p" >/dev/null 2>&1 || apk add "$p" || echo "$p" >>"$WORK.left"
+	done
+	# shellcheck disable=SC2086
+	[ -z "$del" ] || apk add $del || echo "$del" >>"$WORK.left"
+	if [ -s "$WORK.left" ]; then
+		mv "$WORK.left" "$STATE/packages"
+		die "not reinstalled: $(tr '\n' ' ' <"$STATE/packages")- the list stays in $STATE/packages"
+	fi
+	log "reinstalled: $(tr '\n' ' ' <"$STATE/packages")"
+	rm -f "$STATE/packages" "$WORK.left"
+}
+
+# Tests source the functions without starting an update.
+[ -n "$PPE_UPDATE_LIB" ] && return 0
+
+case "$1" in
+status | check | auto | restore) "cmd_$1" ;;
+update) cmd_update "" "$2" ;;
+start) cmd_start "$2" ;;
+*)
+	echo "usage: ppe-update {status|check|update|start|auto|restore}" >&2
+	exit 2
+	;;
+esac

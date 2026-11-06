@@ -1,0 +1,28 @@
+{
+  "luci-app-ppe-update": {
+    "description": "Read current custom OTA status, run verified custom update and edit schedule",
+    "read": {
+      "file": {
+        "/usr/sbin/ppe-update status": [
+          "exec"
+        ],
+        "/tmp/ppe-update.log": [
+          "read"
+        ]
+      },
+      "uci": [
+        "ppe-update"
+      ]
+    },
+    "write": {
+      "file": {
+        "/usr/sbin/ppe-update start": [
+          "exec"
+        ]
+      },
+      "uci": [
+        "ppe-update"
+      ]
+    }
+  }
+}

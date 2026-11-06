@@ -9,6 +9,7 @@ AURORA_TAG=v1.4.0
 AURORA_APK=luci-theme-aurora-1.4.0-r20260920.apk
 STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-dashboard1
+OTA_REV=custom-ota1
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
@@ -16,7 +17,7 @@ if [[ -z "$TAG" ]]; then
   TAG="$(gh release view --repo "$UPSTREAM_REPO" --json tagName --jq '.tagName')"
 fi
 [[ "$TAG" == ppe-nss-* ]] || { echo "::error::Unexpected upstream tag: $TAG"; exit 1; }
-RELEASE_TAG="ota-$TAG-$AURORA_TAG-$STORAGE_FIX_REV-$MONITOR_REV"
+RELEASE_TAG="ota-$TAG-$AURORA_TAG-$STORAGE_FIX_REV-$MONITOR_REV-$OTA_REV"
 if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
   RELEASE_TAG="$RELEASE_TAG-$GITHUB_RUN_NUMBER"
 elif gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -30,6 +31,24 @@ mkdir -p "$WORK/ib/files"
 tar -C "$WORK/ib/files" -xzf "$WORK/files-$GROUP.tar.gz"
 cp -a "$GITHUB_WORKSPACE/files/." "$WORK/ib/files/"
 chmod +x "$WORK/ib/files/etc/uci-defaults/"*
+# Keep upstream /etc/ppe-release untouched for the NSS kernel package feed.
+# A distinct ROM metadata file identifies ONLY this custom GitHub OTA channel.
+test "$GITHUB_REPOSITORY" = 'pzcn/openwrt-ppe-nss-ota'
+case "$GITHUB_RUN_NUMBER" in '' | *[!0-9]*) echo "::error::Invalid build number"; exit 1 ;; esac
+cat > "$WORK/ib/files/etc/pzcn-ota-release" <<EOF
+OTA_TAG='$RELEASE_TAG'
+OTA_BUILD='$GITHUB_RUN_NUMBER'
+OTA_CHANNEL='re-ss-01-custom'
+EOF
+test -s "$WORK/ib/files/usr/sbin/ppe-update"
+chmod +x "$WORK/ib/files/usr/sbin/ppe-update"
+sh -n "$WORK/ib/files/usr/sbin/ppe-update"
+grep -Fq "RELEASE_API='https://api.github.com/repos/pzcn/openwrt-ppe-nss-ota/releases/latest'" "$WORK/ib/files/usr/sbin/ppe-update"
+grep -Fq 'PZCN_RELEASE' "$WORK/ib/files/usr/sbin/ppe-update"
+grep -Fq 'sysupgrade -T' "$WORK/ib/files/usr/sbin/ppe-update"
+python3 -m json.tool "$WORK/ib/files/usr/share/rpcd/acl.d/luci-app-ppe-update.json" >/dev/null
+node --check "$WORK/ib/files/www/luci-static/resources/view/system/ppe-update.js"
+
 
 # Leave rootfs_data to stock fstools; p27 must be a separate data filesystem.
 FSTAB="$WORK/ib/files/etc/config/fstab"
@@ -95,6 +114,14 @@ test -n "$MANIFEST"
 for p in luci-theme-aurora luci-app-filemanager luci-app-ttyd luci-app-nlbwmon luci-app-statistics luci-app-wifihistory luci-app-irqbalance luci-app-lldpd luci-app-pbr luci-i18n-base-zh-cn luci-proto-wireguard kmod-wireguard kmod-nss-wifi-drv block-mount kmod-fs-ext4 e2fsprogs kmod-fs-f2fs f2fs-tools mkf2fs f2fsck; do
   grep -q "^$p " "$MANIFEST" || { echo "::error::Missing in manifest: $p"; exit 1; }
 done
+python3 "$GITHUB_WORKSPACE/scripts/write_ota_metadata.py" \
+  --tag "$RELEASE_TAG" --build "$GITHUB_RUN_NUMBER" \
+  --upstream "$TAG" --group "$GROUP" --profile "$PROFILE" \
+  --image "$GITHUB_WORKSPACE/out/$IMAGE" \
+  --manifest "$GITHUB_WORKSPACE/out/$MANIFEST" \
+  --output "$GITHUB_WORKSPACE/out/ota.json"
+python3 -m json.tool "$GITHUB_WORKSPACE/out/ota.json" >/dev/null
+grep -Fq "$RELEASE_TAG" "$GITHUB_WORKSPACE/out/ota.json"
 cat > "$WORK/notes.md" <<EOF
 JDCloud RE-SS-01 customized PPE+NSS firmware.
 
@@ -102,6 +129,7 @@ Upstream release: $TAG
 Aurora release: $AURORA_TAG
 Storage fix revision: $STORAGE_FIX_REV
 Monitor revision: $MONITOR_REV
+OTA revision: $OTA_REV
 
 The standard OpenWrt rootfs_data overlay is used on the active rootfs partition's
 space after SquashFS. Matching kmod-fs-f2fs, f2fs-tools and mkf2fs are included
@@ -117,6 +145,9 @@ Includes a custom read-only PPE / NSS LuCI dashboard under Status, with live HW_
 
 Uses upstream Linux/PPE/NSS/ath11k binaries, with selected LuCI apps and Chinese language packs.
 Only sysupgrade, not factory/U-Boot. No Wi-Fi credentials are embedded.
-The bundled ppe-update still targets upstream releases; upgrade this custom image from this repository.
+The bundled ppe-update now targets only pzcn/openwrt-ppe-nss-ota GitHub Releases.
+The firmware embeds an immutable build number and verifies per-release ota.json,
+manifest SHA256, firmware SHA256, board and upstream group before sysupgrade.
+Automatic updates are OFF by default and must be explicitly opted in.
 EOF
-gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS Aurora + Hardware Monitor ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST"
+gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS Aurora + Custom OTA ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST" ota.json
