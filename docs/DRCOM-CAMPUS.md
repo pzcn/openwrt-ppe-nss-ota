@@ -9,7 +9,7 @@
 - **保存确认机制：** `save_urls` 首先调用 `uci.set` + `uci.commit('drcom')`，然后新建第二个 UCI cursor 从配置中重新读取并逐项比对；只有真实保存成功才返回带实际持久化 URL 的 `ok:true`。
 - 前端收到保存结果后还会独立调用 `get_config` 再对比一次。如果地址和输入不一致，显示错误并保留表单输入，不会把旧地址悄悄覆盖回去。
 - 为防止 LuCI 的旧 JavaScript 文件继续从浏览器缓存加载，页面改为独立资源 `view/network/drcom-native.js`，菜单路径自动指向新页面。
-- **保留已有配置**：正常 sysupgrade 保留用户主动保存的 URL、密码和自动认证设置；默认值留空针对新安装，不会清除老固件已有的用户配置。旧配置中仅包含 `server`/`logout_path` 时不会再自动回退到学校地址，需要在新页面明确保存一次完整 URL。
+- **保留已有配置**：正常 sysupgrade 保留用户主动保存的 URL、密码和自动认证设置。仅当旧配置的登录/注销 URL **恰好等于此前固件硬编码的两条辽宁大学地址**，且没有保存账号、密码并且未启用自动认证时，首次启动会清理这两个旧默认值。真实的自定义地址和已保存凭据不会被清除。旧配置仅包含 `server`/`logout_path` 时不会再自动回退到学校地址，需要在新页面明确保存一次完整 URL。
 
 ## 配置方法
 
@@ -68,6 +68,7 @@ mount | grep ' on /overlay '
 - `files/usr/share/rpcd/ucode/luci.drcom`：UCI 持久化、只读配置返回、手动/自动认证 RPC
 - `files/usr/libexec/drcom-web`：通过 WAN 的 curl 请求；没有任何硬编码校园网域名
 - `files/etc/config/drcom`：空的登录/注销 URL 及关闭的自动认证开关
+- `files/etc/uci-defaults/98-drcom-clear-unused-legacy-url`：仅在没有用户凭据时清理旧固件预置的辽宁大学地址
 - `files/usr/libexec/drcom-schedule`：每天零点 cron 管理
 - `scripts/tests/test-drcom.py`：不联网的本地模拟网关测试
 - `scripts/tests/test-luci-native.py`：原生页面和地址持久化检查

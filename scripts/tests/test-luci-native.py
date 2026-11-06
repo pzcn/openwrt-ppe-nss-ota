@@ -48,4 +48,9 @@ assert "result.login_url !== target.login" in campus.read_text()
 assert "c.login_url !== target.login" in campus.read_text()
 assert "--interface \"if!$WAN_DEVICE\"" in transport
 assert "option auto '0'" in default
-print("PASS: native LuCI views and persisted Dr.COM URL readback checks")
+legacy = (overlay / "etc/uci-defaults/98-drcom-clear-unused-legacy-url").read_text()
+assert "gate.lnu.edu.cn/0.htm" in legacy and "gate.lnu.edu.cn/F.htm" in legacy
+for guard in ('[ -z "$username" ]', '[ -z "$password" ]', '[ "$remember" != 1 ]', '[ "$auto" != 1 ]'):
+    assert guard in legacy, "Legacy migration must not clear remembered credentials"
+subprocess.run(["sh", "-n", str(overlay / "etc/uci-defaults/98-drcom-clear-unused-legacy-url")], check=True)
+print("PASS: native LuCI, persisted Dr.COM URL readback, safe legacy default migration")

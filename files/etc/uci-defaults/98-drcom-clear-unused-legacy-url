@@ -1,0 +1,24 @@
+#!/bin/sh
+# Remove the old hardcoded LNU URL when it was only an untouched default.
+# IMPORTANT: keep active / explicitly configured accounts and custom URLs.
+[ -f /etc/config/drcom ] || exit 0
+
+login="$(uci -q get drcom.main.login_url 2>/dev/null || true)"
+logout="$(uci -q get drcom.main.logout_url 2>/dev/null || true)"
+remember="$(uci -q get drcom.main.remember 2>/dev/null || true)"
+auto="$(uci -q get drcom.main.auto 2>/dev/null || true)"
+username="$(uci -q get drcom.main.username 2>/dev/null || true)"
+password="$(uci -q get drcom.main.password 2>/dev/null || true)"
+
+if [ "$login" = 'http://gate.lnu.edu.cn/0.htm' ] &&
+   [ "$logout" = 'http://gate.lnu.edu.cn/F.htm' ] &&
+   [ -z "$username" ] && [ -z "$password" ] &&
+   [ "$remember" != 1 ] && [ "$auto" != 1 ]; then
+	uci -q delete drcom.main.login_url
+	uci -q delete drcom.main.logout_url
+	uci -q delete drcom.main.server
+	uci -q delete drcom.main.logout_path
+	uci -q commit drcom
+	chmod 0600 /etc/config/drcom
+fi
+exit 0

@@ -11,7 +11,7 @@ STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-native1
 OTA_REV=custom-ota1
 I18N_REV=zhcn-lmo1
-DRCOM_REV=campus-drcom6
+DRCOM_REV=campus-drcom7
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
@@ -58,6 +58,7 @@ sh -n "$DRCOM_FILES/usr/libexec/drcom-web"
 sh -n "$DRCOM_FILES/usr/libexec/drcom-schedule"
 sh -n "$DRCOM_FILES/etc/init.d/drcom"
 sh -n "$DRCOM_FILES/etc/uci-defaults/97-drcom-credentials-permissions"
+sh -n "$DRCOM_FILES/etc/uci-defaults/98-drcom-clear-unused-legacy-url"
 python3 -m json.tool "$DRCOM_FILES/usr/share/luci/menu.d/luci-app-drcom.json" >/dev/null
 python3 -m json.tool "$DRCOM_FILES/usr/share/rpcd/acl.d/luci-app-drcom.json" >/dev/null
 node --check "$DRCOM_FILES/www/luci-static/resources/view/network/drcom-native.js"
@@ -202,6 +203,8 @@ DNS for hostname URLs uses only an IPv4 WAN-advertised resolver when its
 route matches WAN, then curl --resolve pins the answer. No WG or system DNS
 fallback: use the numeric campus gateway IP if WAN-only DNS is unavailable.
 No gateway address is preconfigured for clean installations.
+An untouched legacy LNU default is cleared on upgrade only if there is no
+remembered account and auto-auth is off. Active credentials are preserved.
 Users must enter the login and logout URLs explicitly in LuCI.
 The RPC backend commits UCI and reloads an independent cursor to confirm
 that the exact new URLs were persisted before reporting save success.
