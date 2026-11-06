@@ -1,11 +1,20 @@
 # Extra packages for JDCloud RE-SS-01 (one name per line).
 # Aurora is installed from the separately verified upstream GitHub APK; it is not listed here.
+
+# Persistent ext4 overlay for the expanded 64 GB eMMC variant.
+block-mount
+kmod-fs-ext4
+e2fsprogs
+
+# WireGuard and diagnostics.
 luci-proto-wireguard
 wireguard-tools
 tcpdump
 ip-full
 conntrack
 kmod-nf-conntrack-netlink
+
+# Chinese language packs and LuCI applications.
 luci-i18n-base-zh-cn
 luci-i18n-firewall-zh-cn
 luci-i18n-package-manager-zh-cn

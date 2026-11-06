@@ -1,0 +1,11 @@
+config global
+	option anon_swap '0'
+	option anon_mount '0'
+	option delay_root '10'
+
+config mount 'expanded_emmc_extroot'
+	option target '/overlay'
+	option device '/dev/mmcblk0p27'
+	option fstype 'ext4'
+	option options 'rw,noatime'
+	option enabled '1'
