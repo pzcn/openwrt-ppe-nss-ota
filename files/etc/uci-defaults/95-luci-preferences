@@ -7,4 +7,9 @@ if [ -f /etc/config/luci ]; then
     uci -q set luci.main.lang='zh_cn'
     uci -q commit luci
 fi
+# Do not auto-flash a vanilla upstream image over this custom Aurora image.
+if [ -f /etc/config/ppe-update ]; then
+    uci -q set ppe-update.main.auto='0'
+    uci -q commit ppe-update
+fi
 exit 0
