@@ -7,7 +7,7 @@ GROUP=ipq60xx-512m
 PROFILE=jdcloud_re-ss-01
 AURORA_TAG=v1.4.0
 AURORA_APK=luci-theme-aurora-1.4.0-r20260920.apk
-STORAGE_FIX_REV=ext4overlay1
+STORAGE_FIX_REV=f2fsrootfsdata1
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
@@ -30,13 +30,19 @@ tar -C "$WORK/ib/files" -xzf "$WORK/files-$GROUP.tar.gz"
 cp -a "$GITHUB_WORKSPACE/files/." "$WORK/ib/files/"
 chmod +x "$WORK/ib/files/etc/uci-defaults/"*
 
-# The extroot fstab must be in the ROM image so mount_root can read it in PREINIT.
+# Leave rootfs_data to stock fstools; p27 must be a separate data filesystem.
 FSTAB="$WORK/ib/files/etc/config/fstab"
 test -s "$FSTAB"
 grep -Fq "option device '/dev/mmcblk0p27'" "$FSTAB"
-grep -Fq "option target '/overlay'" "$FSTAB"
+grep -Fq "option target '/mnt/storage'" "$FSTAB"
 grep -Fq "option fstype 'ext4'" "$FSTAB"
-grep -Fq "option delay_root '10'" "$FSTAB"
+if grep -Eq "option[[:space:]]+target[[:space:]]+['\"]/(overlay)?['\"]" "$FSTAB"; then
+  echo "::error::The ROM fstab must not select extroot"
+  exit 1
+fi
+sh -n "$WORK/ib/files/etc/uci-defaults/96-migrate-legacy-extroot"
+grep -qx 'kmod-fs-f2fs' "$GITHUB_WORKSPACE/config/add.txt"
+grep -qx 'f2fs-tools' "$GITHUB_WORKSPACE/config/add.txt"
 
 URL="https://github.com/eamonxg/luci-theme-aurora/releases/download/$AURORA_TAG/$AURORA_APK"
 curl -fL --retry 3 --connect-timeout 20 "$URL" -o "$WORK/$AURORA_APK"
@@ -74,7 +80,7 @@ sha256sum "$IMAGE" > sha256sums
 cp "$WORK/packages.txt" selected-packages.txt
 MANIFEST="$(find . -maxdepth 1 -name '*.manifest' -printf '%f\n' | head -n 1)"
 test -n "$MANIFEST"
-for p in luci-theme-aurora luci-app-filemanager luci-app-ttyd luci-app-nlbwmon luci-app-statistics luci-app-wifihistory luci-app-irqbalance luci-app-lldpd luci-app-pbr luci-i18n-base-zh-cn luci-proto-wireguard kmod-wireguard kmod-nss-wifi-drv block-mount kmod-fs-ext4 e2fsprogs; do
+for p in luci-theme-aurora luci-app-filemanager luci-app-ttyd luci-app-nlbwmon luci-app-statistics luci-app-wifihistory luci-app-irqbalance luci-app-lldpd luci-app-pbr luci-i18n-base-zh-cn luci-proto-wireguard kmod-wireguard kmod-nss-wifi-drv block-mount kmod-fs-ext4 e2fsprogs kmod-fs-f2fs f2fs-tools mkf2fs f2fsck; do
   grep -q "^$p " "$MANIFEST" || { echo "::error::Missing in manifest: $p"; exit 1; }
 done
 cat > "$WORK/notes.md" <<EOF
@@ -84,12 +90,18 @@ Upstream release: $TAG
 Aurora release: $AURORA_TAG
 Storage fix revision: $STORAGE_FIX_REV
 
-Persistent overlay: the existing ext4 partition /dev/mmcblk0p27 is mounted as /overlay during PREINIT.
-The firmware does not format p27 or change the partition table. No F2FS support is required for this overlay path.
-This image assumes the expanded 64 GB eMMC partition layout.
+The standard OpenWrt rootfs_data overlay is used on the active rootfs partition's
+space after SquashFS. Matching kmod-fs-f2fs, f2fs-tools and mkf2fs are included
+for fstools to initialize that large space as F2FS on first boot, if unformatted.
+CAUTION: first-boot initialization may format the unused tail of the active
+rootfs partition (reported as p18); it does NOT format p27.
+The original 64 GB eMMC's p27 ext4 partition is independent data storage,
+mounted as /mnt/storage. No GPT or U-Boot modifications.
+Legacy p27 extroot fstab settings are converted to /mnt/storage by a
+first-boot UCI default when config files are retained across sysupgrade.
 
 Uses upstream Linux/PPE/NSS/ath11k binaries, with selected LuCI apps and Chinese language packs.
 Only sysupgrade, not factory/U-Boot. No Wi-Fi credentials are embedded.
 The bundled ppe-update still targets upstream releases; upgrade this custom image from this repository.
 EOF
-gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS Aurora + ext4 extroot ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST"
+gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS Aurora + F2FS rootfs_data ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST"

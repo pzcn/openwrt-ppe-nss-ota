@@ -1,6 +1,6 @@
 # JDCloud RE-SS-01 PPE+NSS OTA ImageBuilder
 
-A lightweight firmware packager for **JDCloud RE-SS-01 / AX1800 Pro (IPQ60xx; expanded hardware variant: 1 GiB RAM, 64 GB eMMC)**.
+A lightweight firmware packager for **JDCloud RE-SS-01 / AX1800 Pro**. The device originally has 512 MiB RAM and 64 GB eMMC; this installation has been upgraded to **1 GiB RAM** (storage size unchanged).
 
 This repository **does not compile Linux, PPE, NSS or Wi-Fi drivers**. It downloads the latest full-build ImageBuilder and overlay from [JuliusBairaktaris/Qualcommax_NSS_Builder](https://github.com/JuliusBairaktaris/Qualcommax_NSS_Builder), adds the prebuilt Aurora theme APK, and generates a customized sysupgrade image from the same upstream hardware stack.
 
@@ -11,36 +11,37 @@ This repository **does not compile Linux, PPE, NSS or Wi-Fi drivers**. It downlo
 - Simplified Chinese LuCI language packs, including the selected apps
 - File manager, web terminal, per-client bandwidth, statistics, Wi-Fi station history, irqbalance UI, LLDP, PBR
 - WireGuard UI/tools and diagnosis: tcpdump, ip-full, conntrack, conntrack netlink
-- **Persistent ext4 overlay on the expanded eMMC:** existing `/dev/mmcblk0p27` mounted as `/overlay` during PREINIT
-- ext4 maintenance utilities (`e2fsprogs`); no F2FS driver or `mkfs.f2fs` is required for the configured overlay
+- **Standard OpenWrt rootfs_data persistence:** include matching `kmod-fs-f2fs`, `f2fs-tools` and `mkf2fs`; p18 SquashFS tail is the normal writable overlay
+- **Separate data partition:** p27 keeps its existing ext4 filesystem and mounts at `/mnt/storage` instead of `/overlay`
 - Keeps Bootstrap as fallback
 - Removes ip-tiny, libopenssl-oqsprovider and liboqs when dependency resolution permits
 
 All selected LuCI apps and their translations are from OpenWrt's official LuCI feed. **Only Aurora requires a third-party APK.** This intentionally reuses Aurora's released APK, not the newer unreleased GitHub source commit.
 
-## Persistent storage on the expanded eMMC
+## Standard OpenWrt rootfs_data storage
 
-The expanded device's reported layout is:
+The factory 64 GB eMMC layout reported for this device has a 2 GiB rootfs partition (observed as p18) and an existing ~54.13 GiB ext4 storage partition (p27).
 
-- **p18:** 2 GiB rootfs partition. Its SquashFS firmware remains unchanged.
-- **p27:** approximately 54.13 GiB, already formatted as ext4.
+The firmware now follows the **stock fstools mechanism**, not extroot. On first boot, fstools detects the SquashFS image in the active rootfs partition and uses the writable space after the image (via a loop device) for `rootfs_data`. If unformatted and larger than 100 MiB, fstools normally chooses F2FS. This build adds the matching early-autoloadable `kmod-fs-f2fs` from the upstream ImageBuilder and the official `f2fs-tools` / `mkf2fs` / `f2fsck` user tools.
 
-The firmware embeds `/etc/config/fstab` in the read-only image and configures `/dev/mmcblk0p27` as extroot at `/overlay`. OpenWrt's early `mount_root` path can read this ROM-side configuration and mount p27 before trying to initialize the unused tail of p18. This avoids the failed F2FS initialization path that previously left the device using `/tmp/root` (tmpfs).
+The **p27 ext4 partition remains separate**, at `/mnt/storage`. It is *not* formatted, wiped or repartitioned. First boot may format the **previously unformatted p18 rootfs tail** as F2FS; back up data and settings first. We do not alter U-Boot, GPT, Linux, PPE, NSS or Wi-Fi drivers.
 
-**The firmware does not format p27, run mkfs, wipe the partition, change the GPT, or modify U-Boot.** On a successful first extroot boot, OpenWrt creates `/overlay/upper` and `/overlay/work` on the existing ext4 filesystem. Back up p27 before flashing anyway: if those directories already exist, they will be used by the overlay. Keep personal files in a separate directory such as `/overlay/data`, not inside `upper` or `work`.
+The official RE-SS-01 device profile itself does **not** explicitly select F2FS packages, but some other official OpenWrt devices (e.g. Link NN6000) do. We add these missing packages while keeping the upstream kernel unchanged. This is an application of the official rootfs_data boot mechanism, not a claim that the official RE-SS-01 image already contains the same dependencies.
 
-This configuration uses the whole p27 filesystem as the writable system overlay; it is **not** mounted as a separate `/mnt/storage` volume. The p18 SquashFS partition is left intact, and its unused tail is not reformatted by this extroot configuration.
+### Migrating from our previous p27 extroot firmware
 
-The fstab entry assumes the expanded device exposes the partition as `/dev/mmcblk0p27`. If the device node is different or p27 cannot be mounted, extroot will not activate and the system may fall back to its internal rootfs_data path (which may still be volatile on a device without F2FS support). Verify the mount after flashing:
+Back up the router configuration **off the device** and any important files on p27 before flashing. A saved fstab from the old image points p27 to `/overlay`; a one-time UCI defaults script changes precisely that known entry to `/mnt/storage` if `sysupgrade` restores it. Other mount entries and p27 files are preserved. The old `upper` and `work` directories on p27 are intentionally not deleted. The previous firmware remains available in Releases for recovery.
+
+After flashing and rebooting, verify:
 
 ```sh
-grep -E ' /overlay |overlayfs:' /proc/mounts
-df -h /overlay /
+cat /proc/mounts | grep -E ' /overlay | /mnt/storage |overlayfs:'
+df -h /overlay /mnt/storage
 block info | grep mmcblk0p27
-logread | grep -i extroot
+logread | grep -Ei 'f2fs|rootfs_data|overlay|extroot'
 ```
 
-A successful boot should show `/dev/mmcblk0p27` mounted on `/overlay`, with `overlayfs:/overlay` backing `/`.
+Expected: `/overlay` is backed by a loop device with F2FS, and `/mnt/storage` is backed by p27 with ext4. `/overlay` must **not** be tmpfs or p27. On some systems the first boot includes restoring saved settings, so review the mount result again after another reboot.
 
 ## Build and download
 
@@ -54,7 +55,7 @@ The build uses GitHub-hosted runners and needs no local OpenWrt toolchain.
 
 ### Upgrade
 
-This outputs **sysupgrade only**. Use it from an existing compatible OpenWrt/PPE+NSS installation; it is not a U-Boot/factory image. Confirm the expanded partition layout and back up p27 before upgrading. Do not flash with `sysupgrade -F`.
+This outputs **sysupgrade only**. Use it from an existing compatible OpenWrt/PPE+NSS installation; it is not a U-Boot/factory image. Confirm the partition layout and back up the current settings **off the router**, as well as any important p27 data, before upgrading. Do not flash with `sysupgrade -F`.
 
 ### Device updates
 
@@ -71,12 +72,14 @@ No Wi-Fi password is embedded in this **public** firmware or workflow. Configure
 - `scripts/resolve_packages.py` — reconstruct upstream package manifest and custom additions/removals
 - `config/add.txt` — software packages to install
 - `config/remove.txt` — default packages to leave out
-- `files/etc/config/fstab` — PREINIT extroot configuration for p27
+- `files/etc/config/fstab` — separate ext4 storage mount at `/mnt/storage` (no extroot)
+- `files/etc/uci-defaults/96-migrate-legacy-extroot` — converts the previous preserved p27 extroot configuration
 - `files/etc/uci-defaults/95-luci-preferences` — Chinese + Aurora defaults
 
 ## Compatibility and limitations
 
-- This persistence configuration is specifically for the described **expanded 64 GB eMMC layout** with p27 at `/dev/mmcblk0p27`. Do not assume it applies to a stock or differently partitioned RE-SS-01.
+- This persistence configuration uses the original **64 GB eMMC layout**, with p27 at `/dev/mmcblk0p27`. Verify actual device numbering before flashing; a different partition layout needs different storage mount settings.
+- The rootfs_data initialization may format the **unformatted tail of the active rootfs partition**; do not store personal data there. It never runs mkfs on p27.
 - The upstream builder currently includes `jdcloud_re-ss-01` only in its `ipq60xx-512m` group; its `ipq60xx-1g` group does not include this device profile. The workflow therefore retains the only published RE-SS-01 profile instead of selecting an ImageBuilder that cannot build this device. A physical RAM upgrade does not by itself provide an upstream 1 GiB NSS/ath11k build profile.
 - Requires upstream ImageBuilder, upstream OpenWrt snapshot package feeds and public GitHub releases to remain accessible from GitHub Actions.
 - **APK ABI/version compatibility is not guaranteed** for latest OpenWrt snapshot feeds or the Aurora prebuilt package; the job fails if dependencies cannot be resolved, rather than publishing a partial image.

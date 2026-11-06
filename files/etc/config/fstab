@@ -1,11 +1,14 @@
+# Stock-style rootfs_data is managed by fstools; do NOT configure p27 as extroot.
+# p27 is the original independent ext4 storage partition.
 config global
 	option anon_swap '0'
 	option anon_mount '0'
-	option delay_root '10'
+	option auto_mount '1'
 
-config mount 'expanded_emmc_extroot'
-	option target '/overlay'
+config mount 'storage'
+	option target '/mnt/storage'
 	option device '/dev/mmcblk0p27'
 	option fstype 'ext4'
 	option options 'rw,noatime'
 	option enabled '1'
+

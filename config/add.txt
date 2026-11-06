@@ -1,10 +1,14 @@
 # Extra packages for JDCloud RE-SS-01 (one name per line).
 # Aurora is installed from the separately verified upstream GitHub APK; it is not listed here.
 
-# Persistent ext4 overlay for the expanded 64 GB eMMC variant.
+# Standard rootfs_data on the active p18/rootfs slot: add F2FS support.
+# F2FS kmod comes from the upstream matching ImageBuilder, never generic snapshots.
+# f2fs-tools depends on mkf2fs and f2fsck (including mkfs.f2fs).
 block-mount
 kmod-fs-ext4
 e2fsprogs
+kmod-fs-f2fs
+f2fs-tools
 
 # WireGuard and diagnostics.
 luci-proto-wireguard

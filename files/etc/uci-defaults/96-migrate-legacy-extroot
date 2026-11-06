@@ -1,0 +1,17 @@
+#!/bin/sh
+# The previous custom image mounted /dev/mmcblk0p27 as extroot at /overlay.
+# When sysupgrade retains configuration, its old fstab can override the ROM
+# storage-only fstab. Convert only our precisely identified legacy entry;
+# leave other user-defined mounts and all filesystem contents untouched.
+old='fstab.expanded_emmc_extroot'
+if [ "$(uci -q get "$old.device")" = '/dev/mmcblk0p27' ] &&
+   [ "$(uci -q get "$old.target")" = '/overlay' ]; then
+    uci -q set "$old.target=/mnt/storage" || exit 1
+    uci -q set "$old.fstype=ext4" || exit 1
+    uci -q set "$old.enabled=1" || exit 1
+    uci -q set 'fstab.@global[0].auto_mount=1' || exit 1
+    uci -q commit fstab || exit 1
+    logger -t storage-migration 'Converted legacy p27 extroot to /mnt/storage (no formatting)'
+fi
+exit 0
+
