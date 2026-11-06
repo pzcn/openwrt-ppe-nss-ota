@@ -61,9 +61,7 @@ let disk = {
     login_url: '', logout_url: '', remember: '0', auto: '0'
 };
 function cursor() {
-    let local = {};
-    for (let key in keys(disk))
-        local[key] = disk[key];
+    let local = { ...disk };
     return {
         load: function(name) { return name == 'drcom'; },
         get: function(pkg, section, key) { return local[key]; },
@@ -133,5 +131,5 @@ with tempfile.TemporaryDirectory() as directory:
         functions + "\n" + mock_setup + "\n" + config_functions + "\n" + suite + "\n" + tests,
         encoding="utf-8",
     )
-    subprocess.run([sys.argv[1], str(script)], check=True)
+    subprocess.run([sys.argv[1], str(script)], check=True, timeout=15)
 
