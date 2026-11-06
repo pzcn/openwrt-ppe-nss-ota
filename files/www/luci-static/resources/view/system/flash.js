@@ -143,7 +143,7 @@ return view.extend({
 				if (box)
 					box.textContent = log || '正在准备更新…';
 
-				if (/flashing VERIFIED/.test(log))
+				if (/开始刷写固件/.test(log))
 					return ui.awaitReconnect(window.location.host);
 
 				const m = log.match(/^exit ([0-9]+)/m);

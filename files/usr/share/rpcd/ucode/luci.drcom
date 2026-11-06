@@ -197,7 +197,7 @@ const methods = {
 				return {
 					ok: true, backend_revision: 'drcom-rpc9',
 					login_url, logout_url,
-					message: '认证地址已保存并核对成功'
+					message: '认证地址已保存'
 				};
 			} catch (e) {
 				// Error strings here are fixed: never log or return any user
@@ -226,7 +226,7 @@ const methods = {
 				password = saved.password;
 
 			if (!valid_secret(username, 128) || !valid_secret(password, 256))
-				return { ok: false, state: 'unknown', message: '请填写有效的账号和密码（不允许换行）' };
+				return { ok: false, state: 'unknown', message: '账号或密码格式有误' };
 
 			let remember = a.remember === true;
 			if (!save_changes({
@@ -264,7 +264,7 @@ const methods = {
 				return { ok: false, auto: saved.auto, message: '保存自动认证开关失败' };
 			return {
 				ok: true, auto: enabled,
-				message: enabled ? '已开启：每天路由器本地时间 00:00 自动认证一次' : '已关闭每日自动认证'
+				message: enabled ? '每天 00:00 自动认证已开启' : '已关闭每日自动认证'
 			};
 		}
 	},
@@ -280,7 +280,7 @@ const methods = {
 		call: function() {
 			if (!save_changes({ remember: '0' }, true))
 				return { ok: false, message: '清除已保存凭据失败' };
-			return { ok: true, message: '已清除账号与密码，并关闭每日自动认证；当前认证会话不受影响' };
+			return { ok: true, message: '账号密码已清除，自动认证已关闭' };
 		}
 	}
 };

@@ -79,6 +79,10 @@ visible = [
 for item in visible:
     content = item.read_text(encoding="utf-8").lower()
     assert "pzcn" not in content, f"Identity label in user-facing content: {item}"
+    if item.name == "drcom-native.js":
+        assert "注意事项" not in content
+        assert "HTTP 认证会明文传输密码" in content
+
     for phrase in ("不会", "不再", "不会回退", "不会修改"):
         assert phrase not in content, f"Defensive phrase {phrase}: {item}"
 build_script = (root / "scripts/build.sh").read_text(encoding="utf-8")

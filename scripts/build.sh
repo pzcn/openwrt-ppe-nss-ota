@@ -9,9 +9,9 @@ AURORA_TAG=v1.4.0
 AURORA_APK=luci-theme-aurora-1.4.0-r20260920.apk
 STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-native2
-OTA_REV=custom-ota3
+OTA_REV=custom-ota4
 I18N_REV=zhcn-lmo1
-DRCOM_REV=campus-drcom10
+DRCOM_REV=campus-drcom11
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"

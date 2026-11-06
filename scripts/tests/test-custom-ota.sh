@@ -10,6 +10,9 @@ trap 'rm -rf "$WORKDIR"' EXIT
 
 sh -n "$OTA"
 node --check "$HERE/files/www/luci-static/resources/view/system/ppe-update.js"
+grep -Fq '/开始刷写固件/.test(log)' "$HERE/files/www/luci-static/resources/view/system/flash.js"
+grep -Fq 'log "开始刷写固件：$LATEST"' "$OTA"
+
 node --check "$HERE/files/www/luci-static/resources/view/system/flash.js"
 python3 - "$HERE/files/www/luci-static/resources/view/system/flash.js" <<'PY'
 from pathlib import Path

@@ -1,13 +1,11 @@
 #!/bin/sh
-# ppe-update — customized OTA for pzcn/openwrt-ppe-nss-ota (RE-SS-01).
+# RE-SS-01 firmware update helper.
 # Derived from JuliusBairaktaris/Qualcommax_NSS_Builder ppe-update, GPL-2.0.
 #
 # Interfaces remain compatible with the upstream LuCI plugin:
 #   ppe-update status | check | update | start | auto | restore
 #
-# Unlike upstream, ONLY the GitHub Releases of pzcn/openwrt-ppe-nss-ota
-# are eligible, and only when their OTA metadata matches this ROM image,
-# board, group and a strictly increasing build number.
+# Uses the configured release channel with device, version and image checks.
 #
 # No automatic updates until the operator explicitly enables them in LuCI.
 # Optional package restoration is a warning for MANUAL upgrades, but unattended
@@ -200,7 +198,7 @@ cmd_status() {
 			"$BOARD" "$OTA_TAG" "$OTA_BUILD" "$GROUP" "$LATEST" "$LATEST_TIME" "$avail" "$IMAGE" "$SIZE" \
 			"$(extras | tr '\n' ' ')" "$pending" "${auto:-0}" "GitHub Releases"
 	) 2>/dev/null ||
-		printf '{"board":"%s","current":"%s","group":"%s","error":"custom OTA source unavailable or metadata rejected","pending":"%s","auto":"%s","source":"%s"}\n' \
+		printf '{"board":"%s","current":"%s","group":"%s","error":"更新源暂不可用","pending":"%s","auto":"%s","source":"%s"}\n' \
 			"$BOARD" "$OTA_TAG" "$GROUP" "$pending" "${auto:-0}" "GitHub Releases"
 }
 
@@ -225,14 +223,14 @@ cmd_update() {
 	# Always keep a best-effort list of packages to reinstall after reboot.
 	# Manual updates do not contact APK feeds or depend on their health.
 	extras >"$WORK/extras" ||
-		{ : >"$WORK/extras"; log "WARNING: could not enumerate extra packages"; }
+		{ : >"$WORK/extras"; log "额外软件包列表读取失败"; }
 	if [ "$policy" = auto ]; then
 		# Only unattended updates need to verify extras before flashing.
 		preflight || die "automatic OTA postponed: optional APK feeds unavailable"
 		[ ! -s "$WORK/missing" ] ||
 			die "automatic OTA postponed: missing extras $(tr '\n' ' ' <"$WORK/missing")"
 	elif [ -s "$WORK/extras" ]; then
-		log "NOTICE: manual OTA preserves config and attempts to restore extra packages after reboot, but some may be unavailable"
+		log "升级后将尝试恢复额外软件包"
 	fi
 
 	# Check actual free download space, not an arbitrary 3x RAM requirement.
@@ -243,7 +241,7 @@ cmd_update() {
 		die "not enough free space: need ${need_kb}K, have ${avail_kb}K"
 	fi
 
-	log "downloading firmware $LATEST"
+	log "正在下载固件：$LATEST"
 	fetch "$RELEASE_ASSETS/$LATEST/$IMAGE" "$WORK/$IMAGE" || die "download failed"
 	[ "$(sha256sum "$WORK/$IMAGE" | cut -d' ' -f1)" = "$SHA256" ] ||
 		{ rm -f "$WORK/$IMAGE"; die "image SHA256 mismatch"; }
@@ -253,7 +251,7 @@ cmd_update() {
 	mkdir -p "$STATE"
 	cp "$WORK/extras" "$STATE/packages"
 	[ -s "$STATE/packages" ] || rm -f "$STATE/packages"
-	log "installing validated firmware $LATEST with configuration preservation"
+	log "开始刷写固件：$LATEST"
 	sysupgrade "$WORK/$IMAGE"
 }
 

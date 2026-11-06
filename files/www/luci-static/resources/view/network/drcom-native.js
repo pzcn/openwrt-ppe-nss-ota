@@ -305,9 +305,9 @@ return view.extend({
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', '认证地址'),
 				E('div', { 'class': 'cbi-section-descr' },
-					'首次安装不预设任何学校或网关地址。请填写真实的完整 URL，并点击保存。支持域名、IPv4、端口和路径。'),
-				field('登录 URL', n.loginUrl, '向此地址 POST 账号、密码（DDDDD、upass、0MKKey）。'),
-				field('注销 URL', n.logoutUrl, '注销时向此地址发送 GET 请求；实际路径应按校园网门户确定。'),
+					'填写登录和注销地址，支持域名、IP、端口和路径。'),
+				field('登录 URL', n.loginUrl, 'POST 登录接口。'),
+				field('注销 URL', n.logoutUrl, 'GET 注销接口。'),
 				E('div', { 'class': 'cbi-page-actions' }, [
 					n.saveState, n.saveUrls
 				])
@@ -315,7 +315,7 @@ return view.extend({
 			E('div', { 'class': 'cbi-section' }, [
 				E('h3', '账号认证'),
 				field('校园网账号', n.username),
-				field('校园网密码', n.password),
+				field('校园网密码', n.password, 'HTTP 认证会明文传输密码。'),
 				E('div', { 'class': 'cbi-value' }, [
 					E('label', { 'class': 'cbi-value-title', 'for': 'drcom-remember' }, '记住账号密码'),
 					E('div', { 'class': 'cbi-value-field' }, [
@@ -336,13 +336,7 @@ return view.extend({
 				]),
 				E('div', { 'class': 'cbi-page-actions' }, [n.setAuto])
 			]),
-			E('div', { 'class': 'cbi-section' }, [
-				E('h3', '注意事项'),
-				E('div', { 'class': 'cbi-section-descr' }, [
-					E('p', '使用 WAN 接口连接认证网关；若域名解析异常，可填写认证网关 IPv4 地址。'),
-					E('p', '如果认证服务器只支持 HTTP，账号密码在校园网链路上会明文传输；保存的密码仅允许 root 读取，并可能被包含在配置备份中。')
-				])
-			])
+
 		]);
 		this.showStatus(result);
 		return root;
