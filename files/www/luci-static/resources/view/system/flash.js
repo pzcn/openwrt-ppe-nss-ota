@@ -163,6 +163,8 @@ return view.extend({
 
 		this._otaStatus = info || {};
 		const st = this._otaStatus;
+		if (this._otaInstallButton)
+			this._otaInstallButton.disabled = isReadonlyView || st.update !== true;
 		const rows = [
 			customOTARow('固件渠道', 'RE-SS-01 PPE+NSS'),
 			customOTARow('当前固件', st.current || '—'),
@@ -187,7 +189,7 @@ return view.extend({
 		} else if (st.error) {
 			rows.push(customOTARow('检查结果', E('span', st.error + '。请确认 GitHub 可以从路由器访问。')));
 		} else {
-			rows.push(customOTARow('检查结果', '当前已是最新版本。'));
+			rows.push(customOTARow('检查结果', '当前已是最新版本'));
 			rows.push(customOTARow('自动更新', autoOn
 				? '已开启，每天 ' + hour + ' 点检查。'
 				: '未开启'));
@@ -200,6 +202,8 @@ return view.extend({
 
 	otaRefresh() {
 		this._otaStatus = null;
+		if (this._otaInstallButton)
+			this._otaInstallButton.disabled = true;
 		if (this._otaInfo)
 			this._otaInfo.textContent = '正在检查固件更新…';
 
@@ -678,10 +682,16 @@ return view.extend({
 		o.inputtitle = '重新检查';
 		o.onclick = L.bind(this.otaRefresh, this);
 
-		o = ss.option(form.Button, 'online_upgrade_install', '安装更新');
-		o.inputstyle = 'apply important';
-		o.inputtitle = '下载并安装新版本';
-		o.onclick = L.bind(this.otaAskInstall, this);
+		o = ss.option(form.DummyValue, 'online_upgrade_install', '安装更新');
+		o.renderWidget = L.bind(function() {
+			this._otaInstallButton = E('button', {
+				'type': 'button',
+				'class': 'cbi-button cbi-button-apply important',
+				'disabled': true,
+				'click': ui.createHandlerFn(this, 'otaAskInstall')
+			}, '下载并安装新版本');
+			return this._otaInstallButton;
+		}, this);
 
 		o = ss.option(form.DummyValue, 'online_upgrade_schedule', '自动更新设置');
 		o.renderWidget = L.bind(this.otaScheduleWidget, this);

@@ -60,6 +60,12 @@ assert "发现新版本，已开启自动更新" in flash
 assert "发现新版本，可立即手动升级" in flash
 assert "发现新版本，可手动升级" not in flash
 assert "return view.otaRefresh();" in flash
+assert "'当前已是最新版本'" in flash
+assert "'当前已是最新版本。'" not in flash
+assert "this._otaInstallButton.disabled = isReadonlyView || st.update !== true;" in flash
+assert "this._otaInstallButton.disabled = true;" in flash
+assert "return this._otaInstallButton;" in flash
+assert "'click': ui.createHandlerFn(this, 'otaAskInstall')" in flash
 assert "L.url('admin/system/ppe-update')" not in flash
 assert not (overlay / "usr/share/luci/menu.d/luci-app-ppe-update.json").exists()
 assert "c.login_url !== target.login" in campus.read_text()
