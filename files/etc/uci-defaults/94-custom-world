@@ -1,0 +1,9 @@
+#!/bin/sh
+# The original ImageBuilder workflow marks @snapshot pins and removed packages.
+# Keep the base world valid after migration.
+[ -f /etc/apk/world ] || exit 0
+sed -i 's/@snapshot//g' /etc/apk/world
+for p in ip-tiny libopenssl-oqsprovider liboqs; do
+    grep -qx "!$p" /etc/apk/world || echo "!$p" >> /etc/apk/world
+done
+exit 0
