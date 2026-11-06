@@ -9,7 +9,10 @@ WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
 
 sh -n "$OTA"
-node --check "$HERE/files/www/luci-static/resources/view/system/ppe-update.js"
+# The OTA schedule is embedded in the native Backup / Flash Firmware view.
+test ! -e "$HERE/files/www/luci-static/resources/view/system/ppe-update.js"
+grep -Fq 'otaScheduleWidget()' "$HERE/files/www/luci-static/resources/view/system/flash.js"
+grep -Fq 'uci.apply()' "$HERE/files/www/luci-static/resources/view/system/flash.js"
 grep -Fq '/开始刷写固件/.test(log)' "$HERE/files/www/luci-static/resources/view/system/flash.js"
 grep -Fq 'log "开始刷写固件：$LATEST"' "$OTA"
 
@@ -29,7 +32,7 @@ assert "checked !== true" not in ui
 assert "missing)" not in ui
 print("PASS stock LuCI flash actions preserved and sibling online OTA section embedded")
 PY
-python3 -m json.tool "$HERE/files/usr/share/luci/menu.d/luci-app-ppe-update.json" >/dev/null
+test ! -e "$HERE/files/usr/share/luci/menu.d/luci-app-ppe-update.json"
 python3 -m json.tool "$HERE/files/usr/share/rpcd/acl.d/luci-app-ppe-update.json" >/dev/null
 test "$(python3 - "$HERE/files/usr/share/rpcd/acl.d/luci-app-ppe-update.json" <<'PY'
 import json,sys
