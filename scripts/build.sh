@@ -8,6 +8,7 @@ PROFILE=jdcloud_re-ss-01
 AURORA_TAG=v1.4.0
 AURORA_APK=luci-theme-aurora-1.4.0-r20260920.apk
 STORAGE_FIX_REV=f2fsrootfsdata1
+MONITOR_REV=ppe-nss-dashboard1
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
@@ -15,7 +16,7 @@ if [[ -z "$TAG" ]]; then
   TAG="$(gh release view --repo "$UPSTREAM_REPO" --json tagName --jq '.tagName')"
 fi
 [[ "$TAG" == ppe-nss-* ]] || { echo "::error::Unexpected upstream tag: $TAG"; exit 1; }
-RELEASE_TAG="ota-$TAG-$AURORA_TAG-$STORAGE_FIX_REV"
+RELEASE_TAG="ota-$TAG-$AURORA_TAG-$STORAGE_FIX_REV-$MONITOR_REV"
 if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
   RELEASE_TAG="$RELEASE_TAG-$GITHUB_RUN_NUMBER"
 elif gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -43,6 +44,17 @@ fi
 sh -n "$WORK/ib/files/etc/uci-defaults/96-migrate-legacy-extroot"
 grep -qx 'kmod-fs-f2fs' "$GITHUB_WORKSPACE/config/add.txt"
 grep -qx 'f2fs-tools' "$GITHUB_WORKSPACE/config/add.txt"
+
+# Validate the custom LuCI status dashboard before publishing a firmware.
+MONITOR_FILES="$WORK/ib/files"
+test -s "$MONITOR_FILES/www/luci-static/resources/view/status/ppe-nss-monitor.js"
+test -s "$MONITOR_FILES/www/luci-static/resources/ppe-nss-monitor.css"
+test -s "$MONITOR_FILES/usr/share/rpcd/ucode/luci.ppe-nss-monitor"
+python3 -m json.tool "$MONITOR_FILES/usr/share/luci/menu.d/luci-app-ppe-nss-monitor.json" >/dev/null
+python3 -m json.tool "$MONITOR_FILES/usr/share/rpcd/acl.d/luci-app-ppe-nss-monitor.json" >/dev/null
+node --check "$MONITOR_FILES/www/luci-static/resources/view/status/ppe-nss-monitor.js"
+grep -Fq "return { 'luci.ppe-nss-monitor': methods };" "$MONITOR_FILES/usr/share/rpcd/ucode/luci.ppe-nss-monitor"
+grep -Fq '"get_status"' "$MONITOR_FILES/usr/share/rpcd/acl.d/luci-app-ppe-nss-monitor.json"
 
 URL="https://github.com/eamonxg/luci-theme-aurora/releases/download/$AURORA_TAG/$AURORA_APK"
 curl -fL --retry 3 --connect-timeout 20 "$URL" -o "$WORK/$AURORA_APK"
@@ -89,6 +101,7 @@ JDCloud RE-SS-01 customized PPE+NSS firmware.
 Upstream release: $TAG
 Aurora release: $AURORA_TAG
 Storage fix revision: $STORAGE_FIX_REV
+Monitor revision: $MONITOR_REV
 
 The standard OpenWrt rootfs_data overlay is used on the active rootfs partition's
 space after SquashFS. Matching kmod-fs-f2fs, f2fs-tools and mkf2fs are included
@@ -100,8 +113,10 @@ mounted as /mnt/storage. No GPT or U-Boot modifications.
 Legacy p27 extroot fstab settings are converted to /mnt/storage by a
 first-boot UCI default when config files are retained across sysupgrade.
 
+Includes a custom read-only PPE / NSS LuCI dashboard under Status, with live HW_OFFLOAD conntrack statistics, NSS ath11k/core status and optional kernel debugfs counters. Polls while the LuCI page is open and exposes no per-connection IPs or ports.
+
 Uses upstream Linux/PPE/NSS/ath11k binaries, with selected LuCI apps and Chinese language packs.
 Only sysupgrade, not factory/U-Boot. No Wi-Fi credentials are embedded.
 The bundled ppe-update still targets upstream releases; upgrade this custom image from this repository.
 EOF
-gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS Aurora + F2FS rootfs_data ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST"
+gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS Aurora + Hardware Monitor ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST"

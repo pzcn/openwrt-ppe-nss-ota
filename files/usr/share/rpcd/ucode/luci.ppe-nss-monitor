@@ -1,0 +1,128 @@
+#!/usr/bin/env ucode
+'use strict';
+
+/*
+ * Read-only PPE / NSS telemetry for the new qca_ppe + nss-wifi-drv stack.
+ * Deliberately never returns connection addresses, ports, or packet payloads.
+ * No settings, kernel interfaces, or debugfs mount state are changed.
+ */
+import { access, glob, popen, readfile } from 'fs';
+import { cursor } from 'uci';
+
+function first_file(pattern) {
+	let files = glob(pattern);
+	return files && length(files) ? files[0] : null;
+}
+
+function short_file(path, maxlen) {
+	if (!path)
+		return null;
+	let s = readfile(path);
+	return s == null ? null : substr(s, 0, maxlen);
+}
+
+function bool_file(path) {
+	let s = short_file(path, 32);
+	if (s == null)
+		return null;
+	if (match(s, /^\s*1\s*$/))
+		return true;
+	if (match(s, /^\s*0\s*$/))
+		return false;
+	return null;
+}
+
+function uci_value(pkg, section, key) {
+	let c = cursor();
+	let value = c.get(pkg, section, key);
+	c.unload();
+	return value == null ? null : value;
+}
+
+function firewall_hw() {
+	let c = cursor();
+	let enabled = null;
+	if (c.load('firewall')) {
+		c.foreach('firewall', 'defaults', function(s) {
+			if (enabled == null && s.flow_offloading_hw != null)
+				enabled = s.flow_offloading_hw == '1';
+		});
+	}
+	c.unload();
+	return enabled;
+}
+
+function connection_counts() {
+	/* A fixed awk command streams procfs lines without materializing sensitive
+	 * connection records in RPC memory. No parameters come from the browser. */
+	if (!access('/proc/net/nf_conntrack', 'r'))
+		return { available: false, total: null, hardware: null, software: null };
+
+	let cmd = "/usr/bin/awk '{ t++; if (index($0,\"[HW_OFFLOAD]\")) h++; else if (index($0,\"[OFFLOAD]\")) s++ } END { printf \"%d:%d:%d\\n\", t, h, s }' /proc/net/nf_conntrack";
+	let p = popen(cmd, 'r');
+	if (!p)
+		return { available: false, total: null, hardware: null, software: null };
+
+	let output = p.read('all');
+	p.close();
+	let m = output && match(output, /^([0-9]+):([0-9]+):([0-9]+)/);
+	if (!m)
+		return { available: false, total: null, hardware: null, software: null };
+
+	return {
+		available: true,
+		total: int(m[1]),
+		hardware: int(m[2]),
+		software: int(m[3])
+	};
+}
+
+function nss_boot() {
+	let paths = glob('/sys/kernel/debug/*.nss/boot') || [];
+	let running = 0, inspected = 0;
+	for (let path in paths) {
+		let v = bool_file(path);
+		if (v == null)
+			continue;
+		inspected++;
+		if (v)
+			running++;
+	}
+	return {
+		found: length(paths) > 0,
+		running_cores: running,
+		visible_cores: inspected,
+		active: inspected > 0 ? running > 0 : null
+	};
+}
+
+const methods = {
+	get_status: {
+		call: function() {
+			let ppepath = first_file('/sys/kernel/debug/*.ppe/offload');
+			let nsspath = first_file('/sys/kernel/debug/*.nss/flows');
+			let boot = nss_boot();
+			let param = bool_file('/sys/module/ath11k/parameters/nss_offload');
+			return {
+				schema: 1,
+				conntrack: connection_counts(),
+				ppe: {
+					hw_setting: firewall_hw(),
+					debugfs_found: ppepath != null,
+					offload_stats: short_file(ppepath, 3200)
+				},
+				nss: {
+					wifi_config: uci_value('nss-wifi', 'general', 'offload'),
+					wifi_active: param,
+					boot_found: boot.found,
+					running_cores: boot.running_cores,
+					visible_cores: boot.visible_cores,
+					core_active: boot.active,
+					flows_found: nsspath != null
+				}
+			};
+		}
+	}
+};
+
+return { 'luci.ppe-nss-monitor': methods };

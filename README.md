@@ -11,6 +11,7 @@ This repository **does not compile Linux, PPE, NSS or Wi-Fi drivers**. It downlo
 - Simplified Chinese LuCI language packs, including the selected apps
 - File manager, web terminal, per-client bandwidth, statistics, Wi-Fi station history, irqbalance UI, LLDP, PBR
 - WireGuard UI/tools and diagnosis: tcpdump, ip-full, conntrack, conntrack netlink
+- **Custom premium PPE / NSS monitor:** LuCI Status page with real hardware connection history, driver health and read-only debug counters
 - **Standard OpenWrt rootfs_data persistence:** include matching `kmod-fs-f2fs`, `f2fs-tools` and `mkf2fs`; p18 SquashFS tail is the normal writable overlay
 - **Separate data partition:** p27 keeps its existing ext4 filesystem and mounts at `/mnt/storage` instead of `/overlay`
 - Keeps Bootstrap as fallback
@@ -67,11 +68,14 @@ No Wi-Fi password is embedded in this **public** firmware or workflow. Configure
 
 ## Files
 
+- `docs/PPE-NSS-MONITOR.md` — monitor page data sources, limitations and troubleshooting
 - `.github/workflows/build.yml` — scheduled/manual GitHub Actions and Releases
 - `scripts/build.sh` — obtain and assemble upstream ImageBuilder + Aurora APK
 - `scripts/resolve_packages.py` — reconstruct upstream package manifest and custom additions/removals
 - `config/add.txt` — software packages to install
 - `config/remove.txt` — default packages to leave out
+- `files/www/luci-static/resources/view/status/ppe-nss-monitor.js` — PPE / NSS status dashboard
+- `files/usr/share/rpcd/ucode/luci.ppe-nss-monitor` — read-only telemetry endpoint
 - `files/etc/config/fstab` — separate ext4 storage mount at `/mnt/storage` (no extroot)
 - `files/etc/uci-defaults/96-migrate-legacy-extroot` — converts the previous preserved p27 extroot configuration
 - `files/etc/uci-defaults/95-luci-preferences` — Chinese + Aurora defaults

@@ -1,0 +1,12 @@
+{
+  "luci-app-ppe-nss-monitor": {
+    "description": "Read-only PPE and NSS hardware offload telemetry",
+    "read": {
+      "ubus": {
+        "luci.ppe-nss-monitor": [
+          "get_status"
+        ]
+      }
+    }
+  }
+}
