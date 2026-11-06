@@ -11,6 +11,7 @@ STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-dashboard1
 OTA_REV=custom-ota1
 I18N_REV=zhcn-lmo1
+DRCOM_REV=campus-drcom1
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
@@ -18,7 +19,7 @@ if [[ -z "$TAG" ]]; then
   TAG="$(gh release view --repo "$UPSTREAM_REPO" --json tagName --jq '.tagName')"
 fi
 [[ "$TAG" == ppe-nss-* ]] || { echo "::error::Unexpected upstream tag: $TAG"; exit 1; }
-RELEASE_TAG="ota-$TAG-$AURORA_TAG-$STORAGE_FIX_REV-$MONITOR_REV-$OTA_REV-$I18N_REV"
+RELEASE_TAG="ota-$TAG-$AURORA_TAG-$STORAGE_FIX_REV-$MONITOR_REV-$OTA_REV-$I18N_REV-$DRCOM_REV"
 if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
   RELEASE_TAG="$RELEASE_TAG-$GITHUB_RUN_NUMBER"
 elif gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -43,6 +44,23 @@ python3 "$GITHUB_WORKSPACE/scripts/build_luci_i18n.py" \
   --output "$I18N_DIR/ppe-update.zh-cn.lmo" --min-entries 2
 test -s "$I18N_DIR/qca-ppe-qos.zh-cn.lmo"
 test -s "$I18N_DIR/ppe-update.zh-cn.lmo"
+
+# Validate Dr.COM Web portal app and its narrow RPC permissions.
+DRCOM_FILES="$WORK/ib/files"
+test -s "$DRCOM_FILES/etc/config/drcom"
+test -s "$DRCOM_FILES/usr/libexec/drcom-web"
+test -s "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
+test -s "$DRCOM_FILES/www/luci-static/resources/view/network/drcom.js"
+test -s "$DRCOM_FILES/www/luci-static/resources/drcom-campus.css"
+chmod +x "$DRCOM_FILES/usr/libexec/drcom-web"
+sh -n "$DRCOM_FILES/usr/libexec/drcom-web"
+sh -n "$DRCOM_FILES/etc/uci-defaults/97-drcom-credentials-permissions"
+python3 -m json.tool "$DRCOM_FILES/usr/share/luci/menu.d/luci-app-drcom.json" >/dev/null
+python3 -m json.tool "$DRCOM_FILES/usr/share/rpcd/acl.d/luci-app-drcom.json" >/dev/null
+node --check "$DRCOM_FILES/www/luci-static/resources/view/network/drcom.js"
+grep -Fq "return { 'luci.drcom': methods };" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
+grep -Fq 'data-urlencode = "DDDDD=%s"' "$DRCOM_FILES/usr/libexec/drcom-web"
+grep -Fq 'data-urlencode = "upass=%s"' "$DRCOM_FILES/usr/libexec/drcom-web"
 chmod +x "$WORK/ib/files/etc/uci-defaults/"*
 # Keep upstream /etc/ppe-release untouched for the NSS kernel package feed.
 # A distinct ROM metadata file identifies ONLY this custom GitHub OTA channel.
@@ -78,6 +96,8 @@ grep -qx 'kmod-fs-f2fs' "$GITHUB_WORKSPACE/config/add.txt"
 grep -qx 'f2fs-tools' "$GITHUB_WORKSPACE/config/add.txt"
 grep -qx 'luci-i18n-sqm-zh-cn' "$GITHUB_WORKSPACE/config/add.txt"
 grep -qx 'luci-i18n-bcp38-zh-cn' "$GITHUB_WORKSPACE/config/add.txt"
+grep -qx 'curl' "$GITHUB_WORKSPACE/config/add.txt"
+grep -qx 'jsonfilter' "$GITHUB_WORKSPACE/config/add.txt"
 
 # Validate the custom LuCI status dashboard before publishing a firmware.
 MONITOR_FILES="$WORK/ib/files"
@@ -126,7 +146,7 @@ sha256sum "$IMAGE" > sha256sums
 cp "$WORK/packages.txt" selected-packages.txt
 MANIFEST="$(find . -maxdepth 1 -name '*.manifest' -printf '%f\n' | head -n 1)"
 test -n "$MANIFEST"
-for p in luci-theme-aurora luci-app-filemanager luci-app-ttyd luci-app-nlbwmon luci-app-statistics luci-app-wifihistory luci-app-irqbalance luci-app-lldpd luci-app-pbr luci-i18n-base-zh-cn luci-i18n-sqm-zh-cn luci-i18n-bcp38-zh-cn luci-proto-wireguard kmod-wireguard kmod-nss-wifi-drv block-mount kmod-fs-ext4 e2fsprogs kmod-fs-f2fs f2fs-tools mkf2fs f2fsck; do
+for p in luci-theme-aurora luci-app-filemanager luci-app-ttyd luci-app-nlbwmon luci-app-statistics luci-app-wifihistory luci-app-irqbalance luci-app-lldpd luci-app-pbr luci-i18n-base-zh-cn luci-i18n-sqm-zh-cn luci-i18n-bcp38-zh-cn luci-proto-wireguard kmod-wireguard kmod-nss-wifi-drv block-mount kmod-fs-ext4 e2fsprogs kmod-fs-f2fs f2fs-tools mkf2fs f2fsck curl jsonfilter; do
   grep -q "^$p " "$MANIFEST" || { echo "::error::Missing in manifest: $p"; exit 1; }
 done
 python3 "$GITHUB_WORKSPACE/scripts/write_ota_metadata.py" \
@@ -146,6 +166,7 @@ Storage fix revision: $STORAGE_FIX_REV
 Monitor revision: $MONITOR_REV
 OTA revision: $OTA_REV
 Language pack revision: $I18N_REV
+Dr.COM campus auth revision: $DRCOM_REV
 
 The standard OpenWrt rootfs_data overlay is used on the active rootfs partition's
 space after SquashFS. Matching kmod-fs-f2fs, f2fs-tools and mkf2fs are included
@@ -156,6 +177,12 @@ The original 64 GB eMMC's p27 ext4 partition is independent data storage,
 mounted as /mnt/storage. No GPT or U-Boot modifications.
 Legacy p27 extroot fstab settings are converted to /mnt/storage by a
 first-boot UCI default when config files are retained across sysupgrade.
+
+Includes a custom LuCI campus network Dr.COM Web portal app under Network.
+The portal defaults to http://gate.lnu.edu.cn/0.htm for login and /F.htm for
+logout. Saved credentials are optional and root-only; passwords are not exposed
+in RPC config replies or curl argv. No auto-login is enabled. The actual logout
+endpoint and success markers require on-campus confirmation.
 
 Includes official Simplified Chinese language packs for SQM and BCP38, plus
 custom native LuCI translation catalogs for PPE Hardware QoS and the OTA menu.
@@ -170,4 +197,4 @@ The firmware embeds an immutable build number and verifies per-release ota.json,
 manifest SHA256, firmware SHA256, board and upstream group before sysupgrade.
 Automatic updates are OFF by default and must be explicitly opted in.
 EOF
-gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS Aurora + Chinese Localization ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST" ota.json
+gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS Aurora + Dr.COM Campus Authentication ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST" ota.json

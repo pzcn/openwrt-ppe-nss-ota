@@ -13,6 +13,7 @@ This repository **does not compile Linux, PPE, NSS or Wi-Fi drivers**. It downlo
 - WireGuard UI/tools and diagnosis: tcpdump, ip-full, conntrack, conntrack netlink
 - **Custom premium PPE / NSS monitor:** LuCI Status page with real hardware connection history, driver health and read-only debug counters
 - **Customized OTA update:** only follows this repository's GitHub Releases, checks exact device and build metadata, validates SHA256, and uses the upstream package migration logic
+- **LNU Dr.COM campus authentication:** elegant LuCI page for account/password, optional remembered credentials, login, logout and connection status using curl
 - **Standard OpenWrt rootfs_data persistence:** include matching `kmod-fs-f2fs`, `f2fs-tools` and `mkf2fs`; p18 SquashFS tail is the normal writable overlay
 - **Separate data partition:** p27 keeps its existing ext4 filesystem and mounts at `/mnt/storage` instead of `/overlay`
 - Keeps Bootstrap as fallback
@@ -45,6 +46,12 @@ logread | grep -Ei 'f2fs|rootfs_data|overlay|extroot'
 
 Expected: `/overlay` is backed by a loop device with F2FS, and `/mnt/storage` is backed by p27 with ext4. `/overlay` must **not** be tmpfs or p27. On some systems the first boot includes restoring saved settings, so review the mount result again after another reboot.
 
+## LNU Dr.COM campus login
+
+Go to **Network → 校园网认证** in LuCI. Supply your campus account and password, optionally tick **记住账号与密码**, then click **连接校园网**. Use **注销认证** to disconnect. The default portal is `http://gate.lnu.edu.cn` with login POST to `/0.htm` and a configurable logout path initially set to `/F.htm`.
+
+**Important:** HTTP sends the account and password without transport encryption; only use on the trusted campus network and preferably manage LuCI over HTTPS. Remembered credentials are stored only in root-readable OpenWrt configuration and may be included in sysupgrade configuration backups. Logout endpoint and login-result markers must still be verified on the campus network. The app does not auto-reconnect, modify network routes or circumvent school gateway policy.
+
 ## Build and download
 
 1. Go to [Actions → Build RE-SS-01 firmware](../../actions/workflows/build.yml).
@@ -76,6 +83,9 @@ No Wi-Fi password is embedded in this **public** firmware or workflow. Configure
 - `docs/PPE-NSS-MONITOR.md` — monitor page data sources, limitations and troubleshooting
 - `docs/CUSTOM-OTA.md` — OTA data flow, safety checks and testing
 - `docs/CHINESE-LOCALIZATION.md` — localization coverage, how to edit the Chinese strings
+- `docs/DRCOM-CAMPUS.md` — Dr.COM campus portal login/logout details, privacy, limitations and testing
+- `files/usr/share/rpcd/ucode/luci.drcom` — minimal RPC credential handling with read-only status
+- `files/usr/libexec/drcom-web` — curl transport with form encoding and no password in process arguments
 - `config/translations/` — source Chinese dictionaries for PPE QoS and OTA
 - `scripts/build_luci_i18n.py` — compiles native LuCI LMO catalogs
 - `files/usr/sbin/ppe-update` — customized OTA with an upstream-compatible CLI

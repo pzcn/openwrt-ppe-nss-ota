@@ -1,0 +1,22 @@
+{
+  "luci-app-drcom": {
+    "description": "Campus Dr.COM authentication: read status and manage own login session",
+    "read": {
+      "ubus": {
+        "luci.drcom": [
+          "get_config",
+          "get_status"
+        ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "luci.drcom": [
+          "login",
+          "logout",
+          "forget"
+        ]
+      }
+    }
+  }
+}

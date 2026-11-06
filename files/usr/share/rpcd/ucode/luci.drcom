@@ -1,0 +1,163 @@
+#!/usr/bin/env ucode
+'use strict';
+
+/* Dr.COM Web portal, read/write RPC for the LuCI campus login page.
+ * Credentials are never returned over get_config and never put in argv.
+ * One-time login secrets are passed in a mode-0600 tempfile in /tmp.
+ */
+import { cursor } from 'uci';
+import { open, readfile, unlink, chmod, popen } from 'fs';
+
+const SCRIPT = '/usr/libexec/drcom-web';
+const DEFAULT_SERVER = 'http://gate.lnu.edu.cn';
+const DEFAULT_LOGOUT = '/F.htm';
+
+function valid_server(value) {
+	return type(value) == 'string' &&
+		length(value) >= 12 && length(value) <= 180 &&
+		!!match(value, /^https?:\/\/[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?\/?$/);
+}
+
+function valid_path(value) {
+	return type(value) == 'string' && length(value) <= 80 &&
+		!!match(value, /^\/[A-Za-z0-9._-]+$/);
+}
+
+function valid_secret(value, maximum) {
+	return type(value) == 'string' &&
+		length(value) > 0 && length(value) <= maximum &&
+		!match(value, /[\r\n\x00]/);
+}
+
+function config() {
+	const uci = cursor();
+	uci.load('drcom');
+	const saved = {
+		server: uci.get('drcom', 'main', 'server') || DEFAULT_SERVER,
+		logout_path: uci.get('drcom', 'main', 'logout_path') || DEFAULT_LOGOUT,
+		remember: uci.get('drcom', 'main', 'remember') == '1',
+		username: uci.get('drcom', 'main', 'username') || '',
+		password: uci.get('drcom', 'main', 'password') || ''
+	};
+	uci.unload();
+	return saved;
+}
+
+function run(action, payload) {
+	let filepath = null;
+	if (payload != null) {
+		// Only a random filename appears in the invoked command; no secrets
+		// are written to logs, flash or the process argument list.
+		let uuid = readfile('/proc/sys/kernel/random/uuid');
+		uuid = uuid ? trim(uuid) : '';
+		if (!match(uuid, /^[0-9a-f-]{36}$/))
+			return { ok: false, state: 'unknown', message: '无法建立安全的临时认证请求' };
+		filepath = '/tmp/drcom-request-' + uuid + '.json';
+		let file = open(filepath, 'wx', 0600);
+		if (!file)
+			return { ok: false, state: 'unknown', message: '无法创建安全的临时文件' };
+		let wrote = file.write(sprintf('%J', payload));
+		file.close();
+		if (wrote == null || wrote <= 0) {
+			unlink(filepath);
+			return { ok: false, state: 'unknown', message: '写入临时认证请求失败' };
+		}
+	}
+
+	let process = popen(SCRIPT + ' ' + action + (filepath ? ' ' + filepath : '') + ' 2>/dev/null', 'r');
+	let raw = process ? process.read('all') : '';
+	if (process)
+		process.close();
+	if (filepath)
+		unlink(filepath);
+
+	let result = null;
+	try { result = raw ? json(raw) : null; } catch (e) {}
+	if (!result || type(result) != 'object' || type(result.ok) != 'bool')
+		return { ok: false, state: 'unknown', message: '认证服务未返回有效结果' };
+	return result;
+}
+
+function save_settings(server, logout_path, remember, username, password) {
+	const uci = cursor();
+	uci.load('drcom');
+	if (!uci.set('drcom', 'main', 'server', server) ||
+		!uci.set('drcom', 'main', 'logout_path', logout_path) ||
+		!uci.set('drcom', 'main', 'remember', remember ? '1' : '0')) {
+		uci.unload();
+		return false;
+	}
+	if (remember) {
+		uci.set('drcom', 'main', 'username', username);
+		uci.set('drcom', 'main', 'password', password);
+	} else {
+		uci.delete('drcom', 'main', 'username');
+		uci.delete('drcom', 'main', 'password');
+	}
+	let ok = uci.commit('drcom');
+	uci.unload();
+	chmod('/etc/config/drcom', 0600);
+	return ok == true;
+}
+
+const methods = {
+	get_config: {
+		call: function() {
+			let s = config();
+			return {
+				server: s.server,
+				logout_path: s.logout_path,
+				remember: s.remember,
+				username: s.remember ? s.username : '',
+				has_password: s.remember && !!s.password
+			};
+		}
+	},
+	get_status: {
+		call: function() {
+			return run('status', null);
+		}
+	},
+	login: {
+		args: { username: '', password: '', remember: true, server: '', logout_path: '' },
+		call: function(request) {
+			let a = request.args || {};
+			let server = a.server || DEFAULT_SERVER;
+			let path = a.logout_path || DEFAULT_LOGOUT;
+			let saved = config();
+
+			if (!valid_server(server) || !valid_path(path))
+				return { ok: false, state: 'unknown', message: '认证服务器或注销路径格式不正确' };
+
+			let username = a.username || '';
+			let password = a.password || '';
+			if (!password && saved.remember && username == saved.username)
+				password = saved.password;
+
+			if (!valid_secret(username, 128) || !valid_secret(password, 256))
+				return { ok: false, state: 'unknown', message: '请填写有效的账号和密码（禁止换行）' };
+
+			// Persist only when explicitly requested, otherwise clear any
+			// previously remembered credentials before issuing the request.
+			if (!save_settings(server, path, a.remember === true, username, password))
+				return { ok: false, state: 'unknown', message: '无法保存校园网配置' };
+
+			return run('login', { username, password, server });
+		}
+	},
+	logout: {
+		call: function() {
+			return run('logout', null);
+		}
+	},
+	forget: {
+		call: function() {
+			let s = config();
+			if (!save_settings(s.server, s.logout_path, false, '', ''))
+				return { ok: false, message: '清除已保存凭据失败' };
+			return { ok: true, message: '已清除保存在路由器上的校园网账号和密码，不影响当前认证会话' };
+		}
+	}
+};
+
+return { 'luci.drcom': methods };

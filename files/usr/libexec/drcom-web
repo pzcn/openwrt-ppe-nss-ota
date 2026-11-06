@@ -1,0 +1,126 @@
+#!/bin/sh
+# Dr.COM Web portal transport: curl reads the credentials from stdin config.
+# Credentials are never put in process arguments, environment or logs.
+set -eu
+umask 077
+
+ACTION="${1:-}"
+REQUEST="${2:-}"
+BODY="$(mktemp /tmp/drcom-response.XXXXXX)" || exit 1
+trap 'rm -f "$BODY"; [ -z "$REQUEST" ] || rm -f "$REQUEST"' EXIT
+trap 'exit 1' HUP INT TERM
+
+emit() {
+	printf '{"ok":%s,"state":"%s","message":"%s"}\n' "$1" "$2" "$3"
+}
+fail() {
+	emit false unknown "$1"
+	exit 0
+}
+valid_server() {
+	printf '%s' "$1" | grep -Eq '^https?://[[:alnum:]][[:alnum:].-]*(:[0-9]{1,5})?/?$'
+}
+valid_path() {
+	printf '%s' "$1" | grep -Eq '^/[A-Za-z0-9._-]+$'
+}
+
+server="$(uci -q get drcom.main.server 2>/dev/null || true)"
+[ -n "$server" ] || server='http://gate.lnu.edu.cn'
+case "$server" in */) server="${server%/}" ;; esac
+valid_server "$server" || fail '认证服务器地址不安全或格式错误'
+
+# Escape quotes and backslashes for libcurl config syntax.
+curlquote() {
+	printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
+# HTTP 200 is not evidence that authentication succeeded.
+classify() {
+	case "$1" in
+		login)
+			if grep -Eq 'Dr\.COMWebLoginID_3\.htm|登录成功|认证成功|成功登录|login[[:space:]]+success' "$BODY"; then
+				emit true online '门户返回认证成功页面'
+			elif grep -Eq 'Dr\.COMWebLoginID_2\.htm|认证失败|登录失败|密码错误|账号或密码' "$BODY"; then
+				emit false offline '门户返回认证失败信息，请检查账号或密码'
+			else
+				emit true unknown '请求已提交，但尚未从返回页面确认认证成功，请检查在线状态'
+			fi
+			;;
+		logout)
+			if grep -Eq 'Dr\.COMWebLoginID_0\.htm|注销成功|退出成功|成功退出|Logout[[:space:]]+success' "$BODY"; then
+				emit true offline '门户返回注销成功页面'
+			else
+				emit true unknown '已向门户发送注销请求，但未确认下线结果'
+			fi
+			;;
+		status)
+			if grep -q 'Dr.COMWebLoginID_1.htm' "$BODY"; then
+				emit true online '门户显示已认证在线'
+			elif grep -Eq 'Dr\.COMWebLoginID_0\.htm|Dr\.COMWebLoginID_2\.htm' "$BODY"; then
+				emit true offline '门户显示尚未认证'
+			else
+				emit true unknown '门户可访问，但当前页面没有可识别的在线标记'
+			fi
+			;;
+	esac
+}
+
+case "$ACTION" in
+	status)
+		if code="$(curl -sS --noproxy '*' --proto '=http,https' \
+			--connect-timeout 4 --max-time 9 \
+			-o "$BODY" -w '%{http_code}' "$server/" 2>/dev/null)"; then
+			case "$code" in 2??) classify status ;; *) fail '门户返回非 2xx HTTP 状态' ;; esac
+		else
+			fail '无法连接校园网认证门户，请确认路由器已接入校园网'
+		fi
+		;;
+	login)
+		[ -n "$REQUEST" ] && [ -f "$REQUEST" ] && [ ! -L "$REQUEST" ] ||
+			fail '缺少有效的临时认证凭据'
+		[ "$(stat -c '%a' "$REQUEST" 2>/dev/null)" = 600 ] ||
+			fail '临时认证凭据权限不安全'
+		username="$(jsonfilter -i "$REQUEST" -e '@.username' 2>/dev/null || true)"
+		password="$(jsonfilter -i "$REQUEST" -e '@.password' 2>/dev/null || true)"
+		rm -f "$REQUEST"
+		REQUEST=''
+		[ -n "$username" ] && [ -n "$password" ] || fail '没有可用的认证账号或密码'
+		if printf '%s' "$username$password" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+			fail '账号或密码不能包含控制字符'
+		fi
+		# --data-urlencode behaves like the user's example; the password never
+		# appears in /proc/PID/cmdline, only the private pipe to curl.
+		if code="$(
+			{
+				printf 'url = "%s/0.htm"\n' "$server"
+				printf 'data-urlencode = "DDDDD=%s"\n' "$(curlquote "$username")"
+				printf 'data-urlencode = "upass=%s"\n' "$(curlquote "$password")"
+				printf 'data = "0MKKey="\n'
+			} | curl -sS --noproxy '*' --proto '=http,https' \
+				--connect-timeout 4 --max-time 12 \
+				-o "$BODY" -w '%{http_code}' -K - 2>/dev/null
+		)"; then
+			case "$code" in
+				2??|3??) classify login ;;
+				*) fail '认证门户拒绝请求，请检查连接或参数' ;;
+			esac
+		else
+			fail '认证请求失败，请检查校园网连接或网关地址'
+		fi
+		;;
+	logout)
+		logout_path="$(uci -q get drcom.main.logout_path 2>/dev/null || true)"
+		[ -n "$logout_path" ] || logout_path='/F.htm'
+		valid_path "$logout_path" || fail '注销路径配置不正确'
+		if code="$(curl -sS --noproxy '*' --proto '=http,https' \
+			--connect-timeout 4 --max-time 9 \
+			-o "$BODY" -w '%{http_code}' "$server$logout_path" 2>/dev/null)"; then
+			case "$code" in 2??|3??) classify logout ;; *) fail '校园网门户拒绝注销请求' ;; esac
+		else
+			fail '无法连接到校园网注销接口'
+		fi
+		;;
+	*)
+		fail '不支持的认证操作'
+		;;
+esac

@@ -1,0 +1,5 @@
+# LNU Dr.COM Web Portal settings. No secret is included in the firmware.
+config drcom 'main'
+	option server 'http://gate.lnu.edu.cn'
+	option logout_path '/F.htm'
+	option remember '0'

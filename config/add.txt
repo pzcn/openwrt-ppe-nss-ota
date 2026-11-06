@@ -10,6 +10,11 @@ e2fsprogs
 kmod-fs-f2fs
 f2fs-tools
 
+# Campus Dr.COM portal authentication; curl handles POST, jsonfilter reads
+# one-time credentials from a private tmpfs file (no daemon required).
+curl
+jsonfilter
+
 # WireGuard and diagnostics.
 luci-proto-wireguard
 wireguard-tools
