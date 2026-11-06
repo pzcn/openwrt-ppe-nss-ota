@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+trap 'echo "::error::Build failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 UPSTREAM_REPO=JuliusBairaktaris/Qualcommax_NSS_Builder
 # Upstream currently publishes jdcloud_re-ss-01 only in this group.
 # The ipq60xx-1g group does not contain this device profile.
@@ -37,6 +38,10 @@ tar -C "$WORK/ib" --strip-components=1 -xf "$WORK/imagebuilder-$GROUP.tar.zst"
 mkdir -p "$WORK/ib/files"
 tar -C "$WORK/ib/files" -xzf "$WORK/files-$GROUP.tar.gz"
 cp -a "$GITHUB_WORKSPACE/files/." "$WORK/ib/files/"
+# Upstream files still contain the old standalone OTA view and menu.
+# Explicitly remove them after merging the overlay: the schedule now lives in flash.js.
+rm -f "$WORK/ib/files/www/luci-static/resources/view/system/ppe-update.js" \
+      "$WORK/ib/files/usr/share/luci/menu.d/luci-app-ppe-update.json"
 # Add the missing custom LuCI translations as native .lmo catalogs, without
 # overwriting the upstream application's JavaScript or untranslated locales.
 I18N_DIR="$WORK/ib/files/usr/lib/lua/luci/i18n"

@@ -92,6 +92,9 @@ for item in visible:
     for phrase in ("不会", "不再", "不会回退", "不会修改"):
         assert phrase not in content, f"Defensive phrase {phrase}: {item}"
 build_script = (root / "scripts/build.sh").read_text(encoding="utf-8")
+assert 'rm -f "$WORK/ib/files/www/luci-static/resources/view/system/ppe-update.js"' in build_script
+assert '"$WORK/ib/files/usr/share/luci/menu.d/luci-app-ppe-update.json"' in build_script
+assert 'Build failed at line $LINENO' in build_script
 notes = build_script.split('cat > "$WORK/notes.md" <<EOF', 1)[1].split("\nEOF", 1)[0]
 assert "pzcn" not in notes.lower()
 assert "不会" not in notes
