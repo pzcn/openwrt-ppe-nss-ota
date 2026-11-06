@@ -47,6 +47,9 @@ jobs:
       - name: Verify native LuCI pages and persisted URLs (offline)
         run: python3 scripts/tests/test-luci-native.py
 
+      - name: Test Dr.COM RPC URL saving (mock UCI)
+        run: node scripts/tests/test-drcom-rpc.js
+
       - name: Test Dr.COM login and logout (local mock portal)
         run: python3 scripts/tests/test-drcom.py
 

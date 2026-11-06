@@ -48,6 +48,30 @@ curl 的 `--interface` 不约束 DNS，且本固件的 curl 不带 c-ares，所�
 - 状态识别采用门户返回值。HTTP 200 不等于认证成功；未识别的响应显示未确认。
 - 尚未使用辽宁大学真实账号在校园网内验证该门户的成功标记及注销接口。
 
+## 2026-11-06：修复“保存结果与填写的地址不一致”
+
+之前的 LuCI RPC 调用没有开启 `reject:true`，若 ubus 返回权限错误、方法不存在或 ucode 后端异常，浏览器可能收到非对象结果（例如数字状态码），却将其误报为“保存结果与填写的地址不一致”。这条提示本身不能证明 UCI 地址不一致。
+
+现在：
+
+- 在 LuCI RPC 中明确启用 `reject:true`，真实 ubus 错误不再变成一个无意义的地址不匹配提示。
+- 后端 `save_urls` 直接依次执行 `uci.load`、`uci.set`、`uci.commit` 和新游标读回验证；异常和错误按阶段返回 `uci_load`、`uci_set`、`uci_commit`、`chmod`、`uci_reload`、`uci_mismatch`、`backend_exception`，而不是只返回布尔值。
+- 后端 `get_config` 与 `save_urls` 返回 `backend_revision=drcom-rpc9`，前端检测到旧版本时会提示重启 rpcd，而不是判断地址不一致。
+- 为避免不同版本的 ucode 对双变量 `for-in` 遍历产生歧义，通用 UCI 保存方法改为遍历 `keys(changes)`；URL 保存方法则使用独立的显式 `uci.set`。
+- GitHub Actions 增加 mock UCI 的 RPC 保存逻辑测试，覆盖保存成功、地址更换、无效地址、UCI 加载/设置/提交失败和权限失败。
+
+修复后如果依然提示失败，建议**保留新提示中的错误码**，然后检查：
+
+```sh
+ubus -v list luci.drcom
+ubus call luci.drcom get_config
+logread -e rpcd | tail -n 30
+uci -q get drcom.main.login_url
+uci -q get drcom.main.logout_url
+```
+
+这里不会输出已保存的密码（不要运行 `uci show drcom` 或公开备份），可以用来区分 RPC 未注册、配置文件写入错误与覆盖层持久化异常。
+
 ## 排查“保存后刷新又变成旧地址”
 
 先在网页点击 **保存认证地址**，确认出现“已保存并验证”后刷新。若提示失败，先看是否使用新的 `drcom-native.js` 页面并尝试浏览器强制刷新。再在 SSH 中查看：

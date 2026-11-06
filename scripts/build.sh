@@ -11,7 +11,7 @@ STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-native1
 OTA_REV=custom-ota1
 I18N_REV=zhcn-lmo1
-DRCOM_REV=campus-drcom8
+DRCOM_REV=campus-drcom9
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
@@ -71,6 +71,8 @@ grep -Fq "nslookup -type=A" "$DRCOM_FILES/usr/libexec/drcom-web"
 grep -Fq -- '--resolve "$CURL_RESOLVE"' "$DRCOM_FILES/usr/libexec/drcom-web"
 grep -Fq "'class': 'cbi-map'" "$DRCOM_FILES/www/luci-static/resources/view/network/drcom-native.js"
 grep -Fq "const verify = cursor();" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
+grep -Fq "backend_revision: 'drcom-rpc9'" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
+grep -Fq "reject: true" "$DRCOM_FILES/www/luci-static/resources/view/network/drcom-native.js"
 grep -Fq "chmod('/etc/config/drcom', 0o600)" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
 grep -Fq "open(filepath, 'wx', 0o600)" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
 grep -Fq "option login_url ''" "$DRCOM_FILES/etc/config/drcom"
@@ -208,8 +210,11 @@ No gateway address is preconfigured for clean installations.
 An untouched legacy LNU default is cleared on upgrade only if there is no
 remembered account and auto-auth is off. Active credentials are preserved.
 Users must enter the login and logout URLs explicitly in LuCI.
-The RPC backend commits UCI and reloads an independent cursor to confirm
-that the exact new URLs were persisted before reporting save success.
+The save_urls RPC now has explicit UCI load, set, commit, chmod and read-back
+failure codes. Browser calls reject non-zero ubus errors instead of silently
+displaying an unrelated URL mismatch. A backend revision token detects stale
+rpcd service versions. The backend commits UCI and reloads an independent
+cursor to confirm the new URLs were persisted before reporting success.
 Optional cron task runs exactly once per day at 00:00 ROUTER LOCAL TIME
 (not UTC unless the router timezone is set to UTC). Auto-auth is disabled
 by default and requires explicitly remembered credentials. The cron entry

@@ -3,20 +3,20 @@
 'require rpc';
 'require ui';
 
-const getConfig = rpc.declare({ object: 'luci.drcom', method: 'get_config', expect: {} });
-const getStatus = rpc.declare({ object: 'luci.drcom', method: 'get_status', expect: {} });
+const getConfig = rpc.declare({ object: 'luci.drcom', method: 'get_config', expect: {}, reject: true });
+const getStatus = rpc.declare({ object: 'luci.drcom', method: 'get_status', expect: {}, reject: true });
 const login = rpc.declare({
 	object: 'luci.drcom', method: 'login',
-	params: [ 'username', 'password', 'remember', 'login_url', 'logout_url' ], expect: {}
+	params: [ 'username', 'password', 'remember', 'login_url', 'logout_url' ], expect: {}, reject: true
 });
-const logout = rpc.declare({ object: 'luci.drcom', method: 'logout', expect: {} });
-const forget = rpc.declare({ object: 'luci.drcom', method: 'forget', expect: {} });
+const logout = rpc.declare({ object: 'luci.drcom', method: 'logout', expect: {}, reject: true });
+const forget = rpc.declare({ object: 'luci.drcom', method: 'forget', expect: {}, reject: true });
 const saveUrls = rpc.declare({
 	object: 'luci.drcom', method: 'save_urls',
-	params: [ 'login_url', 'logout_url' ], expect: {}
+	params: [ 'login_url', 'logout_url' ], expect: {}, reject: true
 });
 const setAuto = rpc.declare({
-	object: 'luci.drcom', method: 'set_auto', params: [ 'enabled' ], expect: {}
+	object: 'luci.drcom', method: 'set_auto', params: [ 'enabled' ], expect: {}, reject: true
 });
 
 function field(label, input, help) {
@@ -87,8 +87,8 @@ return view.extend({
 
 	syncConfig: function() {
 		return getConfig().then(L.bind(function(c) {
-			if (!c || typeof c !== 'object')
-				throw new Error('获取校园网配置失败');
+			if (!c || typeof c !== 'object' || c.error)
+				throw new Error(c && c.error || '获取校园网配置失败');
 			this.n('loginUrl').value = c.login_url || '';
 			this.n('logoutUrl').value = c.logout_url || '';
 			this.n('username').value = c.username || '';
@@ -130,13 +130,24 @@ return view.extend({
 		this.setBusy(true);
 		this.setText('saveState', '正在保存并校验…');
 		return saveUrls(target.login, target.logout).then(L.bind(function(result) {
-			// Do not trust an RPC success flag without persisted read-back.
-			if (!result || result.ok !== true ||
-				result.login_url !== target.login || result.logout_url !== target.logout)
-				throw new Error(result && result.message || '保存结果与填写的地址不一致');
+			// Distinguish RPC failures from a genuine UCI readback mismatch.
+			// Older versions silently turned ubus errors into numeric replies.
+			if (!result || typeof result !== 'object')
+				throw new Error('RPC 未返回有效结果，请确认 luci.drcom 服务已注册并重新登录 LuCI');
+			if (result.ok !== true)
+				throw new Error((result.message || '后端拒绝保存') +
+					(result.code ? '（' + result.code + '）' : ''));
+			if (result.backend_revision !== 'drcom-rpc9')
+				throw new Error('浏览器页面和 rpcd 后端版本不一致，请重启 rpcd 并刷新浏览器');
+			if (result.login_url !== target.login || result.logout_url !== target.logout)
+				throw new Error('后端返回的保存地址与输入不一致');
 			return getConfig().then(L.bind(function(c) {
-				if (!c || c.login_url !== target.login || c.logout_url !== target.logout)
-					throw new Error('重新读取的地址与刚保存的内容不一致，请检查 UCI 配置');
+				if (!c || c.error)
+					throw new Error(c && c.error || '无法读取已保存的配置');
+				if (c.backend_revision !== 'drcom-rpc9')
+					throw new Error('rpcd 后端版本不匹配，请重启 rpcd');
+				if (c.login_url !== target.login || c.logout_url !== target.logout)
+					throw new Error('UCI 再次读取的地址与输入不一致，请检查 /overlay 和 /etc/config/drcom');
 				this.setText('saveState', '已保存并验证：刷新页面后仍会使用新地址');
 				this.notify('认证地址已保存并核对成功', true);
 			}, this));

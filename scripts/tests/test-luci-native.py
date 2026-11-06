@@ -40,12 +40,21 @@ assert "gate.lnu.edu.cn" not in backend
 assert "gate.lnu.edu.cn" not in transport
 assert "option login_url ''" in default
 assert "option logout_url ''" in default
-assert "return { ok: true, login_url: saved.login_url, logout_url: saved.logout_url," in backend
+assert "backend_revision: 'drcom-rpc9'" in backend
+assert "code: 'uci_commit'" in backend
+assert "code: 'uci_mismatch'" in backend
+assert "code: 'backend_exception'" in backend
 assert "const verify = cursor();" in backend
 assert "verify.get('drcom', 'main', key)" in backend
+assert "for (let key in keys(changes))" in backend
+assert "for (let key, value in changes)" not in backend
 assert "return getConfig().then(" in campus.read_text()
 assert "result.login_url !== target.login" in campus.read_text()
 assert "c.login_url !== target.login" in campus.read_text()
+assert "reject: true" in campus.read_text()
+assert campus.read_text().count("reject: true") == 7
+assert "backend_revision !== 'drcom-rpc9'" in campus.read_text()
+assert "RPC 未返回有效结果" in campus.read_text()
 assert "--interface \"if!$WAN_DEVICE\"" in transport
 assert "option auto '0'" in default
 legacy = (overlay / "etc/uci-defaults/98-drcom-clear-unused-legacy-url").read_text()
@@ -53,4 +62,4 @@ assert "gate.lnu.edu.cn/0.htm" in legacy and "gate.lnu.edu.cn/F.htm" in legacy
 for guard in ('[ -z "$username" ]', '[ -z "$password" ]', '[ "$remember" != 1 ]', '[ "$auto" != 1 ]'):
     assert guard in legacy, "Legacy migration must not clear remembered credentials"
 subprocess.run(["sh", "-n", str(overlay / "etc/uci-defaults/98-drcom-clear-unused-legacy-url")], check=True)
-print("PASS: native LuCI, persisted Dr.COM URL readback, safe legacy default migration")
+print("PASS: native LuCI, versioned RPC with explicit errors, UCI persisted URL readback, safe default migration")
