@@ -42,7 +42,7 @@ function config() {
 		username: uci.get('drcom', 'main', 'username') || '',
 		password: uci.get('drcom', 'main', 'password') || ''
 	};
-	uci.unload();
+	uci.unload('drcom');
 	return saved;
 }
 
@@ -54,7 +54,7 @@ function save_changes(changes, forget_password) {
 	// Verify every change, not merely a successful commit return value.
 	for (let key in keys(changes)) {
 		if (uci.set('drcom', 'main', key, changes[key]) != true) {
-			uci.unload();
+			uci.unload('drcom');
 			return false;
 		}
 	}
@@ -62,12 +62,12 @@ function save_changes(changes, forget_password) {
 		uci.delete('drcom', 'main', 'username');
 		uci.delete('drcom', 'main', 'password');
 		if (uci.set('drcom', 'main', 'auto', '0') != true) {
-			uci.unload();
+			uci.unload('drcom');
 			return false;
 		}
 	}
 	const committed = uci.commit('drcom') == true;
-	uci.unload();
+	uci.unload('drcom');
 	if (!committed)
 		return false;
 
@@ -90,7 +90,7 @@ function save_changes(changes, forget_password) {
 			!verify.get('drcom', 'main', 'username') &&
 			!verify.get('drcom', 'main', 'password') &&
 			verify.get('drcom', 'main', 'auto') == '0';
-	verify.unload();
+	verify.unload('drcom');
 	return correct;
 }
 
@@ -139,7 +139,7 @@ const methods = {
 				return { error: '无法读取校园网 UCI 配置', login_url: '', logout_url: '',
 					remember: false, auto: false, username: '', has_password: false };
 			return {
-				backend_revision: 'drcom-rpc9',
+				backend_revision: 'drcom-rpc10',
 				login_url: s.login_url,
 				logout_url: s.logout_url,
 				remember: s.remember,
@@ -160,50 +160,63 @@ const methods = {
 	save_urls: {
 		args: { login_url: '', logout_url: '' },
 		call: function(request) {
+			// Report the failing stage without exposing URLs or credentials.
+			let stage = 'request';
 			try {
-				let a = request.args || {};
+				const a = request?.args || {};
+				stage = 'validate_url';
 				if (!valid_url(a.login_url) || !valid_url(a.logout_url))
-					return { ok: false, code: 'invalid_url', message: '登录/注销地址格式不正确，请填写完整 HTTP(S) URL' };
+					return { ok: false, code: 'invalid_url', message: '认证地址格式不正确，请填写完整 HTTP(S) URL' };
 
-				// Do not rely on the generic save_changes() result alone.
-				// The client must receive the exact persisted URLs back.
+				stage = 'uci_cursor';
 				const cur = cursor();
-				if (!cur || cur.load('drcom') != true)
+				if (!cur)
+					return { ok: false, code: 'uci_cursor', message: '无法打开校园网配置' };
+
+				stage = 'uci_load';
+				if (cur.load('drcom') != true)
 					return { ok: false, code: 'uci_load', message: '无法加载 /etc/config/drcom' };
 
+				stage = 'uci_set';
 				if (cur.set('drcom', 'main', 'login_url', a.login_url) != true ||
 					cur.set('drcom', 'main', 'logout_url', a.logout_url) != true) {
-					cur.unload();
-					return { ok: false, code: 'uci_set', message: 'UCI 写入参数失败，请检查 drcom.main 配置节' };
+					cur.unload('drcom');
+					return { ok: false, code: 'uci_set', message: '无法写入认证地址，请检查 drcom.main 配置' };
 				}
+
+				stage = 'uci_commit';
 				const committed = cur.commit('drcom') == true;
-				cur.unload();
+				cur.unload('drcom');
 				if (!committed)
-					return { ok: false, code: 'uci_commit', message: 'UCI 提交失败，请检查 /overlay 是否可写' };
+					return { ok: false, code: 'uci_commit', message: '配置提交失败，请检查 /overlay 是否可写' };
 
+				stage = 'file_permissions';
 				if (chmod('/etc/config/drcom', 0o600) != true)
-					return { ok: false, code: 'chmod', message: '地址已提交，但无法设置 drcom 配置文件权限' };
+					return { ok: false, code: 'chmod', message: '配置已保存，但无法设置文件权限' };
 
+				stage = 'uci_verify';
 				const verify = cursor();
 				if (!verify || verify.load('drcom') != true)
-					return { ok: false, code: 'uci_reload', message: '配置已提交，但重新加载 UCI 失败' };
+					return { ok: false, code: 'uci_reload', message: '配置已提交，但重新加载失败' };
+
+				stage = 'readback';
 				const login_url = verify.get('drcom', 'main', 'login_url') || '';
 				const logout_url = verify.get('drcom', 'main', 'logout_url') || '';
-				verify.unload();
+				verify.unload('drcom');
 
 				if (login_url != a.login_url || logout_url != a.logout_url)
-					return { ok: false, code: 'uci_mismatch', message: 'UCI 读回结果与输入不一致，请检查配置层是否持久化' };
+					return { ok: false, code: 'uci_mismatch', message: '保存后读回的地址不一致，请检查配置持久化' };
 
 				return {
-					ok: true, backend_revision: 'drcom-rpc9',
+					ok: true, backend_revision: 'drcom-rpc10',
 					login_url, logout_url,
 					message: '认证地址已保存'
 				};
 			} catch (e) {
-				// Error strings here are fixed: never log or return any user
-				// credentials or URL-bearing exception details.
-				return { ok: false, code: 'backend_exception',
-					message: '后端保存过程发生异常；请检查 rpcd 日志' };
+				return {
+					ok: false, code: 'backend_exception_' + stage,
+					message: '认证地址保存异常，阶段：' + stage
+				};
 			}
 		}
 	},

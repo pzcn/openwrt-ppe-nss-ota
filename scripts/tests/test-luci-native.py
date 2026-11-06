@@ -40,11 +40,13 @@ assert "gate.lnu.edu.cn" not in backend
 assert "gate.lnu.edu.cn" not in transport
 assert "option login_url ''" in default
 assert "option logout_url ''" in default
-assert "backend_revision: 'drcom-rpc9'" in backend
+assert "backend_revision: 'drcom-rpc10'" in backend
 assert "code: 'uci_commit'" in backend
 assert "code: 'uci_mismatch'" in backend
 assert "code: 'backend_exception'" in backend
 assert "const verify = cursor();" in backend
+assert "unload();" not in backend
+assert "backend_exception_' + stage" in backend
 assert "verify.get('drcom', 'main', key)" in backend
 assert "for (let key in keys(changes))" in backend
 assert "for (let key, value in changes)" not in backend
@@ -71,7 +73,7 @@ assert not (overlay / "usr/share/luci/menu.d/luci-app-ppe-update.json").exists()
 assert "c.login_url !== target.login" in campus.read_text()
 assert "reject: true" in campus.read_text()
 assert campus.read_text().count("reject: true") == 7
-assert "backend_revision !== 'drcom-rpc9'" in campus.read_text()
+assert "backend_revision !== 'drcom-rpc10'" in campus.read_text()
 assert "RPC 未返回有效结果" in campus.read_text()
 assert "--interface \"if!$WAN_DEVICE\"" in transport
 assert "option auto '0'" in default

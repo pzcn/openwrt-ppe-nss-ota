@@ -27,7 +27,7 @@ assert(source.includes("globalThis.__methods = methods;"));
 
 const state = {
 	disk: { login_url: '', logout_url: '', remember: '0', auto: '0' },
-	failSet: false, failCommit: false, failChmod: false, failLoad: false
+	failSet: false, throwSet: false, failCommit: false, failChmod: false, failLoad: false
 };
 
 function cursor() {
@@ -45,6 +45,7 @@ function cursor() {
 		set(pkg, section, key, value) {
 			assert.strictEqual(pkg, 'drcom');
 			assert.strictEqual(section, 'main');
+			if (state.throwSet) throw new Error('Synthetic UCI write exception');
 			if (state.failSet) return null;
 			if (value === '') delete local[key];
 			else local[key] = value;
@@ -60,7 +61,7 @@ function cursor() {
 			state.disk = { ...local };
 			return true;
 		},
-		unload() { return true; }
+		unload(name) { assert.strictEqual(name, 'drcom'); return true; }
 	};
 }
 
@@ -89,7 +90,7 @@ const url1 = 'http://192.168.15.1:8800/0.htm';
 const url2 = 'http://192.168.15.1:8800/F.htm';
 const result = save(url1, url2);
 assert.strictEqual(result.ok, true, JSON.stringify(result));
-assert.strictEqual(result.backend_revision, 'drcom-rpc9');
+assert.strictEqual(result.backend_revision, 'drcom-rpc10');
 assert.strictEqual(result.login_url, url1);
 assert.strictEqual(result.logout_url, url2);
 assert.strictEqual(state.disk.login_url, url1);
@@ -113,6 +114,13 @@ assert.strictEqual(badSet.ok, false);
 assert.strictEqual(badSet.code, 'uci_set');
 state.failSet = false;
 
+state.throwSet = true;
+const thrownSet = save(url1, url2);
+assert.strictEqual(thrownSet.ok, false);
+assert.strictEqual(thrownSet.code, 'backend_exception_uci_set');
+assert(!JSON.stringify(thrownSet).includes(url1), 'Backend exception must not include input URLs');
+state.throwSet = false;
+
 state.failCommit = true;
 const badCommit = save(url1, url2);
 assert.strictEqual(badCommit.ok, false);
@@ -134,6 +142,6 @@ state.failChmod = false;
 
 const final = save(url3, url4);
 assert.strictEqual(final.ok, true);
-assert.strictEqual(get().backend_revision, 'drcom-rpc9');
+assert.strictEqual(get().backend_revision, 'drcom-rpc10');
 
 console.log('PASS: Dr.COM RPC saves UCI URLs, returns actual values and distinct failures');

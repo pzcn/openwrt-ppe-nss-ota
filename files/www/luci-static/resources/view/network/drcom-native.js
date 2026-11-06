@@ -144,14 +144,14 @@ return view.extend({
 			if (result.ok !== true)
 				throw new Error((result.message || '后端拒绝保存') +
 					(result.code ? '（' + result.code + '）' : ''));
-			if (result.backend_revision !== 'drcom-rpc9')
+			if (result.backend_revision !== 'drcom-rpc10')
 				throw new Error('浏览器页面和 rpcd 后端版本不一致，请重启 rpcd 并刷新浏览器');
 			if (result.login_url !== target.login || result.logout_url !== target.logout)
 				throw new Error('后端返回的保存地址与输入不一致');
 			return getConfig().then(L.bind(function(c) {
 				if (!c || c.error)
 					throw new Error(c && c.error || '无法读取已保存的配置');
-				if (c.backend_revision !== 'drcom-rpc9')
+				if (c.backend_revision !== 'drcom-rpc10')
 					throw new Error('rpcd 后端版本不匹配，请重启 rpcd');
 				if (c.login_url !== target.login || c.logout_url !== target.logout)
 					throw new Error('UCI 再次读取的地址与输入不一致，请检查 /overlay 和 /etc/config/drcom');
