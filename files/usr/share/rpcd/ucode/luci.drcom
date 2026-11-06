@@ -20,7 +20,7 @@ function valid_url(url) {
 	// campus portal paths on domains, IPv4 hosts and nondefault ports.
 	return type(url) == 'string' &&
 		length(url) >= 11 && length(url) <= 512 &&
-		!!match(url, /^https?:\/\/[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?(?:\/[A-Za-z0-9._~%!$&'()*+,;=:@/?-]*)?$/);
+		!!match(url, /^https?:\/\/[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?(?:\/[A-Za-z0-9._~%!$&()*+,;=:@/?-]*)?$/);
 }
 
 function valid_secret(value, maximum) {
@@ -54,8 +54,8 @@ function config() {
 function save_changes(changes, forget_password) {
 	const uci = cursor();
 	uci.load('drcom');
-	for (let key in changes)
-		uci.set('drcom', 'main', key, changes[key]);
+	for (let key, value in changes)
+		uci.set('drcom', 'main', key, value);
 
 	if (forget_password) {
 		uci.delete('drcom', 'main', 'username');

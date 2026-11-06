@@ -11,7 +11,7 @@ STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-dashboard1
 OTA_REV=custom-ota1
 I18N_REV=zhcn-lmo1
-DRCOM_REV=campus-drcom2
+DRCOM_REV=campus-drcom3
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
