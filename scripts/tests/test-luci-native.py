@@ -40,7 +40,7 @@ assert "gate.lnu.edu.cn" not in backend
 assert "gate.lnu.edu.cn" not in transport
 assert "option login_url ''" in default
 assert "option logout_url ''" in default
-assert "backend_revision: 'drcom-rpc11'" in backend
+assert "backend_revision: 'drcom-rpc12'" in backend
 assert "code: 'uci_commit'" in backend
 assert "code: 'uci_mismatch'" in backend
 assert "code: 'backend_exception_' + stage" in backend
@@ -55,6 +55,12 @@ assert "result.login_url !== target.login" in campus.read_text()
 assert "field('认证地址', n.portalUrl)" in campus.read_text()
 assert "n.logoutUrl" not in campus.read_text()
 assert "buildPortalUrls" in campus.read_text()
+assert "save_credentials" in backend
+assert "save_credentials" in json.loads((overlay / "usr/share/rpcd/acl.d/luci-app-drcom.json").read_text())["luci-app-drcom"]["write"]["ubus"]["luci.drcom"]
+assert "saveCredentials(target.login, target.logout, user, secret)" in campus.read_text()
+assert "保存认证信息" in campus.read_text()
+assert "drcom-remember" not in campus.read_text()
+assert "••••••••（已保存）" in campus.read_text()
 flash = (overlay / "www/luci-static/resources/view/system/flash.js").read_text()
 assert "otaScheduleWidget()" in flash
 assert "uci.apply()" in flash
@@ -73,7 +79,7 @@ assert not (overlay / "usr/share/luci/menu.d/luci-app-ppe-update.json").exists()
 assert "c.login_url !== target.login" in campus.read_text()
 assert "reject: true" in campus.read_text()
 assert campus.read_text().count("reject: true") == 7
-assert "backend_revision !== 'drcom-rpc11'" in campus.read_text()
+assert "backend_revision !== 'drcom-rpc12'" in campus.read_text()
 assert "RPC 未返回有效结果" in campus.read_text()
 assert "--interface \"if!$WAN_DEVICE\"" in transport
 assert "option auto '0'" in default

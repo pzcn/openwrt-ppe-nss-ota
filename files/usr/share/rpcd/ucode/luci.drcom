@@ -142,7 +142,7 @@ const methods = {
 				return { error: '无法读取校园网 UCI 配置', login_url: '', logout_url: '',
 					remember: false, auto: false, username: '', has_password: false };
 			return {
-				backend_revision: 'drcom-rpc11',
+				backend_revision: 'drcom-rpc12',
 				login_url: s.login_url,
 				logout_url: s.logout_url,
 				remember: s.remember,
@@ -211,7 +211,7 @@ const methods = {
 					return { ok: false, code: 'uci_mismatch', message: '保存后读回的地址不一致，请检查配置持久化' };
 
 				return {
-					ok: true, backend_revision: 'drcom-rpc11',
+					ok: true, backend_revision: 'drcom-rpc12',
 					login_url, logout_url,
 					message: '认证地址已保存'
 				};
@@ -219,6 +219,70 @@ const methods = {
 				return {
 					ok: false, code: 'backend_exception_' + stage,
 					message: '认证地址保存异常，阶段：' + stage
+				};
+			}
+		}
+	},
+
+	// Save the entire credential card without requiring an authentication request.
+	// A blank password retains the previous secret only for the same username.
+	save_credentials: {
+		args: { login_url: '', logout_url: '', username: '', password: '' },
+		call: function(request) {
+			let stage = 'validate';
+			try {
+				const a = request?.args || {};
+				if (!valid_url(a.login_url) || !valid_url(a.logout_url))
+					return { ok: false, code: 'invalid_url', message: '认证地址格式不正确' };
+
+				const username = a.username || '';
+				if (!valid_secret(username, 128))
+					return { ok: false, code: 'invalid_username', message: '请输入有效的用户名' };
+
+				stage = 'read_existing';
+				const saved = config();
+				if (!saved)
+					return { ok: false, code: 'uci_load', message: '读取现有认证配置失败' };
+
+				const password = a.password || (
+					saved.remember && saved.username == username ? saved.password : ''
+				);
+				if (!valid_secret(password, 256))
+					return { ok: false, code: 'invalid_password', message: '请输入密码；修改用户名时也需要填写密码' };
+
+				stage = 'uci_save';
+				if (!save_changes({
+					login_url: a.login_url,
+					logout_url: a.logout_url,
+					username: username,
+					password: password,
+					remember: '1'
+				}, false))
+					return { ok: false, code: 'uci_save', message: '保存账号信息失败，请检查 UCI 配置和存储空间' };
+
+				stage = 'readback';
+				const verified = config();
+				if (!verified ||
+					verified.login_url != a.login_url ||
+					verified.logout_url != a.logout_url ||
+					verified.username != username ||
+					verified.password != password ||
+					!verified.remember)
+					return { ok: false, code: 'uci_mismatch', message: '认证信息保存后校验失败' };
+
+				// Never include the password in a ubus reply, including on success.
+				return {
+					ok: true, backend_revision: 'drcom-rpc12',
+					login_url: verified.login_url,
+					logout_url: verified.logout_url,
+					username: verified.username,
+					has_password: true,
+					message: '认证信息已保存'
+				};
+			} catch (e) {
+				return {
+					ok: false, code: 'backend_exception_' + stage,
+					message: '认证信息保存异常，阶段：' + stage
 				};
 			}
 		}

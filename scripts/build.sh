@@ -12,7 +12,7 @@ STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-native2
 OTA_REV=custom-ota6
 I18N_REV=zhcn-lmo1
-DRCOM_REV=campus-drcom14
+DRCOM_REV=campus-drcom15
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
@@ -82,7 +82,7 @@ grep -Fq "nslookup -type=A" "$DRCOM_FILES/usr/libexec/drcom-web"
 grep -Fq -- '--resolve "$CURL_RESOLVE"' "$DRCOM_FILES/usr/libexec/drcom-web"
 grep -Fq "'class': 'cbi-map'" "$DRCOM_FILES/www/luci-static/resources/view/network/drcom-native.js"
 grep -Fq "const verify = cursor();" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
-grep -Fq "backend_revision: 'drcom-rpc11'" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
+grep -Fq "backend_revision: 'drcom-rpc12'" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
 grep -Fq "reject: true" "$DRCOM_FILES/www/luci-static/resources/view/network/drcom-native.js"
 grep -Fq "chmod('/etc/config/drcom', 0o600)" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
 grep -Fq "open(filepath, 'wx', 0o600)" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
@@ -93,6 +93,8 @@ grep -Fq "option logout_url ''" "$DRCOM_FILES/etc/config/drcom"
 grep -Fq '0 0 * * * /usr/libexec/drcom-web auto' "$DRCOM_FILES/usr/libexec/drcom-schedule"
 grep -Fq "option auto '0'" "$DRCOM_FILES/etc/config/drcom"
 grep -Fq 'save_urls:' "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
+grep -Fq 'save_credentials:' "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
+grep -Fq '"save_credentials"' "$DRCOM_FILES/usr/share/rpcd/acl.d/luci-app-drcom.json"
 grep -Fq 'set_auto:' "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
 chmod +x "$WORK/ib/files/etc/uci-defaults/"*
 # Keep upstream /etc/ppe-release untouched for the NSS kernel package feed.

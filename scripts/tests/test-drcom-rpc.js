@@ -79,7 +79,7 @@ const context = {
 };
 vm.runInNewContext(source, context, { filename: 'luci.drcom' });
 const methods = context.__methods;
-assert(methods && methods.save_urls && methods.get_config);
+assert(methods && methods.save_urls && methods.save_credentials && methods.get_config);
 
 function save(login_url, logout_url) {
 	return methods.save_urls.call({ args: { login_url, logout_url } });
@@ -90,7 +90,7 @@ const url1 = 'http://192.168.15.1:8800/0.htm';
 const url2 = 'http://192.168.15.1:8800/F.htm';
 const result = save(url1, url2);
 assert.strictEqual(result.ok, true, JSON.stringify(result));
-assert.strictEqual(result.backend_revision, 'drcom-rpc11');
+assert.strictEqual(result.backend_revision, 'drcom-rpc12');
 assert.strictEqual(result.login_url, url1);
 assert.strictEqual(result.logout_url, url2);
 assert.strictEqual(state.disk.login_url, url1);
@@ -142,6 +142,58 @@ state.failChmod = false;
 
 const final = save(url3, url4);
 assert.strictEqual(final.ok, true);
-assert.strictEqual(get().backend_revision, 'drcom-rpc11');
+assert.strictEqual(get().backend_revision, 'drcom-rpc12');
 
-console.log('PASS: Dr.COM RPC saves UCI URLs, returns actual values and distinct failures');
+// The credential card must persist address, username and password in one action.
+function saveCredentials(login_url, logout_url, username, password) {
+	return methods.save_credentials.call({ args: { login_url, logout_url, username, password } });
+}
+
+const invalidUser = saveCredentials(url1, url2, '', 'private123');
+assert.strictEqual(invalidUser.ok, false);
+assert.strictEqual(invalidUser.code, 'invalid_username');
+
+const password1 = 's3cr3tPassword123';
+const account1 = saveCredentials(url1, url2, 'student_a', password1);
+assert.strictEqual(account1.ok, true, JSON.stringify(account1));
+assert.strictEqual(account1.username, 'student_a');
+assert.strictEqual(account1.has_password, true);
+assert.strictEqual(account1.login_url, url1);
+assert.strictEqual(state.disk.login_url, url1);
+assert.strictEqual(state.disk.logout_url, url2);
+assert.strictEqual(state.disk.username, 'student_a');
+assert.strictEqual(state.disk.password, password1);
+assert.strictEqual(state.disk.remember, '1');
+assert.strictEqual(get().username, 'student_a');
+assert.strictEqual(get().has_password, true);
+assert(!JSON.stringify(account1).includes(password1), 'Save response must never expose the password');
+assert(!JSON.stringify(get()).includes(password1), 'Get response must never expose the password');
+
+// Editing the gateway with an empty password keeps the same user's password.
+const updateAddress = saveCredentials(url3, url4, 'student_a', '');
+assert.strictEqual(updateAddress.ok, true);
+assert.strictEqual(state.disk.login_url, url3);
+assert.strictEqual(state.disk.password, password1);
+
+// Changing the username without a new password must not reuse someone else's secret.
+const changeWithoutPassword = saveCredentials(url3, url4, 'student_b', '');
+assert.strictEqual(changeWithoutPassword.ok, false);
+assert.strictEqual(changeWithoutPassword.code, 'invalid_password');
+assert.strictEqual(state.disk.username, 'student_a');
+
+const password2 = 'newPassword456';
+const replaced = saveCredentials(url3, url4, 'student_b', password2);
+assert.strictEqual(replaced.ok, true);
+assert.strictEqual(state.disk.username, 'student_b');
+assert.strictEqual(state.disk.password, password2);
+assert(!JSON.stringify(replaced).includes(password2));
+assert.strictEqual(get().username, 'student_b');
+
+state.failCommit = true;
+const failedCredSave = saveCredentials(url1, url2, 'student_b', 'updatedPass');
+assert.strictEqual(failedCredSave.ok, false);
+assert.strictEqual(failedCredSave.code, 'uci_save');
+assert.strictEqual(state.disk.password, password2);
+state.failCommit = false;
+
+console.log('PASS: Dr.COM RPC persists URLs and credentials, preserves unchanged passwords, and hides secrets');

@@ -16,6 +16,7 @@
           "logout",
           "forget",
           "save_urls",
+          "save_credentials",
           "set_auto"
         ]
       }
