@@ -10,9 +10,9 @@ AURORA_TAG=v1.4.0
 AURORA_APK=luci-theme-aurora-1.4.0-r20260920.apk
 STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-native2
-OTA_REV=custom-ota6
+OTA_REV=custom-ota7
 I18N_REV=zhcn-lmo1
-DRCOM_REV=campus-drcom15
+DRCOM_REV=campus-drcom16
 WORK="$RUNNER_TEMP/firmware-build"
 mkdir -p "$WORK/ib" "$GITHUB_WORKSPACE/out"
 TAG="$UPSTREAM_TAG"
@@ -72,6 +72,7 @@ sh -n "$DRCOM_FILES/etc/uci-defaults/98-drcom-clear-unused-legacy-url"
 python3 -m json.tool "$DRCOM_FILES/usr/share/luci/menu.d/luci-app-drcom.json" >/dev/null
 python3 -m json.tool "$DRCOM_FILES/usr/share/rpcd/acl.d/luci-app-drcom.json" >/dev/null
 node --check "$DRCOM_FILES/www/luci-static/resources/view/network/drcom-native.js"
+grep -Fq "'checked': config.auto ? '' : null" "$DRCOM_FILES/www/luci-static/resources/view/network/drcom-native.js"
 ! grep -Fq 'unload();' "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
 grep -Fq "return { 'luci.drcom': methods };" "$DRCOM_FILES/usr/share/rpcd/ucode/luci.drcom"
 grep -Fq 'data-urlencode = "DDDDD=%s"' "$DRCOM_FILES/usr/libexec/drcom-web"
@@ -116,6 +117,7 @@ python3 -m json.tool "$WORK/ib/files/usr/share/rpcd/acl.d/luci-app-ppe-update.js
 grep -Fq "otaScheduleWidget()" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 test -s "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 node --check "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
+grep -Fq "'checked': uci.get('ppe-update', 'main', 'auto') == '1' ? '' : null" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 test ! -e "$WORK/ib/files/usr/share/luci/menu.d/luci-app-ppe-update.json"
 grep -Fq "在线固件更新" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"
 grep -Fq "handleSysupgradeConfirm" "$WORK/ib/files/www/luci-static/resources/view/system/flash.js"

@@ -64,6 +64,13 @@ assert "••••••••（已保存）" in campus.read_text()
 flash = (overlay / "www/luci-static/resources/view/system/flash.js").read_text()
 assert "otaScheduleWidget()" in flash
 assert "uci.apply()" in flash
+assert "row('启用自动更新', auto)" in flash
+assert "启用无人值守更新" not in flash
+assert "'checked': uci.get('ppe-update', 'main', 'auto') == '1' ? '' : null" in flash
+assert "'selected': (uci.get('ppe-update', 'main', 'hour') || '4') == String(i) ? '' : null" in flash
+assert "'checked': config.auto ? '' : null" in campus.read_text()
+assert "'启用0点自动认证'" in campus.read_text()
+assert "'每天零点认证'" not in campus.read_text()
 assert "发现新版本，已开启自动更新" in flash
 assert "发现新版本，可立即手动升级" in flash
 assert "发现新版本，可手动升级" not in flash

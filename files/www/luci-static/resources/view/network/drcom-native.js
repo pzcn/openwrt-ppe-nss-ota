@@ -291,7 +291,7 @@ return view.extend({
 			'maxlength': 256, 'autocomplete': 'off'
 		});
 		n.auto = E('input', { 'id': 'drcom-auto', 'type': 'checkbox',
-			'class': 'cbi-input-checkbox', 'checked': !!config.auto });
+			'class': 'cbi-input-checkbox', 'checked': config.auto ? '' : null });
 		n.connection = E('strong', '读取中');
 		n.response = E('span', '正在读取状态…');
 		n.saved = E('span', config.has_password
@@ -336,7 +336,7 @@ return view.extend({
 				E('div', { 'class': 'cbi-section-descr' },
 					'保存认证信息后，可设置每天 00:00 自动认证。按路由器本地时间执行。'),
 				E('div', { 'class': 'cbi-value' }, [
-					E('label', { 'class': 'cbi-value-title', 'for': 'drcom-auto' }, '每天零点认证'),
+					E('label', { 'class': 'cbi-value-title', 'for': 'drcom-auto' }, '启用0点自动认证'),
 					E('div', { 'class': 'cbi-value-field' }, [ n.auto, '　', n.autoStatus ])
 				]),
 				E('div', { 'class': 'cbi-page-actions' }, [n.setAuto])

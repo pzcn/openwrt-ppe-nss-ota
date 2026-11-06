@@ -47,6 +47,9 @@ jobs:
       - name: Verify native LuCI pages and persisted URLs (offline)
         run: python3 scripts/tests/test-luci-native.py
 
+      - name: Test saved LuCI checkbox states (mock DOM)
+        run: node scripts/tests/test-luci-autocheckboxes.js
+
       - name: Validate Dr.COM URLs using the native ucode interpreter
         run: |
           sudo apt-get install -y libjson-c-dev pkg-config cmake

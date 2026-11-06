@@ -98,14 +98,14 @@ return view.extend({
 		const view = this;
 		const auto = E('input', {
 			'type': 'checkbox', 'class': 'cbi-input-checkbox',
-			'checked': uci.get('ppe-update', 'main', 'auto') == '1',
+			'checked': uci.get('ppe-update', 'main', 'auto') == '1' ? '' : null,
 			'disabled': isReadonlyView || null
 		});
 		const hour = E('select', { 'class': 'cbi-input-select', 'disabled': isReadonlyView || null },
 			Array.from({ length: 24 }, function(_, i) {
 				return E('option', {
 					'value': String(i),
-					'selected': (uci.get('ppe-update', 'main', 'hour') || '4') == String(i)
+					'selected': (uci.get('ppe-update', 'main', 'hour') || '4') == String(i) ? '' : null
 				}, ('0' + i).slice(-2) + ':00');
 			}));
 		const delay = E('input', {
@@ -149,7 +149,7 @@ return view.extend({
 			})
 		}, '保存自动更新设置');
 		return E('div', [
-			row('启用无人值守更新', auto),
+			row('启用自动更新', auto),
 			row('每天检查的小时', hour),
 			row('发布后等待天数', delay),
 			E('div', { 'class': 'cbi-page-actions' }, save)
@@ -181,7 +181,7 @@ return view.extend({
 				autoOn ? '发现新版本，已开启自动更新' : '发现新版本，可立即手动升级')));
 			rows.push(customOTARow('自动更新', autoOn
 				? '每天 ' + hour + ' 点检查，发布满 ' + delay + ' 天后自动安装。'
-				: '未开启，可在下方启用无人值守更新。'));
+				: '未开启，可在下方启用自动更新。'));
 			if (st.extras)
 				rows.push(customOTARow('额外软件包', E('span', {},
 					'升级后将尝试恢复额外安装的软件包。')));

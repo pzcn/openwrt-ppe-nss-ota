@@ -331,7 +331,7 @@ const methods = {
 			if (!saved)
 				return { ok: false, auto: false, message: '无法读取校园网配置' };
 			if (enabled && (!saved.remember || !saved.username || !saved.password))
-				return { ok: false, auto: false, message: '先勾选“记住账号密码”并登录一次，才能开启每天 00:00 自动认证' };
+				return { ok: false, auto: false, message: '请先保存认证地址、用户名和密码，再启用0点自动认证' };
 			if (enabled && (!valid_url(saved.login_url) || !valid_url(saved.logout_url)))
 				return { ok: false, auto: false, message: '认证地址无效，请先保存正确的地址' };
 
