@@ -21,7 +21,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: re-ss-01-release
+  group: re-ss-01-release-credential-fix
   cancel-in-progress: true
 
 jobs:
