@@ -43,7 +43,7 @@ assert "option logout_url ''" in default
 assert "backend_revision: 'drcom-rpc10'" in backend
 assert "code: 'uci_commit'" in backend
 assert "code: 'uci_mismatch'" in backend
-assert "code: 'backend_exception'" in backend
+assert "code: 'backend_exception_' + stage" in backend
 assert "const verify = cursor();" in backend
 assert "unload();" not in backend
 assert "backend_exception_' + stage" in backend
