@@ -73,7 +73,7 @@ function save_changes(changes, forget_password) {
 
 	// The router stores passwords in root-only UCI config, including on ext4/
 	// F2FS overlay. Verify persistence using an independent cursor.
-	if (chmod('/etc/config/drcom', 0600) != true)
+	if (chmod('/etc/config/drcom', 0o600) != true)
 		return false;
 	const verify = cursor();
 	if (verify.load('drcom') != true)
@@ -105,7 +105,7 @@ function run(action, payload) {
 			return { ok: false, state: 'unknown', message: '无法创建安全的认证请求' };
 
 		filepath = '/tmp/drcom-request-' + uuid + '.json';
-		let file = open(filepath, 'wx', 0600);
+		let file = open(filepath, 'wx', 0o600);
 		if (!file)
 			return { ok: false, state: 'unknown', message: '无法创建临时认证文件' };
 
