@@ -1,0 +1,9 @@
+#!/bin/sh
+# Let the bundled sing-box TUN profile run with the privileges needed for
+# creating routes and tun devices. Leave running or customized services alone.
+if [ "$(uci -q get sing-box.main.enabled)" = '0' ] &&
+   [ "$(uci -q get sing-box.main.user)" = 'sing-box' ]; then
+    uci -q set sing-box.main.user='root'
+    uci -q commit sing-box
+fi
+exit 0

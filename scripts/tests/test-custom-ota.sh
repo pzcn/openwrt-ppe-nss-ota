@@ -12,7 +12,7 @@ sh -n "$OTA"
 # A new source commit must produce a new release tag even when upstream is unchanged.
 BUILD_SCRIPT="$HERE/scripts/build.sh"
 grep -Fq 'SOURCE_REV="$(git -C "$GITHUB_WORKSPACE" rev-parse --short=8 HEAD)"' "$BUILD_SCRIPT"
-grep -Fq 'RELEASE_TAG="ota-$TAG-$AURORA_TAG-$STORAGE_FIX_REV-$MONITOR_REV-$OTA_REV-$I18N_REV-$DRCOM_REV-g$SOURCE_REV"' "$BUILD_SCRIPT"
+grep -Fq 'RELEASE_TAG="ota-$TAG-$AURORA_TAG-$STORAGE_FIX_REV-$MONITOR_REV-$OTA_REV-$I18N_REV-$DRCOM_REV-$EXTRA_APPS_REV-g$SOURCE_REV"' "$BUILD_SCRIPT"
 grep -Fq 'gh release create "$RELEASE_TAG"' "$BUILD_SCRIPT"
 # The OTA schedule is embedded in the native Backup / Flash Firmware view.
 test ! -e "$HERE/files/www/luci-static/resources/view/system/ppe-update.js"

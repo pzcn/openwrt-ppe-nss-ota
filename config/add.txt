@@ -46,3 +46,15 @@ luci-i18n-wifihistory-zh-cn
 luci-i18n-irqbalance-zh-cn
 luci-i18n-lldpd-zh-cn
 luci-i18n-pbr-zh-cn
+
+# Wake on LAN: native LuCI UI, Ethernet magic packets and Simplified Chinese.
+luci-app-wol
+etherwake
+luci-i18n-wol-zh-cn
+
+# sing-box engine for the native JSON config editor (UI APK is pinned locally).
+# Keep kernel modules on the matching PPE/NSS ImageBuilder feed.
+sing-box
+flock
+kmod-tun
+kmod-inet-diag
