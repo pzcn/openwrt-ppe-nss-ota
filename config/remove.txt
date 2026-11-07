@@ -2,3 +2,7 @@
 ip-tiny
 libopenssl-oqsprovider
 liboqs
+
+# Explicitly exclude the previous sing-box engine and LuCI editor.
+sing-box
+luci-app-sing-box

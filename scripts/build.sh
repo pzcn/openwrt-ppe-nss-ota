@@ -8,10 +8,7 @@ GROUP=ipq60xx-512m
 PROFILE=jdcloud_re-ss-01
 AURORA_TAG=v1.4.0
 AURORA_APK=luci-theme-aurora-1.4.0-r20260920.apk
-SING_LUCI_TAG=v0.4.7
-SING_LUCI_APK=luci-app-sing-box-0.4.7-r1.apk
-SING_LUCI_SHA256=02de66fec60fc5a6cb635813afaaaa18f37e8a62023a3f6a655d73a6335f8bc3
-EXTRA_APPS_REV=singbox047-wol1
+EXTRA_APPS_REV=tailscale-wol1
 STORAGE_FIX_REV=f2fsrootfsdata1
 MONITOR_REV=ppe-nss-native3
 OTA_REV=custom-ota8
@@ -73,11 +70,6 @@ sh -n "$DRCOM_FILES/usr/libexec/drcom-schedule"
 sh -n "$DRCOM_FILES/etc/init.d/drcom"
 sh -n "$DRCOM_FILES/etc/uci-defaults/97-drcom-credentials-permissions"
 sh -n "$DRCOM_FILES/etc/uci-defaults/98-drcom-clear-unused-legacy-url"
-# sing-box TUN needs root; the default is adjusted only while its service is disabled.
-test -s "$WORK/ib/files/etc/uci-defaults/95-sing-box-tun-user"
-sh -n "$WORK/ib/files/etc/uci-defaults/95-sing-box-tun-user"
-grep -Fq "sing-box.main.user='root'" "$WORK/ib/files/etc/uci-defaults/95-sing-box-tun-user"
-test ! -e "$WORK/ib/files/etc/sing-box/config.json"
 python3 -m json.tool "$DRCOM_FILES/usr/share/luci/menu.d/luci-app-drcom.json" >/dev/null
 python3 -m json.tool "$DRCOM_FILES/usr/share/rpcd/acl.d/luci-app-drcom.json" >/dev/null
 node --check "$DRCOM_FILES/www/luci-static/resources/view/network/drcom-native.js"
@@ -158,11 +150,17 @@ grep -qx 'luci-i18n-sqm-zh-cn' "$GITHUB_WORKSPACE/config/add.txt"
 grep -qx 'luci-i18n-bcp38-zh-cn' "$GITHUB_WORKSPACE/config/add.txt"
 grep -qx 'curl' "$GITHUB_WORKSPACE/config/add.txt"
 grep -qx 'jsonfilter' "$GITHUB_WORKSPACE/config/add.txt"
-for required in sing-box luci-app-wol etherwake luci-i18n-wol-zh-cn flock kmod-tun kmod-inet-diag; do
+for required in tailscale luci-app-tailscale-community luci-i18n-tailscale-community-zh-cn luci-app-wol etherwake luci-i18n-wol-zh-cn kmod-tun; do
   grep -qx "$required" "$GITHUB_WORKSPACE/config/add.txt" || {
     echo "::error::Missing optional application dependency: $required"; exit 1;
   }
 done
+for removed in sing-box luci-app-sing-box; do
+  grep -qx "$removed" "$GITHUB_WORKSPACE/config/remove.txt" || {
+    echo "::error::Previously bundled proxy not explicitly removed: $removed"; exit 1;
+  }
+done
+test ! -e "$WORK/ib/files/etc/uci-defaults/95-sing-box-tun-user"
 
 # Validate the custom LuCI status dashboard before publishing a firmware.
 MONITOR_FILES="$WORK/ib/files"
@@ -182,14 +180,6 @@ test -s "$WORK/$AURORA_APK"
 sha256sum "$WORK/$AURORA_APK" > "$GITHUB_WORKSPACE/out/aurora-sha256.txt"
 cp "$WORK/$AURORA_APK" "$WORK/ib/packages/"
 
-# Install the author's prebuilt, Chinese LuCI sing-box manager (no SDK/Node on router).
-# Pin the official Release asset and checksum; keep any private JSON off GitHub.
-SING_LUCI_URL="https://github.com/lauyv/luci-app-sing-box/releases/download/$SING_LUCI_TAG/$SING_LUCI_APK"
-curl -fL --retry 3 --connect-timeout 20 "$SING_LUCI_URL" -o "$WORK/$SING_LUCI_APK"
-printf '%s  %s\n' "$SING_LUCI_SHA256" "$WORK/$SING_LUCI_APK" | sha256sum -c -
-cp "$WORK/$SING_LUCI_APK" "$WORK/ib/packages/"
-sha256sum "$WORK/$SING_LUCI_APK" > "$GITHUB_WORKSPACE/out/sing-box-luci-sha256.txt"
-
 IB="$WORK/ib"
 sed -i 's/^CONFIG_IB_STANDALONE=y$/# CONFIG_IB_STANDALONE is not set/' "$IB/.config"
 arch="$(sed -n 's/^CONFIG_TARGET_ARCH_PACKAGES="\([^"]*\)"/\1/p' "$IB/.config")"
@@ -201,7 +191,7 @@ for feed in base packages luci routing telephony video; do
 done
 echo "@snapshot https://downloads.openwrt.org/snapshots/targets/$board/$subtarget/packages/packages.adb" >> "$IB/repositories"
 
-# Allow the known, explicitly downloaded local third-party APK during assembly.
+# Allow the pinned Aurora theme APK during assembly.
 # No trust key is installed on the target device.
 sed -i 's/--cache-dir $(DL_DIR)/--allow-untrusted --cache-dir $(DL_DIR)/' "$IB/Makefile"
 grep -q -- '--allow-untrusted --cache-dir' "$IB/Makefile"
@@ -220,9 +210,13 @@ sha256sum "$IMAGE" > sha256sums
 cp "$WORK/packages.txt" selected-packages.txt
 MANIFEST="$(find . -maxdepth 1 -name '*.manifest' -printf '%f\n' | head -n 1)"
 test -n "$MANIFEST"
-for p in luci-theme-aurora luci-app-sing-box sing-box kmod-tun kmod-inet-diag flock luci-app-wol etherwake luci-i18n-wol-zh-cn luci-app-filemanager luci-app-ttyd luci-app-nlbwmon luci-app-statistics luci-app-wifihistory luci-app-irqbalance luci-app-lldpd luci-app-pbr luci-i18n-base-zh-cn luci-i18n-sqm-zh-cn luci-i18n-bcp38-zh-cn luci-proto-wireguard kmod-wireguard kmod-nss-wifi-drv block-mount kmod-fs-ext4 e2fsprogs kmod-fs-f2fs f2fs-tools mkf2fs f2fsck curl jsonfilter; do
+for p in luci-theme-aurora tailscale luci-app-tailscale-community luci-i18n-tailscale-community-zh-cn kmod-tun luci-app-wol etherwake luci-i18n-wol-zh-cn luci-app-filemanager luci-app-ttyd luci-app-nlbwmon luci-app-statistics luci-app-wifihistory luci-app-irqbalance luci-app-lldpd luci-app-pbr luci-i18n-base-zh-cn luci-i18n-sqm-zh-cn luci-i18n-bcp38-zh-cn luci-proto-wireguard kmod-wireguard kmod-nss-wifi-drv block-mount kmod-fs-ext4 e2fsprogs kmod-fs-f2fs f2fs-tools mkf2fs f2fsck curl jsonfilter; do
   grep -q "^$p " "$MANIFEST" || { echo "::error::Missing in manifest: $p"; exit 1; }
 done
+if grep -Eq '^(sing-box|luci-app-sing-box) ' "$MANIFEST"; then
+  echo "::error::Retired sing-box packages found in generated image manifest"
+  exit 1
+fi
 python3 "$GITHUB_WORKSPACE/scripts/write_ota_metadata.py" \
   --tag "$RELEASE_TAG" --build "$GITHUB_RUN_NUMBER" \
   --upstream "$TAG" --group "$GROUP" --profile "$PROFILE" \
@@ -241,12 +235,12 @@ cat > "$WORK/notes.md" <<EOF
 
 - **状态 → PPE / NSS 硬件加速：** 简洁显示加速引擎、连接统计与折叠诊断
 - **网络 → 校园网认证：** 单一网关地址、账号密码、登录注销及每日 00:00 自动认证
-- **服务 → sing-box：** 原生中文 LuCI，支持上传、编辑、校验 JSON 与服务管理
+- **服务 → Tailscale：** 官方 Tailscale 内核、LuCI 管理页面和简体中文翻译
 - **服务 → 网络唤醒：** 通过 Etherwake 发送唤醒包，附简体中文语言包
 - **系统 → 备份 / 升级 → 在线固件更新：** 检查版本、在线安装及自动更新设置
 - **界面文案：** 使用 LuCI 原生风格，统一菜单和帮助文字
 
-包含常用 LuCI 应用、简体中文语言包、PPE QoS 汉化、WireGuard、sing-box、网络唤醒和 Aurora 主题。
+包含常用 LuCI 应用、简体中文语言包、PPE QoS 汉化、WireGuard、Tailscale、网络唤醒和 Aurora 主题。
 
 ## 存储
 
@@ -266,4 +260,4 @@ cat > "$WORK/notes.md" <<EOF
 - 新增应用：$EXTRA_APPS_REV
 EOF
 
-gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS 固件 ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST" ota.json sing-box-luci-sha256.txt
+gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --title "RE-SS-01 PPE+NSS 固件 ($TAG)" --notes-file "$WORK/notes.md" --latest "$IMAGE" sha256sums aurora-sha256.txt selected-packages.txt "$MANIFEST" ota.json

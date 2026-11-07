@@ -71,7 +71,7 @@ jobs:
       - name: Test Dr.COM login and logout (local mock portal)
         run: python3 scripts/tests/test-drcom.py
 
-      - name: Verify sing-box and Wake on LAN integration (offline)
+      - name: Verify Tailscale and Wake on LAN integration (offline)
         run: python3 scripts/tests/test-extra-apps.py
 
       - name: Test custom OTA (offline, no flash)

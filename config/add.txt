@@ -52,9 +52,9 @@ luci-app-wol
 etherwake
 luci-i18n-wol-zh-cn
 
-# sing-box engine for the native JSON config editor (UI APK is pinned locally).
-# Keep kernel modules on the matching PPE/NSS ImageBuilder feed.
-sing-box
-flock
+# Tailscale daemon and native LuCI manager with Simplified Chinese.
+# TUN kernel module comes from the matching PPE/NSS ImageBuilder.
+tailscale
+luci-app-tailscale-community
+luci-i18n-tailscale-community-zh-cn
 kmod-tun
-kmod-inet-diag
