@@ -70,8 +70,8 @@ def main():
         # Never source external kernel modules from generic OpenWrt snapshot feeds.
         new.append(p if p.startswith("kmod-") else f"{p}@snapshot")
 
-    # Aurora is the only externally pinned local APK.
-    all_packages = base + new + ["luci-theme-aurora"]
+    # Aurora and sing-box LuCI are pinned local release APKs.
+    all_packages = base + new + ["luci-theme-aurora", "luci-app-sing-box"]
     all_packages += [f"-{p}" for p in remove] + dropped
     print(" ".join(dict.fromkeys(all_packages)))
 

@@ -58,3 +58,9 @@ tailscale
 luci-app-tailscale-community
 luci-i18n-tailscale-community-zh-cn
 kmod-tun
+
+# sing-box full core and JSON-based LuCI management.
+# Its LuCI APK is pinned separately in the ImageBuilder script.
+sing-box
+flock
+kmod-inet-diag

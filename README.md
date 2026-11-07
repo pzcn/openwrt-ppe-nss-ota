@@ -9,7 +9,8 @@
 - **网络加速**：PPE 有线硬件卸载、NSS Wi-Fi 数据路径
 - **管理界面**：Aurora 主题、简体中文及 PPE QoS 汉化
 - **常用应用**：文件管理、Web 终端、流量统计、无线历史记录、IRQ Balance、LLDP、PBR、WireGuard
-- **远程访问与唤醒**：Tailscale 内网组网及中文 LuCI 管理，网络唤醒（Etherwake，含简体中文翻译）
+- **远程访问与代理**：Tailscale 内网组网、sing-box 内核及中文 LuCI JSON 配置管理
+- **网络唤醒**：Etherwake 及中文 LuCI 管理界面
 - **存储**：F2FS `rootfs_data` 可写层，p27 ext4 挂载到 `/mnt/storage`
 - **诊断工具**：`tcpdump`、`conntrack`、`ip-full` 等
 
@@ -21,6 +22,7 @@
 | **网络 → 校园网认证** | Dr.COM 自定义地址、账号密码保存、登录注销和 0 点自动认证 |
 | **系统 → 备份 / 升级** | 固件备份、上传刷机、在线检查、安装更新与自动更新设置 |
 | **VPN → Tailscale** | 查看组网状态、配置 Tailscale 服务 |
+| **服务 → sing-box** | 上传、编辑、校验 JSON、控制服务及查看日志 |
 | **服务 → 网络唤醒** | 选择电脑的 MAC 和 LAN 接口，发送唤醒包 |
 
 所有新增页面使用 LuCI 原生控件，跟随系统主题。
@@ -48,9 +50,11 @@ tailscale up
 tailscale status
 ```
 
+sing-box 也已恢复：内核与原先的中文 LuCI JSON 管理面板一起安装，默认关闭。导入 OpenWrt 配置后可校验并启动；如启用 TUN 分流，注意排除 Tailscale 隧道和远程管理流量，避免回环。
+
 网络唤醒保留官方 LuCI 插件与简体中文语言包，使用 `etherwake` 向电脑所在 LAN 发送唤醒包。
 
-详细说明：[Tailscale 与网络唤醒](docs/TAILSCALE-WOL.md)。
+详细说明：[Tailscale 与网络唤醒](docs/TAILSCALE-WOL.md)、[sing-box 配置管理](docs/SINGBOX.md)。
 
 ## 固件更新
 
@@ -99,6 +103,7 @@ logread | grep -Ei 'f2fs|rootfs_data|overlay'
 - [Dr.COM 校园网认证](docs/DRCOM-CAMPUS.md)
 - [在线更新](docs/CUSTOM-OTA.md)
 - [Tailscale 与网络唤醒](docs/TAILSCALE-WOL.md)
+- [sing-box 配置管理](docs/SINGBOX.md)
 - [LuCI 简体中文](docs/CHINESE-LOCALIZATION.md)
 - `config/add.txt` / `config/remove.txt`：软件包增删
 - `files/`：固件文件覆盖层

@@ -25,6 +25,6 @@ Tailscale 的隧道接口为 `tailscale0`，所需的 `kmod-tun` 与当前 NSS �
 
 结合 Tailscale 使用时，可先远程登录路由器 LuCI，再由路由器在电脑所在的二层网络中发送唤醒包；Tailscale 的三层隧道本身不负责跨网段转发以太网广播。
 
-## 固件更替
+## 与 sing-box 共存
 
-本版本从镜像包列表移除了之前加入的 sing-box 内核及 LuCI 插件，也取消了专属 TUN 用户初始化脚本。原有网络唤醒功能保持不变。此变更不主动清理设备上用户自行保存的旧配置文件。
+固件同时提供 Tailscale 和 sing-box，两者可以分别启用。Tailscale 负责远程访问；sing-box 使用自备 JSON 代理配置。使用 sing-box TUN 自动路由时，建议明确直连 Tailscale 控制面和隧道流量，避免代理路由回环影响远程管理。详情见 [sing-box 配置管理](SINGBOX.md)。
