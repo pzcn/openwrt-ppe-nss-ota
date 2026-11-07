@@ -4,7 +4,7 @@
 
 ## Tailscale
 
-入口：**服务 → Tailscale**。管理页面使用 OpenWrt 原生 LuCI 风格，中文语言包随固件一起安装。
+入口：**VPN → Tailscale**。管理页面使用 OpenWrt 原生 LuCI 风格，中文语言包随固件一起安装。
 
 首次使用时，在 LuCI 的终端或 SSH 中执行：
 
