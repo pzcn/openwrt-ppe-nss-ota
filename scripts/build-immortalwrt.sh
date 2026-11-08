@@ -57,7 +57,18 @@ git clone --quiet --depth 1 --filter=blob:none --sparse --branch luci-app-ppe-qo
 git -C "$WORK/ppe-luci" sparse-checkout set applications/luci-app-qca-ppe-qos
 rm -rf "$IMM/feeds/luci/applications/luci-app-qca-ppe-qos"
 cp -a "$WORK/ppe-luci/applications/luci-app-qca-ppe-qos" "$IMM/feeds/luci/applications/"
+# The first feeds update indexed LuCI before this extra application existed.
+# Rebuild its local index, otherwise feeds install -a silently skips QoS LuCI.
+./scripts/feeds update -i luci
+grep -Fq 'luci-app-qca-ppe-qos' "$IMM/feeds/luci.index" || {
+  echo "::error::PPE QoS LuCI application missing from feed index" >&2
+  exit 1
+}
 ./scripts/feeds install -a
+test -e "$IMM/package/feeds/luci/luci-app-qca-ppe-qos" || {
+  echo "::error::PPE QoS LuCI application was not installed from its feed" >&2
+  exit 1
+}
 
 # Build pinned sources, not foreign-ABI release APKs.
 clone https://github.com/eamonxg/luci-theme-aurora.git v1.4.0 "$IMM/package/luci-theme-aurora"
