@@ -66,13 +66,18 @@ sing-box 也已恢复：内核与原先的中文 LuCI JSON 管理面板一起安
 
 详细说明：[在线更新](docs/CUSTOM-OTA.md)。
 
-## ImmortalWrt PPE+NSS（完整源码编译）
+## ImmortalWrt PPE+NSS（专用 ImageBuilder + 自动更新）
 
-另提供实验性的 **ImmortalWrt + PPE/NSS + 当前全部自定义** 版本。它使用独立的源码编译工作流与 OTA Release 渠道，不影响现有 OpenWrt ImageBuilder 版本。
+ImmortalWrt + PPE/NSS 使用独立的两阶段构建，不影响现有 OpenWrt ImageBuilder 和 OTA Release 渠道：
 
-- 源码构建：`.github/workflows/build-immortalwrt.yml`
-- ImmortalWrt 内核/PPE/NSS 移植：`scripts/port-ppe-nss-to-immortalwrt.sh`
-- 详细说明：[ImmortalWrt + PPE/NSS 构建](docs/IMMORTALWRT-PPE-NSS.md)
+- **基础构建**：当 ImmortalWrt、Julius PPE/NSS 或相关编译配置变化时，重新编译一次内核与驱动，生成包含匹配 APK 的独立 `imm-builder-...` ImageBuilder Release。
+- **快速固件构建**：LuCI、翻译、配置、OTA 等文件变更时复用已发布的 ImageBuilder，不重复编译内核。
+- **上游自动更新**：每天检查上游版本，有变化才重新构建并发布 `imm-ppe-nss-...` 固件 Release；路由器继续使用独立的 ImmortalWrt OTA 通道。
+- **一致性检查**：ImageBuilder 与配套软件包检查源码 SHA、核心配置指纹及 SHA256；不混用内核 ABI 不匹配的官方快照模块。
+
+工作流：`.github/workflows/immortalwrt-reusable.yml`；完整源码构建仍保留 `.github/workflows/build-immortalwrt.yml`。
+
+详细说明：[ImmortalWrt PPE/NSS ImageBuilder 与自动更新](docs/IMMORTALWRT-PPE-NSS.md)。
 
 ## 构建与下载
 
