@@ -54,7 +54,7 @@ def tag(immortal: str, ppe: str, base: str, root: Path = ROOT) -> str:
 def metadata(args: argparse.Namespace) -> None:
     for value in (args.immortal, args.ppe, args.base):
         check_sha(value)
-    for path in (args.archive, args.overlay):
+    for path in (args.archive, args.overlay, args.packages):
         if not path.is_file() or path.stat().st_size < 100:
             raise ValueError(f"Missing/empty builder artifact: {path}")
     doc = {
@@ -71,6 +71,8 @@ def metadata(args: argparse.Namespace) -> None:
         "archive_sha256": sha256(args.archive),
         "overlay": args.overlay.name,
         "overlay_sha256": sha256(args.overlay),
+        "packages": args.packages.name,
+        "packages_sha256": sha256(args.packages),
     }
     args.output.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
 
@@ -90,6 +92,7 @@ def verify(args: argparse.Namespace) -> None:
     for key, path, checksum in (
         ("archive", args.archive, "archive_sha256"),
         ("overlay", args.overlay, "overlay_sha256"),
+        ("packages", args.packages, "packages_sha256"),
     ):
         if path.name != doc.get(key) or sha256(path) != doc.get(checksum):
             raise ValueError(f"Builder artifact integrity mismatch: {key}")
@@ -110,7 +113,7 @@ def main() -> None:
     m.add_argument("--overlay", required=True, type=Path)
     m.add_argument("--output", required=True, type=Path)
     v = sub.add_parser("verify")
-    for name in ("metadata", "archive", "overlay"):
+    for name in ("metadata", "archive", "overlay", "packages"):
         v.add_argument(f"--{name}", required=True, type=Path)
     args = p.parse_args()
     if args.action == "fingerprint":
