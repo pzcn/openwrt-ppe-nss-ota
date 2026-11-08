@@ -39,7 +39,9 @@ rsync -a "$ROOT/files/" "$WORK/overlay/"
 rm -f "$WORK/overlay/www/luci-static/resources/view/system/ppe-update.js" \
       "$WORK/overlay/usr/share/luci/menu.d/luci-app-ppe-update.json" \
       "$WORK/overlay/etc/uci-defaults/94-custom-world" \
-      "$WORK/overlay/etc/ppe-release"
+      "$WORK/overlay/etc/ppe-release" \
+      "$WORK/overlay/etc/config/fstab" \
+      "$WORK/overlay/etc/uci-defaults/96-migrate-legacy-extroot"
 I18N_DIR="$WORK/overlay/usr/lib/lua/luci/i18n"
 mkdir -p "$I18N_DIR"
 python3 "$ROOT/scripts/build_luci_i18n.py" \
