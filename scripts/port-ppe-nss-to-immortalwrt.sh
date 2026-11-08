@@ -35,6 +35,8 @@ for f in 0952-net-ethernet-qca-add-ppe.patch 0953-net-ethernet-qca-add-EDMA.patc
 done
 
 copy_tree package/kernel/nss-wifi-drv
+copy_tree package/network/config/qca-ppe-qos
+copy_tree package/utils/ppe-help
 copy_tree package/kernel/mac80211/patches/nss-wifi
 copy_tree package/kernel/mac80211/patches/ath11k
 copy_file package/kernel/mac80211/Makefile
