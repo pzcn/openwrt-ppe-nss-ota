@@ -37,7 +37,7 @@
 
 ## 构建与发布
 
-进入 **Actions → Build RE-SS-01 ImmortalWrt PPE+NSS → Run workflow**。
+在当前草稿 PR 中，通过 `pull_request` 自动触发实验构建并上传 Artifacts。**新工作流在合并到默认分支前通常不会出现在手动 Run workflow 的列表中**；待 CI 验证、合并后，可使用 **Actions → Build RE-SS-01 ImmortalWrt PPE+NSS → Run workflow** 手动构建。
 
 默认 `publish_release=false`：只上传 14 天保留的固件 Artifacts，适合第一轮验证。确认可启动且加速有效后，再使用 `publish_release=true` 发布至独立的 ImmortalWrt Release，且 `--latest=false`，避免覆盖现有 OpenWrt 的 latest。
 
