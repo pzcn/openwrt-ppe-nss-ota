@@ -66,6 +66,14 @@ sing-box 也已恢复：内核与原先的中文 LuCI JSON 管理面板一起安
 
 详细说明：[在线更新](docs/CUSTOM-OTA.md)。
 
+## ImmortalWrt PPE+NSS（完整源码编译）
+
+另提供实验性的 **ImmortalWrt + PPE/NSS + 当前全部自定义** 版本。它使用独立的源码编译工作流与 OTA Release 渠道，不影响现有 OpenWrt ImageBuilder 版本。
+
+- 源码构建：`.github/workflows/build-immortalwrt.yml`
+- ImmortalWrt 内核/PPE/NSS 移植：`scripts/port-ppe-nss-to-immortalwrt.sh`
+- 详细说明：[ImmortalWrt + PPE/NSS 构建](docs/IMMORTALWRT-PPE-NSS.md)
+
 ## 构建与下载
 
 1. 打开 [Actions → Build RE-SS-01 firmware](../../actions/workflows/build.yml)。
