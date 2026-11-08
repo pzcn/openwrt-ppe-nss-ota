@@ -38,6 +38,7 @@ copy_tree package/kernel/nss-wifi-drv
 copy_tree package/kernel/mac80211/patches/nss-wifi
 copy_tree package/kernel/mac80211/patches/ath11k
 copy_file package/kernel/mac80211/Makefile
+copy_file package/kernel/mac80211/ath.mk
 
 for file in \
   qca_edma.c qca_edma.h qca_ppe.h qca_ppe_flow.c \
@@ -65,5 +66,6 @@ done
 grep -Fq 'CONFIG_ATH11K_NSS_WIFI' "$imm/package/kernel/mac80211/Makefile"
 grep -Fq '#include "ipq6018-nss.dtsi"' "$imm/target/linux/qualcommax/dts/ipq6000-re-ss-01.dts"
 grep -Fq 'qcom,nss' "$imm/target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/ipq6018-nss.dtsi"
+grep -Fq 'config ATH11K_NSS_WIFI' "$imm/package/kernel/mac80211/ath.mk"
 test -f "$imm/package/kernel/nss-wifi-drv/Makefile"
 echo "PPE/NSS source port staged. Compile and on-device verification are still required."
