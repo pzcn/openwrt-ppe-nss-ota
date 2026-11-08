@@ -135,7 +135,6 @@ jobs:
             python3-ply python3-pyelftools qemu-utils rsync scons \
             squashfs-tools subversion swig texinfo unzip wget xmlto xxd \
             zlib1g-dev zstd
-          npm --version
 
       - name: Setup dashboard build tooling
         if: steps.resolve.outputs.needs_core == 'true'
