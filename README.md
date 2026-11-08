@@ -70,7 +70,7 @@ sing-box 也已恢复：内核与原先的中文 LuCI JSON 管理面板一起安
 
 ImmortalWrt + PPE/NSS 使用独立的两阶段构建，不影响现有 OpenWrt ImageBuilder 和 OTA Release 渠道：
 
-- **基础构建**：当 ImmortalWrt、Julius PPE/NSS 或相关编译配置变化时，重新编译一次内核与驱动，生成包含匹配 APK 的独立 `imm-builder-...` ImageBuilder Release。
+- **基础构建**：当 ImmortalWrt、Julius PPE/NSS 或相关编译配置变化时，重新编译一次内核与驱动，生成包含匹配 APK 的独立 `imm-builder-...` ImageBuilder Release。 构建过程已启用 Actions 下载缓存和 `ccache` 编译缓存，并记录耗时。
 - **快速固件构建**：LuCI、翻译、配置、OTA 等文件变更时复用已发布的 ImageBuilder，不重复编译内核。
 - **上游自动更新**：每天检查上游版本，有变化才重新构建并发布 `imm-ppe-nss-...` 固件 Release；路由器继续使用独立的 ImmortalWrt OTA 通道。
 - **一致性检查**：ImageBuilder 与配套软件包检查源码 SHA、核心配置指纹及 SHA256；不混用内核 ABI 不匹配的官方快照模块。

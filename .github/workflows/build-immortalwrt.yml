@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: immortal-ppe-nss-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   source-build:
@@ -33,6 +33,24 @@ jobs:
     steps:
       - name: Checkout custom overlay
         uses: actions/checkout@v4
+
+
+      # Cache download archives and compiler objects between clean CI machines.
+      - name: Restore upstream source downloads
+        uses: actions/cache@v4
+        with:
+          path: .build-cache/dl
+          key: immortal-ipq60xx-downloads-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            immortal-ipq60xx-downloads-v1-${{ runner.os }}-
+
+      - name: Restore compiler object cache
+        uses: actions/cache@v4
+        with:
+          path: .build-cache/ccache
+          key: immortal-ipq60xx-ccache-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            immortal-ipq60xx-ccache-v1-${{ runner.os }}-
 
       - name: Free build disk space
         run: |
@@ -71,6 +89,14 @@ jobs:
       - name: Build ImmortalWrt from source
         run: |
           bash scripts/build-immortalwrt.sh
+
+
+      - name: Report compiler cache efficiency
+        if: always()
+        run: |
+          if command -v ccache >/dev/null 2>&1; then
+            CCACHE_DIR="$GITHUB_WORKSPACE/.build-cache/ccache" ccache --show-stats || true
+          fi
 
       - name: Upload complete firmware artifacts
         uses: actions/upload-artifact@v4

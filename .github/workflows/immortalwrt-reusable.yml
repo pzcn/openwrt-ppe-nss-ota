@@ -112,6 +112,26 @@ jobs:
           BUILDER_PACKAGES="$DIR/imagebuilder-packages.txt" \
             bash scripts/repack-immortalwrt.sh
 
+
+      # Cache downloads and compiler objects, not the compiled kernel or staging tree.
+      - name: Restore upstream source downloads
+        if: steps.resolve.outputs.needs_core == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .build-cache/dl
+          key: immortal-ipq60xx-downloads-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            immortal-ipq60xx-downloads-v1-${{ runner.os }}-
+
+      - name: Restore compiler object cache
+        if: steps.resolve.outputs.needs_core == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .build-cache/ccache
+          key: immortal-ipq60xx-ccache-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            immortal-ipq60xx-ccache-v1-${{ runner.os }}-
+
       - name: Free disk space for kernel/NSS compilation
         if: steps.resolve.outputs.needs_core == 'true'
         run: |
@@ -157,6 +177,13 @@ jobs:
       - name: Compile new kernel/NSS and standalone ImageBuilder
         if: steps.resolve.outputs.needs_core == 'true'
         run: bash scripts/build-immortalwrt.sh
+
+- name: Report compiler cache efficiency
+        if: always() && steps.resolve.outputs.needs_core == 'true'
+        run: |
+          if command -v ccache >/dev/null 2>&1; then
+            CCACHE_DIR="$GITHUB_WORKSPACE/.build-cache/ccache" ccache --show-stats || true
+          fi
 
       - name: Upload generated firmware or builder artifacts
         if: steps.resolve.outputs.needs_image == 'true' && always()

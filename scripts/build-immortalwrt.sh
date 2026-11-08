@@ -15,6 +15,12 @@ PPE_REF="${PPE_REF:-ppe-nss}"
 RUN_NUMBER="${GITHUB_RUN_NUMBER:-1}"
 ATTEMPT="${GITHUB_RUN_ATTEMPT:-1}"
 mkdir -p "$WORK" "$OUT"
+# Persist only source archives and compiler objects between ephemeral Actions runners.
+# Leave kernel build directories fresh so stale patches and ABI objects cannot leak in.
+CACHE_ROOT="${IMMORTAL_CACHE_ROOT:-$ROOT/.build-cache}"
+CACHE_DL="$CACHE_ROOT/dl"
+CACHE_CCACHE="$CACHE_ROOT/ccache"
+mkdir -p "$CACHE_DL" "$CACHE_CCACHE"
 
 for n in "$RUN_NUMBER" "$ATTEMPT"; do
   [[ "$n" =~ ^[0-9]+$ ]] || { echo "Invalid run number" >&2; exit 1; }
@@ -30,6 +36,17 @@ clone() {
 clone https://github.com/immortalwrt/immortalwrt.git "$IMMORTAL_REF" "$IMM"
 clone https://github.com/JuliusBairaktaris/openwrt-ppe-nss.git "$PPE_REF" "$PPE"
 clone https://github.com/JuliusBairaktaris/Qualcommax_NSS_Builder.git main "$BUILDER"
+# Both paths must be missing in a clean clone. Link them into the Actions cache.
+for name in dl .ccache; do
+  if [[ -e "$IMM/$name" || -L "$IMM/$name" ]]; then
+    echo "::error::Unexpected cache path already exists in ImmortalWrt clone: $name" >&2
+    exit 1
+  fi
+done
+ln -s "$CACHE_DL" "$IMM/dl"
+ln -s "$CACHE_CCACHE" "$IMM/.ccache"
+CCACHE_DIR="$CACHE_CCACHE" ccache --max-size 1600M
+CCACHE_DIR="$CACHE_CCACHE" ccache --zero-stats
 IMM_SHA="$(git -C "$IMM" rev-parse HEAD)"
 PPE_SHA="$(git -C "$PPE" rev-parse HEAD)"
 BASE_SHA="$(git -C "$BUILDER" rev-parse HEAD)"
@@ -150,6 +167,7 @@ make defconfig
 # Fail instead of silently producing a firmware without its reusable builder.
 grep -Fqx 'CONFIG_IB=y' "$IMM/.config"
 grep -Fqx 'CONFIG_IB_STANDALONE=y' "$IMM/.config"
+grep -Fqx 'CONFIG_CCACHE=y' "$IMM/.config"
 
 # Kconfig silently omits unavailable packages. Refuse a deceptively
 # successful image if a user-requested package or NSS option was dropped.
@@ -176,8 +194,23 @@ fi
 grep -Fqx 'CONFIG_ATH11K_NSS_WIFI=y' "$IMM/.config"
 grep -Fqx 'CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y' "$IMM/.config"
 
+DOWNLOAD_BEGIN="$(date +%s)"
 make download -j"$(nproc)"
+DOWNLOAD_SECONDS=$(( $(date +%s) - DOWNLOAD_BEGIN ))
+COMPILE_BEGIN="$(date +%s)"
 make -j"$(nproc)" || make -j1 V=s
+COMPILE_SECONDS=$(( $(date +%s) - COMPILE_BEGIN ))
+printf 'Downloads: %s seconds; compilation: %s seconds\n' "$DOWNLOAD_SECONDS" "$COMPILE_SECONDS"
+CCACHE_DIR="$CACHE_CCACHE" ccache --show-stats
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  {
+    echo "## ImmortalWrt PPE/NSS full-source build"
+    echo "- Source downloads: ${DOWNLOAD_SECONDS}s"
+    echo "- Build and ImageBuilder: ${COMPILE_SECONDS}s"
+    echo "- Source cache directory: `$CACHE_DL`"
+    echo "- Compiler cache directory: `$CACHE_CCACHE`"
+  } >> "$GITHUB_STEP_SUMMARY"
+fi
 
 # The image's name is part of the independent OTA safety contract.
 TARGET="$IMM/bin/targets/qualcommax/ipq60xx"

@@ -37,6 +37,17 @@
 
 ## 构建与发布
 
+
+### 第一轮编译加速（已接入 CI）
+
+- `actions/cache@v4` 缓存源码下载目录（`dl/`），减少每次重新拉取源码压缩包的时间。
+- `CONFIG_CCACHE=y` 与 Actions 持久化对象缓存（最大约 1.6GB），重用相同编译器、编译参数和源码的编译结果。
+- 每次仍然**重新检出官方 ImmortalWrt 和 Julius PPE/NSS 源码**，不缓存整个内核编译树，避免过时的设备树、驱动对象和内核 ABI 混用。
+- 构建脚本报告下载和编译秒数，以及 `ccache` 命中率，便于与此前约 136 分钟的全量构建比较。
+- PR 上新的提交可取消同一 PR 中尚未完成的旧编译，减少重复消耗。
+
+官方 ImmortalWrt 已提供预编译 SDK、工具链和普通 APK，但 SDK 不能直接当作完整固件 Buildroot。内核、NSS 与 DTB 必须精确匹配；本轮**暂不启用官方快照 APK 的二进制混装**。等拿到新的缓存构建计时，再实施可验证的软件包/工具链复用，不能把第一轮缓存优化描述为已经达到 20～35 分钟。
+
 ### 一、生成专用 NSS ImageBuilder
 
 GitHub Actions 工作流：`.github/workflows/immortalwrt-reusable.yml`。

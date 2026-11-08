@@ -67,3 +67,17 @@ with tempfile.TemporaryDirectory() as d:
         raise AssertionError("ImageBuilder accepted a malformed upstream SHA")
 
 print("PASS reusable NSS ImageBuilder metadata, integrity and core fingerprint")
+
+# Cache wiring is part of the CI contract, not only a documentation claim.
+full_build = (ROOT / "scripts/build-immortalwrt.sh").read_text()
+config = (ROOT / "config/immortalwrt-re-ss-01.config").read_text()
+assert "CONFIG_CCACHE=y" in config
+assert 'ln -s "$CACHE_DL" "$IMM/dl"' in full_build
+assert 'ln -s "$CACHE_CCACHE" "$IMM/.ccache"' in full_build
+assert 'ccache --show-stats' in full_build
+for name in ("build-immortalwrt.yml", "immortalwrt-reusable.yml"):
+    workflow = (ROOT / ".github" / "workflows" / name).read_text()
+    assert "actions/cache@v4" in workflow
+    assert ".build-cache/dl" in workflow
+    assert ".build-cache/ccache" in workflow
+print("PASS Actions source download cache and ccache wiring")
