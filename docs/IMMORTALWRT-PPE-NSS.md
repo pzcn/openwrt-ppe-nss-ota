@@ -1,6 +1,6 @@
 # ImmortalWrt + PPE/NSS + 自定义 RE-SS-01 固件
 
-这个构建**从源码编译**，不是把 ImmortalWrt 的 APK 混装到现有 OpenWrt ImageBuilder。
+本项目采用**两阶段构建**：只有内核、PPE/NSS、依赖或构建配置变化时才完整编译 ImmortalWrt，并生成专用 standalone ImageBuilder；仅修改 LuCI、配置或固件文件时直接复用这个 Builder。内核模块绝不混装不同版本的官方 APK。
 
 ## 代码来源
 
@@ -16,8 +16,8 @@
 
 | 项目 | 现有 OpenWrt | 新 ImmortalWrt |
 | --- | --- | --- |
-| 工作流 | `.github/workflows/build.yml` | `.github/workflows/build-immortalwrt.yml` |
-| 构建方式 | 上游 ImageBuilder | 完整源码编译 |
+| 工作流 | `.github/workflows/build.yml` | `.github/workflows/immortalwrt-reusable.yml` |
+| 构建方式 | 上游 ImageBuilder | 首次完整编译生成专用 ImageBuilder，随后快速重打包 |
 | PPE/NSS | 上游已经集成 | 从相同 PPE/NSS 分支移植 |
 | 自定义文件 | `files/` | 复用 `files/` |
 | OTA 渠道 | `re-ss-01-custom` | `re-ss-01-immortal-ppe-nss` |
@@ -37,20 +37,52 @@
 
 ## 构建与发布
 
-在当前草稿 PR 中，通过 `pull_request` 自动触发实验构建并上传 Artifacts。**新工作流在合并到默认分支前通常不会出现在手动 Run workflow 的列表中**；待 CI 验证、合并后，可使用 **Actions → Build RE-SS-01 ImmortalWrt PPE+NSS → Run workflow** 手动构建。
+### 一、生成专用 NSS ImageBuilder
 
-默认 `publish_release=false`：只上传 14 天保留的固件 Artifacts，适合第一轮验证。确认可启动且加速有效后，再使用 `publish_release=true` 发布至独立的 ImmortalWrt Release，且 `--latest=false`，避免覆盖现有 OpenWrt 的 latest。
+GitHub Actions 工作流：`.github/workflows/immortalwrt-reusable.yml`。
 
-构建由 `scripts/build-immortalwrt.sh` 驱动，核心顺序：
+- 自动查询 ImmortalWrt `master`、Julius `ppe-nss` 和上游 Builder `main` 的完整 SHA。
+- 使用这些 SHA 与核心配置文件指纹构成**确定性的 Builder Release 标签**：`imm-builder-...`。
+- 如果该版本已存在，直接跳过完整内核编译。
+- 如果不存在，使用 `scripts/build-immortalwrt.sh` 完整编译，产出固件和 `CONFIG_IB_STANDALONE=y` 的 ImageBuilder。
+- Builder Release 同时保存 `builder-metadata.json`、`base-overlay.tar.gz`、`imagebuilder-packages.txt` 和自带 APK 的 ImageBuilder 压缩包。
 
-1. 克隆两套源码和上游 Builder，记录各自精确提交 SHA；
-2. 移植 `nss-wifi-drv`、ath11k 补丁、EDMA/PPE 对接及设备树；
-3. 安装 ImmortalWrt 软件源、NSS 固件源和 PPE QoS，编译 LuCI 插件源代码；
-4. 合并上游 PPE/NSS 覆盖层和本项目 `files/`；
-5. 用当前用户软件包清单生成 `.config` 并运行 `make defconfig`，验证软件包未被丢弃；
-6. 完整编译，验证固件、manifest 和 OTA SHA256，生成可选 Release。
+**为什么必须自己生成 Builder：** 目前 NSS Wi-Fi 移植修改了内核、DTB 和 ath11k；官方预编译 kmod 无法保证与之 ABI 相容。其他 LuCI 和工具尽量保持 ImmortalWrt 官方源代码，编译后的 APK 一次性随 Builder 存档，后续无需重新编译。
 
-本项目不包含原厂首次刷机镜像；输出为 `sysupgrade.bin`。
+### 二、从专用 Builder 快速生成固件
+
+`scripts/repack-immortalwrt.sh` 会：
+
+1. 下载 Builder Release 的四个必需文件并核对 SHA256、源码 SHA 和核心配置指纹；
+2. 复用已有编译好的内核/设备树/驱动和全部匹配 APK；
+3. 合并 PPE/NSS 基础文件和本仓库 `files/`，重新生成 LuCI 中文及 OTA 元数据；
+4. 调用 `make image PROFILE=jdcloud_re-ss-01 PACKAGES=... FILES=...`；
+5. 可选择发布新的 `imm-ppe-nss-...` 固件 Release。
+
+所有 ImageBuilder 产物与 APK 均来自**同一次完整编译**。这一版没有直接引入官方快照二进制包，避免软件包及 kmod ABI 漂移；后续可按具体包和版本校验后逐步复用官方用户空间 APK。
+
+### 三、自动检测与更新
+
+该工作流每天 **03:41 UTC（北京时间 11:41）** 检查一次：
+
+| 变更类型 | 执行操作 |
+| --- | --- |
+| ImmortalWrt 内核或 Julius PPE/NSS 上游 SHA 变化 | 完整编译、发布新 ImageBuilder 和固件 |
+| Builder 构建配置或软件包列表变化 | 完整编译并发布新的 Builder |
+| 仅 `files/`、LuCI、OTA、翻译等变化 | 使用现有 Builder 快速重打包固件 |
+| 没有任何更新 | 跳过构建 |
+
+推送到默认分支上的相关文件也会触发工作流；`workflow_dispatch` 支持手动强制重建 Builder 或仅产出 Actions Artifacts。
+
+**自动发布的只是经过构建验证的固件文件。** 路由器仍通过独立 ImmortalWrt OTA 渠道检查/下载安装，是否无人值守安装由设备端“启用自动更新”配置决定。
+
+OpenWrt 通道 `ota-ppe-nss-...`、GitHub Release `latest` 均不受影响。ImmortalWrt 的 Builder Release 与固件 Release 都带 `--latest=false`，不抢占原来的 latest。
+
+注意：GitHub 的 `schedule` 只会在仓库**默认分支**执行。当前开发分支合并到 `main` 前，不会自行开始每日调度。
+
+### 四、原有完整源码工作流
+
+`.github/workflows/build-immortalwrt.yml` 仍然保留，用于手动实验编译和 PR 测试；新工作流负责按版本判断是否真的需要完整编译。Builder 通过 `scripts/immortalwrt_builder.py` 生成版本元数据和完整性校验。
 
 ## 初次测试建议
 
@@ -66,7 +98,7 @@ uci show firewall | grep flow_offloading
 ppe-update status
 ```
 
-特别检查 Wi-Fi NSS、PPE flowtable、WAN/LAN、F2FS 持久化、WireGuard、Tailscale 和 sing-box。仅编译成功**不能证明**这些运行时功能已通过真机验证。
+特别检查 Wi-Fi NSS、PPE flowtable、WAN/LAN、F2FS 持久化、WireGuard、Tailscale 和 sing-box。仅编译成功**不能证明**这些运行时功能已通过真机验证。首次新 Builder 应先通过设备端 PPE/NSS、F2FS、网络与 sysupgrade 测试，再启用路由器无人值守安装。
 
 ## 注意
 
