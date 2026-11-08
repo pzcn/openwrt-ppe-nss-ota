@@ -11,7 +11,7 @@
 - **常用应用**：文件管理、Web 终端、流量统计、无线历史记录、IRQ Balance、LLDP、PBR、WireGuard
 - **远程访问与代理**：Tailscale 内网组网、sing-box 内核及中文 LuCI JSON 配置管理
 - **网络唤醒**：Etherwake 及中文 LuCI 管理界面
-- **存储**：F2FS `rootfs_data` 可写层，p27 ext4 挂载到 `/mnt/storage`
+- **存储**：系统使用 F2FS `rootfs_data` 可写层；ImmortalWrt 版本不对 p27 设置固定挂载点
 - **诊断工具**：`tcpdump`、`conntrack`、`ip-full` 等
 
 ### 内置 LuCI 页面
@@ -88,6 +88,9 @@ ImmortalWrt + PPE/NSS 使用独立的两阶段构建，不影响现有 OpenWrt I
 工作流也会定期检查上游构建并生成对应版本。
 
 ## 存储与升级
+
+以下分区挂载定制仅适用于现有 OpenWrt 版本。**ImmortalWrt 固件不内置自定义 `/etc/config/fstab` 或旧 extroot 迁移脚本**，由官方挂载机制管理 p27；F2FS `rootfs_data` 驱动和格式化工具仍保留。
+
 
 原始 64 GB eMMC 分区布局：
 
