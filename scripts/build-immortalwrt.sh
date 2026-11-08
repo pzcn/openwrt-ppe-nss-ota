@@ -45,6 +45,10 @@ cp feeds.conf.default feeds.conf
 printf '\nsrc-git nss https://github.com/JuliusBairaktaris/nss-packages.git;ppe-nss\n' >> feeds.conf
 ./scripts/feeds update -a
 
+# Use the same pinned hardware SQM backend as the existing PPE release.
+patch -p1 -d "$IMM/feeds/packages" < \
+  "$BUILDER/patches/feeds/ppe-nss/packages/0001-sqm-scripts-pin-the-fork-that-carries-hw_ppe.patch"
+
 git clone --quiet --depth 1 --filter=blob:none --sparse --branch luci-app-ppe-qos \
   https://github.com/JuliusBairaktaris/luci.git "$WORK/ppe-luci"
 git -C "$WORK/ppe-luci" sparse-checkout set applications/luci-app-qca-ppe-qos
