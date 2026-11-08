@@ -151,7 +151,6 @@ if grep -Eq "option[[:space:]]+target[[:space:]]+['\"]/(overlay)?['\"]" "$FSTAB"
   echo "::error::The ROM fstab must not select extroot"
   exit 1
 fi
-sh -n "$WORK/ib/files/etc/uci-defaults/96-migrate-legacy-extroot"
 grep -qx 'kmod-fs-f2fs' "$GITHUB_WORKSPACE/config/add.txt"
 grep -qx 'f2fs-tools' "$GITHUB_WORKSPACE/config/add.txt"
 grep -qx 'luci-i18n-sqm-zh-cn' "$GITHUB_WORKSPACE/config/add.txt"
