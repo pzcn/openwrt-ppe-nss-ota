@@ -20,7 +20,7 @@ for n in "$RUN_NUMBER" "$ATTEMPT"; do
   [[ "$n" =~ ^[0-9]+$ ]] || { echo "Invalid run number" >&2; exit 1; }
 done
 (( ATTEMPT < 10 )) || { echo "Unexpected run attempt" >&2; exit 1; }
-BUILD_NUMBER=$(( RUN_NUMBER * 10 + ATTEMPT ))
+BUILD_NUMBER="$(date -u +%s)"
 SOURCE_REV="$(git -C "$ROOT" rev-parse --short=8 HEAD)"
 
 clone() {
@@ -32,8 +32,9 @@ clone https://github.com/JuliusBairaktaris/openwrt-ppe-nss.git "$PPE_REF" "$PPE"
 clone https://github.com/JuliusBairaktaris/Qualcommax_NSS_Builder.git main "$BUILDER"
 IMM_SHA="$(git -C "$IMM" rev-parse HEAD)"
 PPE_SHA="$(git -C "$PPE" rev-parse HEAD)"
-TAG="imm-ppe-nss-${IMM_SHA:0:8}-${PPE_SHA:0:8}-g$SOURCE_REV-b$RUN_NUMBER-a$ATTEMPT"
-printf 'ImmortalWrt=%s\nPPE/NSS=%s\nCustom=%s\n' "$IMM_SHA" "$PPE_SHA" "$SOURCE_REV" | tee "$OUT/source-commits.txt"
+BASE_SHA="$(git -C "$BUILDER" rev-parse HEAD)"
+TAG="imm-ppe-nss-${IMM_SHA:0:8}-${PPE_SHA:0:8}-g$SOURCE_REV-b$BUILD_NUMBER"
+printf 'ImmortalWrt=%s\nPPE/NSS=%s\nPPE builder=%s\nCustom=%s\n' "$IMM_SHA" "$PPE_SHA" "$BASE_SHA" "$SOURCE_REV" | tee "$OUT/source-commits.txt"
 
 export IMM_SOURCE_DIR="$IMM" PPE_SOURCE_DIR="$PPE"
 bash "$ROOT/scripts/port-ppe-nss-to-immortalwrt.sh"
@@ -144,6 +145,9 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 done < "$ROOT/config/add.txt"
 
 make defconfig
+# Fail instead of silently producing a firmware without its reusable builder.
+grep -Fqx 'CONFIG_IB=y' "$IMM/.config"
+grep -Fqx 'CONFIG_IB_STANDALONE=y' "$IMM/.config"
 
 # Kconfig silently omits unavailable packages. Refuse a deceptively
 # successful image if a user-requested package or NSS option was dropped.
@@ -178,6 +182,28 @@ TARGET="$IMM/bin/targets/qualcommax/ipq60xx"
 IMAGE="immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
 MANIFEST="immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest"
 test -s "$TARGET/$IMAGE"
+IB_ARCHIVE="$(find "$TARGET" -maxdepth 1 -type f -name '*imagebuilder*.tar.zst' -print -quit)"
+test -n "$IB_ARCHIVE" && test -s "$IB_ARCHIVE" || {
+  echo "::error::Standalone ImageBuilder was not produced" >&2
+  exit 1
+}
+cp "$IB_ARCHIVE" "$OUT/"
+IB_ARCHIVE="$OUT/$(basename "$IB_ARCHIVE")"
+# The standalone builder contains only packages compiled against this kernel ABI.
+sed -n 's/^CONFIG_PACKAGE_\(.*\)=y$/\1/p' "$IMM/.config" | sort -u > "$OUT/imagebuilder-packages.txt"
+test -s "$OUT/imagebuilder-packages.txt"
+tar -czf "$OUT/base-overlay.tar.gz" -C "$BUILDER/devices/common/files.ppe-nss" .
+python3 "$ROOT/scripts/immortalwrt_builder.py" metadata \
+  --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
+  --archive "$IB_ARCHIVE" --overlay "$OUT/base-overlay.tar.gz" \
+  --packages "$OUT/imagebuilder-packages.txt" \
+  --output "$OUT/builder-metadata.json"
+python3 "$ROOT/scripts/immortalwrt_builder.py" verify \
+  --metadata "$OUT/builder-metadata.json" --archive "$IB_ARCHIVE" \
+  --overlay "$OUT/base-overlay.tar.gz" \
+  --packages "$OUT/imagebuilder-packages.txt"
+BUILDER_TAG="$(python3 "$ROOT/scripts/immortalwrt_builder.py" tag \
+  --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA")"
 # Full-source builds may emit a board-wide manifest even for one device.
 # Publish the single-device manifest under the stable per-device OTA name.
 if [[ -s "$TARGET/$MANIFEST" ]]; then
@@ -206,6 +232,14 @@ if [[ "$PUBLISH_RELEASE" == true ]]; then
   [[ "${GITHUB_REPOSITORY:-}" == pzcn/openwrt-ppe-nss-ota ]] || {
     echo "This release channel is reserved for the canonical repository" >&2; exit 1;
   }
+  if ! gh release view "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+    gh release create "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" \
+      --latest=false --title "ImmortalWrt PPE+NSS ImageBuilder ($BUILDER_TAG)" \
+      --notes "Standalone ImageBuilder for jdcloud_re-ss-01; kernel modules and userspace APKs are built from matching ImmortalWrt/PPE-NSS source commits. Use only with its included package set and matching metadata." \
+      "$IB_ARCHIVE" "$OUT/base-overlay.tar.gz" \
+      "$OUT/imagebuilder-packages.txt" "$OUT/builder-metadata.json" \
+      "$OUT/source-commits.txt"
+  fi
   cat > "$OUT/release-notes.md" <<EOF
 # ImmortalWrt + PPE/NSS + RE-SS-01 customizations
 
