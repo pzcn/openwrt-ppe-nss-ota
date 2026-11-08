@@ -139,8 +139,19 @@ make -j"$(nproc)" || make -j1 V=s
 TARGET="$IMM/bin/targets/qualcommax/ipq60xx"
 IMAGE="immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
 MANIFEST="immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest"
-test -s "$TARGET/$IMAGE" && test -s "$TARGET/$MANIFEST"
-cp "$TARGET/$IMAGE" "$TARGET/$MANIFEST" "$OUT/"
+test -s "$TARGET/$IMAGE"
+# Full-source builds may emit a board-wide manifest even for one device.
+# Publish the single-device manifest under the stable per-device OTA name.
+if [[ -s "$TARGET/$MANIFEST" ]]; then
+  SOURCE_MANIFEST="$TARGET/$MANIFEST"
+elif [[ -s "$TARGET/immortalwrt-qualcommax-ipq60xx.manifest" ]]; then
+  SOURCE_MANIFEST="$TARGET/immortalwrt-qualcommax-ipq60xx.manifest"
+else
+  echo "::error::No target package manifest was produced" >&2
+  exit 1
+fi
+cp "$TARGET/$IMAGE" "$OUT/"
+cp "$SOURCE_MANIFEST" "$OUT/$MANIFEST"
 cp "$IMM/.config" "$OUT/immortalwrt.config"
 (
   cd "$OUT"
