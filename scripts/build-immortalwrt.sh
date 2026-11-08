@@ -42,6 +42,9 @@ bash "$ROOT/scripts/port-ppe-nss-to-immortalwrt.sh"
 # feed and Julius' QoS LuCI application.
 cd "$IMM"
 cp feeds.conf.default feeds.conf
+# The upstream video feed is unnecessary for this router image and currently
+# introduces unrelated Qt5 Kconfig recursive dependency errors.
+sed -i '/^src-git video /d' feeds.conf
 printf '\nsrc-git nss https://github.com/JuliusBairaktaris/nss-packages.git;ppe-nss\n' >> feeds.conf
 ./scripts/feeds update -a
 
@@ -111,15 +114,35 @@ append_packages() {
 }
 append_packages "$ROOT/config/add.txt" y
 append_packages "$ROOT/config/remove.txt" n
+
+# LuCI translation packages do not automatically enable their application
+# parents under Kconfig. Request the corresponding LuCI apps before
+# defconfig, otherwise existing translations like bcp38-zh-cn are silently
+# dropped even though the apps and their Chinese catalogs exist.
+# 'base' is special: it belongs to luci-base rather than luci-app-base.
+while IFS= read -r line || [[ -n "$line" ]]; do
+  line="${line%%#*}"
+  for p in $line; do
+    if [[ "$p" =~ ^luci-i18n-([a-z0-9_-]+)-zh-cn$ ]]; then
+      app="${BASH_REMATCH[1]}"
+      if [[ "$app" != base ]]; then
+        printf 'CONFIG_PACKAGE_luci-app-%s=y\n' "$app" >> "$IMM/.config"
+      fi
+    fi
+  done
+done < "$ROOT/config/add.txt"
+
 make defconfig
 
 # Kconfig silently omits unavailable packages. Refuse a deceptively
 # successful image if a user-requested package or NSS option was dropped.
+missing=()
 verify_package() {
   local p="$1"
-  grep -Fqx "CONFIG_PACKAGE_$p=y" "$IMM/.config" || {
-    echo "::error::Required package is unavailable: $p" >&2; exit 1;
-  }
+  if ! grep -Fqx "CONFIG_PACKAGE_$p=y" "$IMM/.config"; then
+    echo "::error::Required package is unavailable: $p" >&2
+    missing+=("$p")
+  fi
 }
 while IFS= read -r line || [[ -n "$line" ]]; do
   line="${line%%#*}"
@@ -129,6 +152,10 @@ for p in kmod-nss-wifi-drv luci-theme-aurora luci-app-sing-box \
   qca-ppe-qos luci-app-qca-ppe-qos jq kmod-fs-f2fs; do
   verify_package "$p"
 done
+if (( ${#missing[@]} )); then
+  printf 'Missing required packages (%d): %s\n' "${#missing[@]}" "${missing[*]}" >&2
+  exit 1
+fi
 grep -Fqx 'CONFIG_ATH11K_NSS_WIFI=y' "$IMM/.config"
 grep -Fqx 'CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y' "$IMM/.config"
 
