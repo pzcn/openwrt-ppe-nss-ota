@@ -31,7 +31,7 @@
 - 备份/升级页面中的 OTA（额外安装软件包的恢复尝试也保留）
 - Tailscale、sing-box JSON 面板、WireGuard 和网络唤醒
 - 文件管理、ttyd、nlbwmon、statistics、wifihistory、irqbalance、lldpd、PBR
-- p18 F2FS 可写层及 p27 的 ext4 数据挂载，含旧 extroot 配置迁移脚本
+- p18 F2FS `rootfs_data` 可写层；p27 保留原分区，不设置自定义挂载点，也不执行旧 extroot 迁移
 
 所有 kernel 模块必须由这个 ImmortalWrt 源码构建，不使用另一个固件的预编译 `kmod-*.apk`。
 
@@ -90,7 +90,8 @@ OpenWrt 通道 `ota-ppe-nss-...`、GitHub Release `latest` 均不受影响。Imm
 
 ```sh
 ubus call system board
-df -h /overlay /mnt/storage
+df -h /overlay
+block info | grep mmcblk0p27
 lsmod | grep -E 'nss|ath11k'
 cat /sys/module/ath11k/parameters/nss_offload 2>/dev/null || true
 ubus call luci.ppe-nss-monitor get_status
@@ -98,7 +99,7 @@ uci show firewall | grep flow_offloading
 ppe-update status
 ```
 
-特别检查 Wi-Fi NSS、PPE flowtable、WAN/LAN、F2FS 持久化、WireGuard、Tailscale 和 sing-box。仅编译成功**不能证明**这些运行时功能已通过真机验证。首次新 Builder 应先通过设备端 PPE/NSS、F2FS、网络与 sysupgrade 测试，再启用路由器无人值守安装。
+特别检查 Wi-Fi NSS、PPE flowtable、WAN/LAN、F2FS 持久化、官方 p27 挂载行为、WireGuard、Tailscale 和 sing-box。仅编译成功**不能证明**这些运行时功能已通过真机验证。首次新 Builder 应先通过设备端 PPE/NSS、F2FS、网络与 sysupgrade 测试，再启用路由器无人值守安装。
 
 ## 注意
 
