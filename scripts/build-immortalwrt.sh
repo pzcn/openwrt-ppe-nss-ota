@@ -88,7 +88,9 @@ rsync -a "$ROOT/files/" "$IMM/files/"
 rm -f "$IMM/files/www/luci-static/resources/view/system/ppe-update.js" \
       "$IMM/files/usr/share/luci/menu.d/luci-app-ppe-update.json" \
       "$IMM/files/etc/uci-defaults/94-custom-world" \
-      "$IMM/files/etc/ppe-release"
+      "$IMM/files/etc/ppe-release" \
+      "$IMM/files/etc/config/fstab" \
+      "$IMM/files/etc/uci-defaults/96-migrate-legacy-extroot"
 
 # Translate the exact existing custom catalogs as native LuCI .lmo files.
 I18N_DIR="$IMM/files/usr/lib/lua/luci/i18n"
