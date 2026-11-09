@@ -1,28 +1,20 @@
-# sing-box 配置管理
+# HomeProxy（sing-box 内核）
 
-固件集成了 sing-box 完整内核和 [luci-app-sing-box](https://github.com/lauyv/luci-app-sing-box) 中文 LuCI 管理界面，与 Tailscale、网络唤醒同时保留。
+固件预装 [ImmortalWrt HomeProxy](https://github.com/immortalwrt/luci/tree/master/applications/luci-app-homeproxy) 管理界面及 `sing-box` 内核，替代原来的第三方 `luci-app-sing-box` 页面。
 
 ## 管理与配置
 
-- **LuCI 入口**：服务 → sing-box
-- **面板版本**：`v0.4.7`，APK 在构建中按固定 SHA-256 校验
-- **内核来源**：匹配的 OpenWrt 软件源
-- **配置文件**：`/etc/sing-box/config.json`
-- **运行目录**：`/usr/share/sing-box`
-- **支持功能**：JSON 上传、编辑、校验、保存、启停及查看日志
+- **LuCI 入口**：服务 → HomeProxy。
+- **配置路径**：`/etc/config/homeproxy`；HomeProxy 规则、证书和资源位于 `/etc/homeproxy/`。
+- **代理内核**：`sing-box`（来自匹配的 ImmortalWrt packages）。
+- **运行行为**：首次启动按 HomeProxy 上游默认配置运行；是否启用由用户在 HomeProxy 中控制。
 
-固件默认保持 sing-box 停用，用户可自行上传 JSON 后验证：
+HomeProxy 使用自己的 UCI 配置体系，**不直接兼容**先前 `luci-app-sing-box` 的 JSON 管理页面配置，也不会自动导入原来的 `/etc/sing-box/config.json`。升级前请单独备份已有配置，需要时按 HomeProxy 的规则和节点格式手动迁移。
 
-```sh
-sing-box check -c /etc/sing-box/config.json -D /usr/share/sing-box
-```
-
-为了在 OpenWrt 上使用 TUN，首次启动配置脚本仅在 sing-box 服务仍关闭、运行用户仍为默认 `sing-box` 时，把运行用户设为 `root`。保留用户自行修改的账号设置。
+原固件的 `95-sing-box-tun-user` 首次启动脚本已移除；该脚本只适用于旧版 LuCI 应用，不能用于 HomeProxy。固件仍保留 TUN 所需的内核模块及 HomeProxy 的 nftables TPROXY 依赖。
 
 ## 与 Tailscale 共存
 
-路由器同时内置 Tailscale 与 sing-box：Tailscale 可用于远程管理与网络唤醒，sing-box 处理独立的代理连接。若启用 sing-box TUN 的 `auto_route`，需要针对实际 WAN/WWAN 设计路由，明确排除 Tailscale 流量及代理节点的自身连接，避免远程管理断线或流量循环。
+HomeProxy/sing-box 和 Tailscale 可以在同一台路由器上使用，但启用 TUN、透明代理或更改默认路由时，需要排除 Tailscale 控制和远程管理流量，以及代理节点自身的连接，以免路由循环或管理断线。
 
-从 Windows JSON 迁移时，`route.default_interface` 的 `WLAN`、Windows 进程规则和 WindowsApps 路径需要更换为 Linux/OpenWrt 对应设置。
-
-个人 JSON、节点密码与 WireGuard 私钥不写入公开固件仓库。保存在路由器上的配置应单独备份。
+节点凭据、个人规则、VPN 私钥均不写入公开仓库。路由器上保存的 HomeProxy 配置需要独立备份。

@@ -126,12 +126,6 @@ test -e "$IMM/package/feeds/luci/luci-app-qca-ppe-qos" || {
 
 # Build pinned sources, not foreign-ABI release APKs.
 clone https://github.com/eamonxg/luci-theme-aurora.git v1.4.0 "$IMM/package/luci-theme-aurora"
-clone https://github.com/lauyv/luci-app-sing-box.git v0.4.7 "$IMM/package/luci-app-sing-box"
-(
-  cd "$IMM/package/luci-app-sing-box"
-  command -v pnpm >/dev/null || npm install -g pnpm@10
-  bash dashboard/build.sh
-)
 
 # BEGIN firmware-only overlay (excluded from Builder fingerprint)
 # Preserve PPE/NSS defaults and apply firmware-only LuCI and app selection.
@@ -249,7 +243,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   line="${line%%#*}"
   for p in $line; do verify_package "$p"; done
 done < "$ROOT/config/add.txt"
-for p in kmod-nss-wifi-drv luci-theme-aurora luci-app-sing-box \
+for p in kmod-nss-wifi-drv luci-theme-aurora luci-app-homeproxy \
   qca-ppe-qos luci-app-qca-ppe-qos jq kmod-fs-f2fs; do
   verify_package "$p"
 done
@@ -307,7 +301,9 @@ awk 'NF >= 2 && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
      $1 != "kernel" && $1 != "libc" && $1 != "base-files" { print $1 }' \
      "$SOURCE_MANIFEST" | sort -u > "$OUT/imagebuilder-packages.txt"
 test -s "$OUT/imagebuilder-packages.txt"
-for required in kmod-nss-wifi-drv luci-app-sing-box sing-box kmod-fs-f2fs; do
+for required in kmod-nss-wifi-drv luci-app-homeproxy sing-box \
+  luci-app-autoreboot luci-app-cpufreq default-settings-chn autocore \
+  luci-app-diskman luci-app-ddns-go kmod-fs-f2fs; do
   grep -Fxq "$required" "$OUT/imagebuilder-packages.txt" || {
     echo "::error::Built firmware manifest missing $required" >&2
     exit 1
@@ -378,7 +374,7 @@ if [[ "$PUBLISH_RELEASE" == true ]]; then
 - Customized config: $SOURCE_REV
 - Board: JDCloud RE-SS-01 (ipq60xx 512 MiB profile; 1 GiB hardware supported)
 - Packages: F2FS/ext4 storage, PPE monitor/QoS, OTA, WireGuard,
-  Tailscale, sing-box, Aurora, WOL and LuCI applications.
+  Tailscale, HomeProxy/sing-box, Aurora, official ImmortalWrt utilities, WOL and LuCI applications.
 - Uses the independent \`$TAG\` channel and does not replace OpenWrt Releases/latest.
 
 Experimental full-source build: verify wired PPE, Wi-Fi NSS, storage, and

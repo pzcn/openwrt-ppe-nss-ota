@@ -29,35 +29,49 @@ required = {
     "luci-i18n-pbr-zh-cn",
     "tailscale", "luci-app-tailscale-community",
     "luci-i18n-tailscale-community-zh-cn", "kmod-tun",
-    "sing-box", "flock", "kmod-inet-diag",
+    "sing-box", "flock", "kmod-inet-diag", "kmod-nft-tproxy",
+    "luci-app-homeproxy", "luci-i18n-homeproxy-zh-cn",
+    "luci-app-autoreboot", "luci-i18n-autoreboot-zh-cn",
+    "luci-app-cpufreq", "luci-i18n-cpufreq-zh-cn", "cpufreq",
+    "default-settings-chn", "autocore",
+    "luci-app-diskman", "luci-i18n-diskman-zh-cn",
+    "luci-app-ddns-go", "luci-i18n-ddns-go-zh-cn",
     "luci-app-wol", "etherwake", "luci-i18n-wol-zh-cn",
 }
 assert required <= set(added), sorted(required - set(added))
 assert not set(added) & set(removed)
 assert len(added) == len(set(added))
-assert "luci-app-sing-box" not in added  # pinned source build
+assert "luci-app-sing-box" not in added
+assert "luci-app-sing-box" in removed  # remove from old Builder manifest
 
 build = (root / "scripts/build-immortalwrt.sh").read_text()
 config = (root / "config/immortalwrt-re-ss-01.config").read_text()
-assert "luci-app-sing-box.git v0.4.7" in build
+assert "luci-app-sing-box.git" not in build
+assert "luci-app-homeproxy" in build
+assert "luci-app-diskman" in build
+assert "luci-app-ddns-go" in build
 assert "luci-theme-aurora.git v1.4.0" in build
-for name in ("luci-app-sing-box", "luci-theme-aurora",
+for name in ("luci-app-homeproxy", "luci-theme-aurora",
              "kmod-nss-wifi-drv", "kmod-wireguard"):
     assert f"CONFIG_PACKAGE_{name}=y" in config
 assert 'append_packages "$ROOT/config/add.txt" y' in build
 assert "scripts/immortalwrt_ota.py" in build
 assert "scripts/apply-immortalwrt-compat.sh" in build
 
-hook = root / "files/etc/uci-defaults/95-sing-box-tun-user"
-assert hook.is_file()
-subprocess.run(["sh", "-n", str(hook)], check=True)
-assert "sing-box.main.user='root'" in hook.read_text()
-assert "sing-box.main.enabled" in hook.read_text()
+assert "CONFIG_PACKAGE_luci-app-sing-box=y" not in config
+assert not (root / "files/etc/uci-defaults/95-sing-box-tun-user").exists()
+# default-settings-chn changes the APK mirror by default; keep this
+# ABI-matched NSS firmware on its original ImmortalWrt distfeeds.
+feed_hook = root / "files/etc/uci-defaults/98-keep-immortalwrt-apk-feed"
+assert feed_hook.is_file()
+subprocess.run(["sh", "-n", str(feed_hook)], check=True)
+assert "https://downloads.immortalwrt.org" in feed_hook.read_text()
+assert "system.@imm_init[0].apk_mirror" in feed_hook.read_text()
 for private in ("files/etc/sing-box/config.json", "config.json"):
     assert not (root / private).exists(), private
 
 readme = (root / "README.md").read_text()
-for item in ("VPN → Tailscale", "服务 → sing-box", "服务 → 网络唤醒", "docs/SINGBOX.md"):
+for item in ("VPN → Tailscale", "服务 → HomeProxy", "服务 → 网络唤醒", "docs/SINGBOX.md"):
     assert item in readme
 assert "Tailscale" in (root / "docs/SINGBOX.md").read_text()
 assert "sing-box" in (root / "docs/TAILSCALE-WOL.md").read_text()
