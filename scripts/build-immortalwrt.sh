@@ -134,7 +134,7 @@ clone https://github.com/lauyv/luci-app-sing-box.git v0.4.7 "$IMM/package/luci-a
 )
 
 # Preserve the PPE/NSS QoS + system upgrade init pieces and the original
-# custom LuCI, Dr.COM, Tailscale, sing-box, WOL, and storage layout.
+# custom LuCI, Tailscale, sing-box, WOL, and storage layout.
 mkdir -p "$IMM/files"
 rsync -a "$BUILDER/devices/common/files.ppe-nss/" "$IMM/files/"
 rsync -a "$ROOT/files/" "$IMM/files/"
@@ -144,6 +144,8 @@ rm -f "$IMM/files/www/luci-static/resources/view/system/ppe-update.js" \
       "$IMM/files/etc/ppe-release" \
       "$IMM/files/etc/config/fstab" \
       "$IMM/files/etc/uci-defaults/96-migrate-legacy-extroot"
+# Keep app sources in Git but remove their files before compiling.
+sh "$ROOT/scripts/exclude-drcom-from-firmware.sh" "$IMM/files"
 
 # Temporary F2FS and eMMC sysupgrade fixes, bundled in full and repacked images.
 bash "$ROOT/scripts/apply-immortalwrt-compat.sh" "$IMM" "$IMM/files"
@@ -161,14 +163,10 @@ python3 "$ROOT/scripts/build_luci_i18n.py" \
 python3 "$ROOT/scripts/immortalwrt_ota.py" prepare \
   --overlay "$IMM/files" --tag "$TAG" --build "$BUILD_NUMBER"
 for s in "$IMM/files/usr/sbin/ppe-update" \
-         "$IMM/files/etc/init.d/ppe-update" \
-         "$IMM/files/etc/init.d/drcom" \
-         "$IMM/files/usr/libexec/drcom-web" \
-         "$IMM/files/usr/libexec/drcom-schedule"; do
+         "$IMM/files/etc/init.d/ppe-update"; do
   sh -n "$s"
 done
 node --check "$IMM/files/www/luci-static/resources/view/system/flash.js"
-node --check "$IMM/files/www/luci-static/resources/view/network/drcom-native.js"
 
 # All user-requested packages are taken from ImmortalWrt's own source feeds.
 # Kernel packages are compiled with this exact kernel; no OpenWrt snapshot APKs.
@@ -378,7 +376,7 @@ if [[ "$PUBLISH_RELEASE" == true ]]; then
 - PPE/NSS source: $PPE_SHA
 - Customized config: $SOURCE_REV
 - Board: JDCloud RE-SS-01 (ipq60xx 512 MiB profile; 1 GiB hardware supported)
-- Packages: Dr.COM, F2FS/ext4 storage, PPE monitor/QoS, OTA, WireGuard,
+- Packages: F2FS/ext4 storage, PPE monitor/QoS, OTA, WireGuard,
   Tailscale, sing-box, Aurora, WOL and LuCI applications.
 - Uses the independent \`$TAG\` channel and does not replace OpenWrt Releases/latest.
 

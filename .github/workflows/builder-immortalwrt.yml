@@ -66,6 +66,7 @@ jobs:
           python3 scripts/tests/test-immortalwrt-ota.py
           python3 scripts/tests/test-immortalwrt-builder.py
           python3 scripts/tests/test-immortalwrt-compat.py
+          python3 scripts/tests/test-exclude-drcom.py
           python3 scripts/tests/test-luci-native.py
           python3 scripts/tests/test-luci-i18n.py
           node scripts/tests/test-luci-autocheckboxes.js

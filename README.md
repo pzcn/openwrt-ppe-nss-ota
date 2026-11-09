@@ -13,17 +13,17 @@
 | 远程访问 | Tailscale、中文 LuCI 管理页面 |
 | 代理 | sing-box 内核、v0.4.7 LuCI JSON 管理页面，默认关闭 |
 | 网络唤醒 | luci-app-wol、Etherwake、简体中文 |
-| 校园网 | Dr.COM 登录/注销、凭据管理、每天 00:00 自动认证 |
 | 更新 | 在线检查、SHA256 与 `sysupgrade -T` 验证、自动更新与软件包恢复 |
 
 ### 内置页面
 
 - **状态 → PPE / NSS 硬件加速**：硬件加速状态、连接统计、折叠诊断。
-- **网络 → 校园网认证**：Dr.COM 自定义地址、认证与定时管理。
 - **系统 → 备份 / 升级**：手动升级、在线检查、自动更新设置。
 - **VPN → Tailscale**：远程组网和服务管理。
 - **服务 → sing-box**：JSON 配置、校验和服务控制。
 - **服务 → 网络唤醒**：通过 LAN 接口向指定 MAC 发送唤醒包。
+
+**校园网登录（Dr.COM）已从固件构建中排除。** LuCI 页面、RPC、认证脚本和自动登录的源码仍保存在仓库。参见 [Dr.COM 源码说明](docs/DRCOM-CAMPUS.md)。
 
 完整插件清单在 [config/add.txt](config/add.txt)，核心构建选项在 [config/immortalwrt-re-ss-01.config](config/immortalwrt-re-ss-01.config)，自动测试会检查必需插件是否齐全。
 

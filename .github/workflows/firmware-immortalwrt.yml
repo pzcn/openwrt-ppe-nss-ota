@@ -69,6 +69,7 @@ jobs:
           python3 scripts/tests/test-immortalwrt-ota.py
           python3 scripts/tests/test-immortalwrt-builder.py
           python3 scripts/tests/test-immortalwrt-compat.py
+          python3 scripts/tests/test-exclude-drcom.py
 
   firmware:
     name: Resolve existing Builder and repack firmware

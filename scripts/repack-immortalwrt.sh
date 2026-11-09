@@ -42,6 +42,8 @@ rm -f "$WORK/overlay/www/luci-static/resources/view/system/ppe-update.js" \
       "$WORK/overlay/etc/ppe-release" \
       "$WORK/overlay/etc/config/fstab" \
       "$WORK/overlay/etc/uci-defaults/96-migrate-legacy-extroot"
+# Exclude the optional Dr.COM app from matched Builder and user files.
+sh "$ROOT/scripts/exclude-drcom-from-firmware.sh" "$WORK/overlay"
 # Refuse an old Builder without the matching eMMC config-preservation hook.
 test -s "$WORK/overlay/lib/upgrade/platform.sh"
 grep -Fq 'platform_copy_config()' "$WORK/overlay/lib/upgrade/platform.sh"
@@ -58,14 +60,10 @@ python3 "$ROOT/scripts/immortalwrt_ota.py" prepare \
   --overlay "$WORK/overlay" --tag "$TAG" --build "$BUILD_NUMBER"
 for script in \
   "$WORK/overlay/usr/sbin/ppe-update" \
-  "$WORK/overlay/etc/init.d/ppe-update" \
-  "$WORK/overlay/etc/init.d/drcom" \
-  "$WORK/overlay/usr/libexec/drcom-web" \
-  "$WORK/overlay/usr/libexec/drcom-schedule"; do
+  "$WORK/overlay/etc/init.d/ppe-update"; do
   sh -n "$script"
 done
 node --check "$WORK/overlay/www/luci-static/resources/view/system/flash.js"
-node --check "$WORK/overlay/www/luci-static/resources/view/network/drcom-native.js"
 
 # No official snapshot kmods: only packages compiled for the identical ABI.
 PACKAGES="$(tr '\n' ' ' < "$PACKAGES_FILE")"

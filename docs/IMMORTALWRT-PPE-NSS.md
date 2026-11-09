@@ -49,7 +49,9 @@
 
 ## 软件包与 LuCI
 
-原定制全部保留：Aurora、PPE QoS、Dr.COM、OTA、Tailscale、sing-box、WireGuard、WOL、文件管理、ttyd、nlbwmon、statistics、wifihistory、irqbalance、lldpd、PBR、tcpdump、conntrack、F2FS 工具、简体中文包。
+当前固件保留：Aurora、PPE QoS、OTA、Tailscale、sing-box、WireGuard、WOL、文件管理、ttyd、nlbwmon、statistics、wifihistory、irqbalance、lldpd、PBR、tcpdump、conntrack、F2FS 工具、简体中文包。
+
+Dr.COM 校园网认证 App 的菜单、后端、启动脚本和定时认证任务在两条固件构建路径中排除，源码和离线测试保留在仓库。
 
 添加/排除包见 `config/add.txt`、`config/remove.txt`；设备及内核配置见 `config/immortalwrt-re-ss-01.config`。源码构建检查 Kconfig 必选项；ImageBuilder 使用匹配的完整 APK 包仓库。
 
