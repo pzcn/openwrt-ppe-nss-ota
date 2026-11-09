@@ -65,6 +65,15 @@ cp feeds.conf.default feeds.conf
 sed -i '/^src-git video /d' feeds.conf
 printf '\nsrc-git nss https://github.com/JuliusBairaktaris/nss-packages.git;ppe-nss\n' >> feeds.conf
 ./scripts/feeds update -a
+# Upstream currently includes unrelated packages with circular Kconfig chains.
+# Neither is used by this router; exclude only these optional package definitions
+# before re-indexing feeds, retaining official sources for all required packages.
+# fwknopd <-> luci-app-fwknopd / FWKNOPD_GPG
+# squeezelite-custom <-> SQUEEZELITE_WMA_ALAC
+rm -rf "$IMM/feeds/packages/net/fwknop" \
+       "$IMM/feeds/packages/sound/squeezelite" \
+       "$IMM/feeds/luci/applications/luci-app-fwknopd"
+./scripts/feeds update -i packages
 
 # Use the same pinned hardware SQM backend as the existing PPE release.
 patch -p1 -d "$IMM/feeds/packages" < \
@@ -163,7 +172,13 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   done
 done < "$ROOT/config/add.txt"
 
-make defconfig
+# Kconfig can report recursive-dependency errors yet return status 0.
+# Keep the diagnostic and fail instead of continuing with partial .config.
+make defconfig 2>&1 | tee "$WORK/defconfig.log"
+if grep -Fq 'error: recursive dependency detected!' "$WORK/defconfig.log"; then
+  echo "::error::ImmortalWrt upstream feeds contain a Kconfig dependency cycle" >&2
+  exit 1
+fi
 # Fail instead of silently producing a firmware without its reusable builder.
 grep -Fqx 'CONFIG_IB=y' "$IMM/.config"
 grep -Fqx 'CONFIG_IB_STANDALONE=y' "$IMM/.config"
