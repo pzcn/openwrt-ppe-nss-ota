@@ -20,7 +20,9 @@ mkdir -p "$WORK" "$OUT"
 CACHE_ROOT="${IMMORTAL_CACHE_ROOT:-$ROOT/.build-cache}"
 CACHE_DL="$CACHE_ROOT/dl"
 CACHE_CCACHE="$CACHE_ROOT/ccache"
-mkdir -p "$CACHE_DL" "$CACHE_CCACHE"
+CACHE_GO="$CACHE_ROOT/go-build"
+mkdir -p "$CACHE_DL" "$CACHE_CCACHE" "$CACHE_GO"
+BUILD_START_SECONDS="$(date +%s)"
 
 for n in "$RUN_NUMBER" "$ATTEMPT"; do
   [[ "$n" =~ ^[0-9]+$ ]] || { echo "Invalid run number" >&2; exit 1; }
@@ -201,6 +203,20 @@ done < "$ROOT/config/add.txt"
 bash "$ROOT/scripts/reuse-official-toolchain.sh" "$IMM" "$CACHE_DL" \
   "$OUT/official-toolchain-status.txt"
 
+# The upstream Go feed normally builds multiple Go bootstrap generations and
+# stores its build cache under transient tmp/go-build. Use the official binary
+# Go 1.26 as a supported host bootstrap and persist content-addressed Go work.
+GO_BOOTSTRAP_ROOT="$(go env GOROOT)"
+GO_BOOTSTRAP_VERSION="$(go env GOVERSION)"
+[[ "$GO_BOOTSTRAP_VERSION" == go1.26.* || "$GO_BOOTSTRAP_VERSION" == go1.27.* ]] || {
+  echo "::error::Unsupported host Go bootstrap: $GO_BOOTSTRAP_VERSION" >&2
+  exit 1
+}
+test -x "$GO_BOOTSTRAP_ROOT/bin/go"
+printf 'CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT="%s"\n' "$GO_BOOTSTRAP_ROOT" >> "$IMM/.config"
+printf '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set\n' >> "$IMM/.config"
+printf 'CONFIG_GOLANG_BUILD_CACHE_DIR="%s"\n' "$CACHE_GO" >> "$IMM/.config"
+
 # Kconfig can report recursive-dependency errors yet return status 0.
 # Keep the diagnostic and fail instead of continuing with partial .config.
 make defconfig 2>&1 | tee "$WORK/defconfig.log"
@@ -212,6 +228,17 @@ fi
 grep -Fqx 'CONFIG_IB=y' "$IMM/.config"
 grep -Fqx 'CONFIG_IB_STANDALONE=y' "$IMM/.config"
 grep -Fqx 'CONFIG_CCACHE=y' "$IMM/.config"
+# Keep firmware buildable if upstream moves its Go Kconfig options.
+# Report missing performance settings, without skipping any required APK.
+if grep -Fxq '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' "$IMM/.config" &&
+   grep -Fxq "CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT=\"$GO_BOOTSTRAP_ROOT\"" "$IMM/.config"; then
+  echo "Using official $GO_BOOTSTRAP_VERSION as OpenWrt Go bootstrap."
+else
+  echo "::warning::External Go bootstrap Kconfig was not retained; using upstream Go bootstrap." >&2
+fi
+if ! grep -Fxq "CONFIG_GOLANG_BUILD_CACHE_DIR=\"$CACHE_GO\"" "$IMM/.config"; then
+  echo "::warning::Persistent Go cache Kconfig was not retained; using upstream Go cache." >&2
+fi
 if grep -Fqx 'toolchain=official-immortalwrt' "$OUT/official-toolchain-status.txt"; then
   grep -Fqx 'CONFIG_EXTERNAL_TOOLCHAIN=y' "$IMM/.config"
   grep -Fqx 'CONFIG_EXTERNAL_TOOLCHAIN_IB=y' "$IMM/.config"
@@ -255,6 +282,7 @@ grep -Fqx 'CONFIG_ATH11K_NSS_WIFI=y' "$IMM/.config"
 grep -Fqx 'CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y' "$IMM/.config"
 
 DOWNLOAD_BEGIN="$(date +%s)"
+PREP_SECONDS=$(( DOWNLOAD_BEGIN - BUILD_START_SECONDS ))
 make download -j"$(nproc)"
 DOWNLOAD_SECONDS=$(( $(date +%s) - DOWNLOAD_BEGIN ))
 COMPILE_BEGIN="$(date +%s)"
@@ -341,6 +369,7 @@ python3 "$ROOT/scripts/immortalwrt_ota.py" metadata \
   --output "$OUT/ota.json"
 
 # Rebuild a firmware from the bundled repository before publishing the builder.
+SMOKE_BEGIN="$(date +%s)"
 echo "::group::Standalone ImageBuilder repack smoke test"
 BUILDER_META="$OUT/builder-metadata.json" \
 BUILDER_ARCHIVE="$IB_ARCHIVE" \
@@ -351,6 +380,18 @@ PUBLISH_RELEASE=false bash "$ROOT/scripts/repack-immortalwrt.sh"
 test -s "$OUT/ib-smoke/$IMAGE"
 test -s "$OUT/ib-smoke/$MANIFEST"
 echo "::endgroup::"
+SMOKE_SECONDS=$(( $(date +%s) - SMOKE_BEGIN ))
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  {
+    echo "### Build phase timings (seconds)"
+    echo "- Preparation + feeds + external cross-toolchain: ${PREP_SECONDS}s"
+    echo "- Download: ${DOWNLOAD_SECONDS}s"
+    echo "- Host tools, kernel, packages and ImageBuilder: ${COMPILE_SECONDS}s"
+    echo "- ImageBuilder smoke repack: ${SMOKE_SECONDS}s"
+    echo "- Bootstrap: ${GO_BOOTSTRAP_VERSION}"
+    du -sh "${CACHE_GO}" | sed 's/^/- Go cache on disk: /'
+  } >> "$GITHUB_STEP_SUMMARY"
+fi
 
 # Publish only after a successful full compilation, manifest, and OTA metadata.
 # Pull requests produce inspectable Actions artifacts but never update releases.
