@@ -117,7 +117,7 @@ def check_sha(value: str) -> None:
 
 def git_blob_id(data: bytes) -> str:
     """Match Git's content-addressed blob ID without needing full Git history."""
-    return hashlib.sha1(f"blob {len(data)}\\0".encode().replace(b"\\0", b"\\x00") + data).hexdigest()
+    return hashlib.sha1(f"blob {len(data)}".encode() + bytes((0,)) + data).hexdigest()
 
 
 def legacy_sources_compatible(root: Path = ROOT) -> bool:
