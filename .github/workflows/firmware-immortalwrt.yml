@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
     paths:
+      # Repack from an existing Release when the Builder publish workflow is repaired.
+      - ".github/workflows/builder-immortalwrt.yml"
       - ".github/workflows/firmware-immortalwrt.yml"
       - "scripts/**"
       - "config/**"

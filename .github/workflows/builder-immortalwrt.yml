@@ -8,6 +8,8 @@ on:
     - cron: "43 5 * * 0"
 permissions:
   contents: write
+  # Required by gh workflow run firmware-immortalwrt.yml.
+  actions: write
 
 concurrency:
   group: re-ss-01-builder
@@ -82,6 +84,7 @@ jobs:
           python3 scripts/tests/test-immortalwrt-compat.py
           python3 scripts/tests/test-luci-i18n.py
       - name: Build matching ImageBuilder and SDK with compile and repack smoke tests
+        id: compile
         env:
           PUBLISH_RELEASE: "false"
         run: bash scripts/build-immortalwrt.sh
@@ -123,16 +126,21 @@ jobs:
               "$DIR/source-commits.txt" "$DIR/official-toolchain-status.txt"
             echo "Published matched ImageBuilder and SDK: $TAG"
           fi
-          # workflow_dispatch is allowed to trigger another workflow using GITHUB_TOKEN.
-          gh workflow run firmware-immortalwrt.yml -R "$GITHUB_REPOSITORY" \
-            --ref main -f "builder_tag=$TAG"
+          # A dispatch failure must not invalidate a fully published Builder + SDK.
+          if gh workflow run firmware-immortalwrt.yml -R "$GITHUB_REPOSITORY" \
+              --ref main -f "builder_tag=$TAG"; then
+            FIRMWARE_STATUS="Triggered firmware workflow using the built Builder."
+          else
+            FIRMWARE_STATUS="Automatic firmware dispatch failed; run the firmware workflow manually with builder_tag=$TAG."
+            echo "::warning::$FIRMWARE_STATUS"
+          fi
           {
             echo "## Weekly/manual full source build completed"
             echo "Builder + SDK Release: $TAG"
             echo "SDK archive: $SDK_NAME"
             echo "SDK SHA256: $(jq -r '.archive_sha256' "$SDK_META")"
             echo "Source feed lock: sdk-feeds.lock.json"
-            echo "Triggered firmware workflow using the built Builder."
+            echo "$FIRMWARE_STATUS"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Report compilation cache efficiency
         if: always()
@@ -141,7 +149,8 @@ jobs:
             CCACHE_DIR="$GITHUB_WORKSPACE/.build-cache/ccache" ccache --show-stats || true
           fi
       - name: Upload compiled Builder, matched SDK and test image artifacts
-        if: success()
+        # Preserve the compiled outputs even when publishing/dispatch fails.
+        if: always() && steps.compile.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: immortalwrt-compiled-builder
