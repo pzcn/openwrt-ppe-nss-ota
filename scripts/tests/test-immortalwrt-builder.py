@@ -26,9 +26,23 @@ with tempfile.TemporaryDirectory() as d:
         p = tmp / name
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("core configuration\n")
+    for name in mod.PACKAGE_FILES:
+        p = tmp / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("initial package selection\n")
     one = mod.fingerprint(tmp)
     assert len(one) == 64
     assert mod.tag(imm, ppe, base, tmp) != mod.tag(imm, "d" * 40, base, tmp)
+    package_before = mod.package_fingerprint(tmp)
+    (tmp / "config/add.txt").parent.mkdir(parents=True, exist_ok=True)
+    (tmp / "config/add.txt").write_text("sample-new-plugin\n")
+    (tmp / "config/remove.txt").write_text("")
+    assert mod.fingerprint(tmp) == one, "Plugin selections must not alter the core ABI"
+    assert mod.package_fingerprint(tmp) != package_before
+    assert mod.tag(imm, ppe, base, tmp) != mod.release_tag(
+        imm, ppe, base, one, package_before, "0" * 64)
+    assert mod.tag(imm, ppe, base, tmp, feeds="f" * 64) != mod.tag(
+        imm, ppe, base, tmp, feeds="0" * 64)
     path = tmp / mod.CORE_FILES[-1]
     path.write_text("changed core configuration\n")
     assert mod.fingerprint(tmp) != one
@@ -49,6 +63,7 @@ with tempfile.TemporaryDirectory() as d:
     assert doc["archive"] == archive.name
     assert doc["packages"] == packages.name
     assert doc["channel"] == mod.CHANNEL
+    assert doc["feeds_fingerprint"] == "0" * 64
     kwargs = dict(metadata=metadata, archive=archive,
                   overlay=overlay, packages=packages)
     mod.verify(argparse.Namespace(**kwargs))
@@ -110,11 +125,22 @@ assert 'Built firmware manifest missing' in full_build
 assert 'Standalone ImageBuilder repack smoke test' in full_build
 assert 'IMMORTAL_OUT_DIR=' in full_build
 assert 'PACKAGES+=" -$pkg"' in (ROOT / "scripts/repack-immortalwrt.sh").read_text()
-for name in ("immortalwrt-reusable.yml",):
-    workflow = (ROOT / ".github" / "workflows" / name).read_text()
-    assert "actions/cache@v4" in workflow
-    assert ".build-cache/dl" in workflow
-    assert ".build-cache/ccache" in workflow
-print("PASS Actions source download cache and ccache wiring")
-
+builder_workflow = (ROOT / ".github/workflows/builder-immortalwrt.yml").read_text()
+firmware_workflow = (ROOT / ".github/workflows/firmware-immortalwrt.yml").read_text()
+assert "actions/cache@v4" in builder_workflow
+assert ".build-cache/dl" in builder_workflow
+assert ".build-cache/ccache" in builder_workflow
+assert "gh workflow run firmware-immortalwrt.yml" in builder_workflow
+assert "PUBLISH_RELEASE: \"false\"" in builder_workflow
+assert "scripts/repack-immortalwrt.sh" in firmware_workflow
+assert "run: bash scripts/build-immortalwrt.sh" not in firmware_workflow
+assert "19 4 * * *" in firmware_workflow
+assert "43 5 * * *" in builder_workflow
+assert "UTC_DAY % 2" in builder_workflow
+assert "immortalwrt/packages.git|HEAD" in builder_workflow
+assert "EXPECTED_FEEDS_FINGERPRINT" in builder_workflow
+assert 'git -C "$IMM/feeds/$feed" rev-parse HEAD' in full_build
 assert "scripts/apply-immortalwrt-compat.sh" in mod.CORE_FILES
+assert "config/add.txt" not in mod.CORE_FILES
+assert "config/add.txt" in mod.PACKAGE_FILES
+print("PASS separate daily firmware / two-day Builder Actions, cache and provenance")

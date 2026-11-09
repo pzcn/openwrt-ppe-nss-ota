@@ -10,18 +10,36 @@
 
 内核、DTB、无线驱动、NSS 固件和其他 kmod 都从同一源码组合编译。
 
-## 构建入口
+## 两条工作流及触发条件
 
-唯一正式 GitHub Actions 工作流：`.github/workflows/immortalwrt-reusable.yml`。
+**固件工作流：** `.github/workflows/firmware-immortalwrt.yml`
 
-| 模式 | 步骤 |
-| --- | --- |
-| 完整源码构建 | `scripts/build-immortalwrt.sh` 移植 PPE/NSS、应用补丁、编译固件和专用 standalone ImageBuilder |
-| 已有 Builder | 从 GitHub Releases 读取 `imm-builder-...`，由 `scripts/repack-immortalwrt.sh` 快速打包固件 |
-| 无变化 | 定时检查无更新时跳过固件构建 |
-| 代码 PR | 先运行离线测试，完整固件发布由正式工作流处理 |
+- `main` 分支的 `scripts/`、`files/`、`config/` 和固件工作流变动时执行。
+- 每天 04:19 UTC 检查最新 Builder 与当前源码；如果最新版固件已经包含同一 Builder 和同一源码提交，则跳过。
+- 支持手动选择 `builder_tag`、强制重新打包及是否发布 Release。
+- `pull_request` 只执行离线验证，不编译固件。
+- 只执行 `scripts/repack-immortalwrt.sh`。Builder 无法兼容当前核心配置时跳过并报告原因，绝不改为完整编译。
 
-Builder Release 包含 ImageBuilder 压缩包、`builder-metadata.json`、`base-overlay.tar.gz` 和 `imagebuilder-packages.txt`。校验源码 SHA、核心配置指纹与文件 SHA256 后才重打包。固件 Release 使用 `imm-ppe-nss-...` 标签。
+**Builder 工作流：** `.github/workflows/builder-immortalwrt.yml`
+
+- 每天 05:43 UTC 启动一次轻量日历门禁，只有偶数 UTC epoch 日才检查；实际每隔 48 小时检查一次（跨月节奏不变）。
+- 比较 ImmortalWrt、Julius PPE/NSS、基础 Builder 三个源码 SHA，ImmortalWrt packages/LuCI/routing/telephony、NSS packages、PPE QoS LuCI 六个 feed 提交，以及核心配置和软件包清单指纹。对应 `imm-builder-...` Release 已存在则跳过。
+- 需要更新时调用 `scripts/build-immortalwrt.sh` 编译内核、NSS、所有 APK 和独立 ImageBuilder，并运行重打包烟雾测试。
+- 构建产物上传到 Releases；**成功发布后使用 `workflow_dispatch` 触发固件工作流**，不在 Builder 工作流里重复发布固件。
+- 支持手动强制源码编译（相同 Tag 的 Release 不会覆写）和禁用发布。
+
+**两条流水线之间的契约：**
+
+- Builder Release：`imm-builder-...`，包含 ImageBuilder 压缩包、`builder-metadata.json`、`base-overlay.tar.gz`、`imagebuilder-packages.txt`。
+- 固件 Release：`imm-ppe-nss-...`，包含 sysupgrade、manifest、`ota.json` 和 Builder 元数据。
+- `builder-metadata.json` 中的核心指纹决定是否 ABI 兼容；软件包指纹决定新 Builder 是否需要重新编译。
+- `ota.json` 记录 `builder_tag` 和 `source_commit`，用于每天的无变动跳过判断。
+
+## 插件更新范围
+
+`config/add.txt`、`config/remove.txt` 不再使已有 Builder 的**核心兼容性**失效。打包会按最新插件清单尝试选用匹配 Builder 内的软件包：APK 已存在可直接重打包；不存在则明确失败，不能强行混用普通 Snapshot kmod。两个清单变化也会产生新的 Builder 发行版指纹，使两天一次的完整构建能够补编缺少的软件包。
+
+官方 packages、LuCI、routing、telephony 与 NSS/QoS feed 使用单独的源码提交指纹，能识别主系统 SHA 未变化时的上游插件版本更新。只有 Builder 重新编译后，新 APK 才能用于后续固件打包。
 
 ## 两个兼容补丁
 

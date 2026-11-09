@@ -70,6 +70,20 @@ node --check "$WORK/overlay/www/luci-static/resources/view/network/drcom-native.
 # No official snapshot kmods: only packages compiled for the identical ABI.
 PACKAGES="$(tr '\n' ' ' < "$PACKAGES_FILE")"
 test -n "$PACKAGES"
+# Newly requested plugins can be added if the matching Builder has their APKs.
+# Missing APKs fail in ImageBuilder, never silently drop user packages.
+while IFS= read -r entry || [[ -n "$entry" ]]; do
+  entry="${entry%%#*}"
+  for pkg in $entry; do
+    [[ "$pkg" =~ ^[a-z0-9][a-z0-9+._-]*$ ]] || {
+      echo "::error::Invalid requested package: $pkg" >&2
+      exit 1
+    }
+    if [[ " $PACKAGES " != *" $pkg "* ]]; then
+      PACKAGES+=" $pkg"
+    fi
+  done
+done < "$ROOT/config/add.txt"
 # Preserve the source firmware's package exclusions, including ip-tiny.
 while IFS= read -r entry || [[ -n "$entry" ]]; do
   entry="${entry%%#*}"
@@ -102,6 +116,7 @@ python3 "$ROOT/scripts/immortalwrt_ota.py" metadata \
   --tag "$TAG" --build "$BUILD_NUMBER" \
   --immortal-commit "$IMM_SHA" --ppe-commit "$PPE_SHA" \
   --image "$OUT/$IMAGE" --manifest "$OUT/$MANIFEST" \
+  --builder-tag "$BUILDER_TAG" --source-commit "$(git -C "$ROOT" rev-parse HEAD)" \
   --output "$OUT/ota.json"
 cp "$META" "$OUT/builder-metadata.json"
 

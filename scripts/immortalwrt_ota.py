@@ -81,7 +81,8 @@ LATEST=$(jq -r 'map(select(.draft == false and (.tag_name | startswith("imm-ppe-
 
 
 def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
-             manifest: Path, output: Path) -> None:
+             manifest: Path, output: Path, builder_tag: str = "",
+             source_commit: str = "") -> None:
     if not TAG_PATTERN.fullmatch(tag) or build < 1:
         raise ValueError("Invalid tag/build")
     if not SHA_PATTERN.fullmatch(upstream) or not SHA_PATTERN.fullmatch(ppe):
@@ -92,6 +93,10 @@ def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
         raise ValueError("Missing or unusually small firmware image")
     if not manifest.is_file() or manifest.stat().st_size < 100:
         raise ValueError("Missing package manifest")
+    if builder_tag and not re.fullmatch(r"imm-builder-[a-zA-Z0-9._-]+", builder_tag):
+        raise ValueError("Invalid ImageBuilder tag")
+    if source_commit and not SHA_PATTERN.fullmatch(source_commit):
+        raise ValueError("Invalid firmware source commit")
     doc = {
         "schema": 1,
         "channel": CHANNEL,
@@ -111,6 +116,10 @@ def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
         "manifest": MANIFEST,
         "manifest_sha256": sha256(manifest),
     }
+    if builder_tag:
+        doc["builder_tag"] = builder_tag
+    if source_commit:
+        doc["source_commit"] = source_commit
     output.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -129,12 +138,15 @@ def main() -> None:
     b.add_argument("--image", type=Path, required=True)
     b.add_argument("--manifest", type=Path, required=True)
     b.add_argument("--output", type=Path, required=True)
+    b.add_argument("--builder-tag", default="")
+    b.add_argument("--source-commit", default="")
     args = parser.parse_args()
     if args.action == "prepare":
         prepare(args.overlay, args.tag, args.build)
     else:
         metadata(args.tag, args.build, args.immortal_commit, args.ppe_commit,
-                 args.image, args.manifest, args.output)
+                 args.image, args.manifest, args.output,
+                 args.builder_tag, args.source_commit)
 
 
 if __name__ == "__main__":
