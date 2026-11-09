@@ -3,6 +3,8 @@
 import argparse
 import importlib.util
 import json
+import subprocess
+import sys
 from pathlib import Path
 import tempfile
 
@@ -51,6 +53,23 @@ with tempfile.TemporaryDirectory() as d:
                   overlay=overlay, packages=packages)
     mod.verify(argparse.Namespace(**kwargs))
 
+    # Verify CLI metadata arguments (not just the internal Python call).
+    cli_meta = tmp / "cli-metadata.json"
+    subprocess.run(
+        [sys.executable, str(ROOT / "scripts/immortalwrt_builder.py"),
+         "metadata", "--immortal", imm, "--ppe", ppe, "--base", base,
+         "--archive", str(archive), "--overlay", str(overlay),
+         "--packages", str(packages), "--output", str(cli_meta)],
+        check=True, capture_output=True, text=True
+    )
+    assert json.loads(cli_meta.read_text())["packages"] == packages.name
+    subprocess.run(
+        [sys.executable, str(ROOT / "scripts/immortalwrt_builder.py"),
+         "verify", "--metadata", str(cli_meta), "--archive", str(archive),
+         "--overlay", str(overlay), "--packages", str(packages)],
+        check=True, capture_output=True, text=True
+    )
+
     packages.write_bytes(b"tampered packages" * 10)
     try:
         mod.verify(argparse.Namespace(**kwargs))
@@ -75,6 +94,10 @@ assert "CONFIG_CCACHE=y" in config
 assert 'ln -s "$CACHE_DL" "$IMM/dl"' in full_build
 assert 'ln -s "$CACHE_CCACHE" "$IMM/.ccache"' in full_build
 assert 'ccache --show-stats' in full_build
+assert 'Built firmware manifest missing' in full_build
+assert 'Standalone ImageBuilder repack smoke test' in full_build
+assert 'IMMORTAL_OUT_DIR=' in full_build
+assert 'PACKAGES+=" -$pkg"' in (ROOT / "scripts/repack-immortalwrt.sh").read_text()
 for name in ("build-immortalwrt.yml", "immortalwrt-reusable.yml"):
     workflow = (ROOT / ".github" / "workflows" / name).read_text()
     assert "actions/cache@v4" in workflow

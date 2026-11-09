@@ -11,6 +11,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/build-immortalwrt.yml"
+      - ".github/workflows/immortalwrt-reusable.yml"
       - "scripts/**"
       - "config/**"
       - "files/**"

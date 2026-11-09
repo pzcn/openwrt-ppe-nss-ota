@@ -111,6 +111,7 @@ def main() -> None:
         m.add_argument(f"--{name}", required=True)
     m.add_argument("--archive", required=True, type=Path)
     m.add_argument("--overlay", required=True, type=Path)
+    m.add_argument("--packages", required=True, type=Path)
     m.add_argument("--output", required=True, type=Path)
     v = sub.add_parser("verify")
     for name in ("metadata", "archive", "overlay", "packages"):

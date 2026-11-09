@@ -40,6 +40,8 @@
 
 ### 第一轮编译加速（已接入 CI）
 
+首次构建必须使用生成的 standalone ImageBuilder 重新打包固件并验证 manifest，通过后才允许发布。打包用的包名来自已编译固件 manifest，而不是 Kconfig 虚拟符号；元数据 CLI 也单独测试。
+
 - `actions/cache@v4` 缓存源码下载目录（`dl/`），减少每次重新拉取源码压缩包的时间。
 - `CONFIG_CCACHE=y` 与 Actions 持久化对象缓存（最大约 1.6GB），重用相同编译器、编译参数和源码的编译结果。
 - 每次仍然**重新检出官方 ImmortalWrt 和 Julius PPE/NSS 源码**，不缓存整个内核编译树，避免过时的设备树、驱动对象和内核 ABI 混用。

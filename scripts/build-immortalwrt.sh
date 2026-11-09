@@ -222,8 +222,8 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo "## ImmortalWrt PPE/NSS full-source build"
     echo "- Source downloads: ${DOWNLOAD_SECONDS}s"
     echo "- Build and ImageBuilder: ${COMPILE_SECONDS}s"
-    echo "- Source cache directory: `$CACHE_DL`"
-    echo "- Compiler cache directory: `$CACHE_CCACHE`"
+    printf -- '- Source cache directory: `%s`\n' "$CACHE_DL"
+    printf -- '- Compiler cache directory: `%s`\n' "$CACHE_CCACHE"
   } >> "$GITHUB_STEP_SUMMARY"
 fi
 
@@ -237,11 +237,30 @@ test -n "$IB_ARCHIVE" && test -s "$IB_ARCHIVE" || {
   echo "::error::Standalone ImageBuilder was not produced" >&2
   exit 1
 }
+# Full-source builds may emit a board-wide manifest even for one device.
+# Publish the single-device manifest under the stable per-device OTA name.
+if [[ -s "$TARGET/$MANIFEST" ]]; then
+  SOURCE_MANIFEST="$TARGET/$MANIFEST"
+elif [[ -s "$TARGET/immortalwrt-qualcommax-ipq60xx.manifest" ]]; then
+  SOURCE_MANIFEST="$TARGET/immortalwrt-qualcommax-ipq60xx.manifest"
+else
+  echo "::error::No target package manifest was produced" >&2
+  exit 1
+fi
 cp "$IB_ARCHIVE" "$OUT/"
 IB_ARCHIVE="$OUT/$(basename "$IB_ARCHIVE")"
-# The standalone builder contains only packages compiled against this kernel ABI.
-sed -n 's/^CONFIG_PACKAGE_\(.*\)=y$/\1/p' "$IMM/.config" | sort -u > "$OUT/imagebuilder-packages.txt"
+# An image manifest lists real installed APKs; Kconfig also lists virtual symbols.
+# ImageBuilder pins kernel/libc/base-files to its own compatible versions.
+awk 'NF >= 2 && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
+     $1 != "kernel" && $1 != "libc" && $1 != "base-files" { print $1 }' \
+     "$SOURCE_MANIFEST" | sort -u > "$OUT/imagebuilder-packages.txt"
 test -s "$OUT/imagebuilder-packages.txt"
+for required in kmod-nss-wifi-drv luci-app-sing-box sing-box kmod-fs-f2fs; do
+  grep -Fxq "$required" "$OUT/imagebuilder-packages.txt" || {
+    echo "::error::Built firmware manifest missing $required" >&2
+    exit 1
+  }
+done
 tar -czf "$OUT/base-overlay.tar.gz" -C "$BUILDER/devices/common/files.ppe-nss" .
 python3 "$ROOT/scripts/immortalwrt_builder.py" metadata \
   --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
@@ -254,16 +273,6 @@ python3 "$ROOT/scripts/immortalwrt_builder.py" verify \
   --packages "$OUT/imagebuilder-packages.txt"
 BUILDER_TAG="$(python3 "$ROOT/scripts/immortalwrt_builder.py" tag \
   --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA")"
-# Full-source builds may emit a board-wide manifest even for one device.
-# Publish the single-device manifest under the stable per-device OTA name.
-if [[ -s "$TARGET/$MANIFEST" ]]; then
-  SOURCE_MANIFEST="$TARGET/$MANIFEST"
-elif [[ -s "$TARGET/immortalwrt-qualcommax-ipq60xx.manifest" ]]; then
-  SOURCE_MANIFEST="$TARGET/immortalwrt-qualcommax-ipq60xx.manifest"
-else
-  echo "::error::No target package manifest was produced" >&2
-  exit 1
-fi
 cp "$TARGET/$IMAGE" "$OUT/"
 cp "$SOURCE_MANIFEST" "$OUT/$MANIFEST"
 cp "$IMM/.config" "$OUT/immortalwrt.config"
@@ -275,6 +284,18 @@ python3 "$ROOT/scripts/immortalwrt_ota.py" metadata \
   --tag "$TAG" --build "$BUILD_NUMBER" --immortal-commit "$IMM_SHA" \
   --ppe-commit "$PPE_SHA" --image "$OUT/$IMAGE" --manifest "$OUT/$MANIFEST" \
   --output "$OUT/ota.json"
+
+# Rebuild a firmware from the bundled repository before publishing the builder.
+echo "::group::Standalone ImageBuilder repack smoke test"
+BUILDER_META="$OUT/builder-metadata.json" \
+BUILDER_ARCHIVE="$IB_ARCHIVE" \
+BASE_OVERLAY="$OUT/base-overlay.tar.gz" \
+BUILDER_PACKAGES="$OUT/imagebuilder-packages.txt" \
+IMMORTAL_OUT_DIR="$OUT/ib-smoke" \
+PUBLISH_RELEASE=false bash "$ROOT/scripts/repack-immortalwrt.sh"
+test -s "$OUT/ib-smoke/$IMAGE"
+test -s "$OUT/ib-smoke/$MANIFEST"
+echo "::endgroup::"
 
 # Publish only after a successful full compilation, manifest, and OTA metadata.
 # Pull requests produce inspectable Actions artifacts but never update releases.

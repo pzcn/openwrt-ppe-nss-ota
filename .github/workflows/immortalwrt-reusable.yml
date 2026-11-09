@@ -86,6 +86,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y zstd rsync jq python3 make
 
+      - name: Setup Node.js for fast repack validation
+        if: steps.resolve.outputs.needs_core == 'false' && steps.resolve.outputs.needs_image == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Download matching ImageBuilder and package repository
         if: steps.resolve.outputs.needs_core == 'false' && steps.resolve.outputs.needs_image == 'true'
         env:

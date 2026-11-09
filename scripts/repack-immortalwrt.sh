@@ -5,7 +5,7 @@ trap 'echo "::error::ImmortalWrt ImageBuilder repack failed at line $LINENO: $BA
 
 ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "$0")/.." && pwd)}"
 WORK="${RUNNER_TEMP:-/tmp}/immortal-image-repack"
-OUT="$ROOT/out-immortal"
+OUT="${IMMORTAL_OUT_DIR:-$ROOT/out-immortal}"
 PUBLISH_RELEASE="${PUBLISH_RELEASE:-false}"
 REPO="${GITHUB_REPOSITORY:-pzcn/openwrt-ppe-nss-ota}"
 META="${BUILDER_META:?Set BUILDER_META to the downloaded builder-metadata.json}"
@@ -66,6 +66,17 @@ node --check "$WORK/overlay/www/luci-static/resources/view/network/drcom-native.
 # No official snapshot kmods: only packages compiled for the identical ABI.
 PACKAGES="$(tr '\n' ' ' < "$PACKAGES_FILE")"
 test -n "$PACKAGES"
+# Preserve the source firmware's package exclusions, including ip-tiny.
+while IFS= read -r entry || [[ -n "$entry" ]]; do
+  entry="${entry%%#*}"
+  for pkg in $entry; do
+    [[ "$pkg" =~ ^[a-z0-9][a-z0-9+._-]*$ ]] || {
+      echo "::error::Invalid excluded package: $pkg" >&2
+      exit 1
+    }
+    PACKAGES+=" -$pkg"
+  done
+done < "$ROOT/config/remove.txt"
 (
   cd "$IB"
   make image PROFILE=jdcloud_re-ss-01 PACKAGES="$PACKAGES" \
