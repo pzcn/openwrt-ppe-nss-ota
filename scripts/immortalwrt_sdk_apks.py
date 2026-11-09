@@ -125,8 +125,6 @@ def collect(sdk_bin: Path, imagebuilder: Path, cache: Path,
         filenames.add(path.name)
         # Preserve ImageBuilder's own existing APKs, kernel ABI and libc.
         # Versions for the same package must never be silently replaced.
-        if any(existing.glob(path.name.split("-")[0] + "-*.apk")):
-            pass
         if (existing / path.name).exists():
             continue
         outputs.append(path)
