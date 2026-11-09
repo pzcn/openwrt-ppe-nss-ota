@@ -13,6 +13,7 @@ CORE_FILES = (
     "scripts/build-immortalwrt.sh",
     "scripts/reuse-official-toolchain.sh",
     "scripts/port-ppe-nss-to-immortalwrt.sh",
+    "scripts/apply-immortalwrt-compat.sh",
     "scripts/immortalwrt_builder.py",
     "config/immortalwrt-re-ss-01.config",
     "config/add.txt",

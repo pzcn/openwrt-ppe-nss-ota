@@ -42,6 +42,10 @@ rm -f "$WORK/overlay/www/luci-static/resources/view/system/ppe-update.js" \
       "$WORK/overlay/etc/ppe-release" \
       "$WORK/overlay/etc/config/fstab" \
       "$WORK/overlay/etc/uci-defaults/96-migrate-legacy-extroot"
+# Refuse an old Builder without the matching eMMC config-preservation hook.
+test -s "$WORK/overlay/lib/upgrade/platform.sh"
+grep -Fq 'platform_copy_config()' "$WORK/overlay/lib/upgrade/platform.sh"
+grep -Fq 'emmc_copy_config' "$WORK/overlay/lib/upgrade/platform.sh"
 I18N_DIR="$WORK/overlay/usr/lib/lua/luci/i18n"
 mkdir -p "$I18N_DIR"
 python3 "$ROOT/scripts/build_luci_i18n.py" \

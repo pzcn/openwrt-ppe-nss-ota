@@ -118,6 +118,10 @@ rm -f "$IMM/files/www/luci-static/resources/view/system/ppe-update.js" \
       "$IMM/files/etc/config/fstab" \
       "$IMM/files/etc/uci-defaults/96-migrate-legacy-extroot"
 
+# Temporary F2FS and eMMC sysupgrade fixes, bundled in full and repacked images.
+bash "$ROOT/scripts/apply-immortalwrt-compat.sh" "$IMM" "$IMM/files"
+test -s "$IMM/files/lib/upgrade/platform.sh"
+
 # Translate the exact existing custom catalogs as native LuCI .lmo files.
 I18N_DIR="$IMM/files/usr/lib/lua/luci/i18n"
 mkdir -p "$I18N_DIR"
@@ -283,7 +287,12 @@ for required in kmod-nss-wifi-drv luci-app-sing-box sing-box kmod-fs-f2fs; do
     exit 1
   }
 done
-tar -czf "$OUT/base-overlay.tar.gz" -C "$BUILDER/devices/common/files.ppe-nss" .
+# The standalone Builder carries the exact platform.sh used in the full image.
+BASE_STAGE="$WORK/base-overlay-for-imagebuilder"
+mkdir -p "$BASE_STAGE"
+rsync -a "$BUILDER/devices/common/files.ppe-nss/" "$BASE_STAGE/"
+install -D -m 0644 "$IMM/files/lib/upgrade/platform.sh" "$BASE_STAGE/lib/upgrade/platform.sh"
+tar -czf "$OUT/base-overlay.tar.gz" -C "$BASE_STAGE" .
 python3 "$ROOT/scripts/immortalwrt_builder.py" metadata \
   --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
   --archive "$IB_ARCHIVE" --overlay "$OUT/base-overlay.tar.gz" \
