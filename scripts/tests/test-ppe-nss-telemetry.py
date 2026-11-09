@@ -80,5 +80,19 @@ with tempfile.TemporaryDirectory() as d:
     assert again["ppe_ports"] is None and again["wifi"] is None
     assert again["ppe"]["live_entries"] == 5
     assert again["nss"]["installed"] == 2
+    # Port and Wi-Fi counters must not depend on the separate flowtable API.
+    (ppe / "offload").unlink()
+    (nss / "flows").unlink()
+    (ppe / "egress").write_text(
+        "port packets bytes drop_packets drop_bytes\n0 10 4096 0 0\nvsi packets bytes\n"
+    )
+    (nss / "wifili_rx").write_text(
+        "vdev if 101 reports 1\n"
+        "  rx enqueue 3 fail 0 except 0 except_fail 0 bytes 65536 mcast 0\n"
+        "  tx rcvd 2 enqueue 2 fail 0 hw_ring_full 0 desc_fail 0 dropped 0\n"
+    )
+    partial = sample(root)
+    assert partial["ppe"] is None and partial["ppe_ports"]["bytes"] == 4096
+    assert partial["nss"] is None and partial["wifi"]["rx_bytes"] == 65536
 
 print("PASS PPE/NSS upstream debugfs formats, no traffic identity leaks, unavailable sources")
