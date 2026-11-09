@@ -220,7 +220,7 @@ assert "force_build" not in builder_workflow
 assert "PUBLISH_BUILDER" not in builder_workflow
 assert "    if: needs.resolve" not in builder_workflow
 assert "    needs: resolve" not in builder_workflow
-assert "Publish Builder and trigger firmware repack" in builder_workflow
+assert "Publish paired ImageBuilder and SDK, then trigger firmware" in builder_workflow
 assert 'git -C "$IMM/feeds/$feed" rev-parse HEAD' in full_build
 assert "scripts/apply-immortalwrt-compat.sh" in mod.CORE_FILES
 assert "config/add.txt" not in mod.CORE_FILES
