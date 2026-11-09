@@ -26,6 +26,10 @@ with tempfile.TemporaryDirectory() as d:
         p = tmp / name
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("core configuration\n")
+    for name in mod.PACKAGE_FILES:
+        p = tmp / name
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("initial package selection\n")
     one = mod.fingerprint(tmp)
     assert len(one) == 64
     assert mod.tag(imm, ppe, base, tmp) != mod.tag(imm, "d" * 40, base, tmp)
