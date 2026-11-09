@@ -1,0 +1,106 @@
+name: Publish verified ImmortalWrt NSS ImageBuilder
+
+# One-time promotion of the successfully built and smoke-tested PR artifact.
+# Deliberately separated from the full source build to avoid a second 2-hour CI.
+on:
+  push:
+    branches:
+      - feat/immortalwrt-reusable-imagebuilder
+    paths:
+      - .github/workflows/publish-immortalwrt-builder.yml
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    if: github.repository == 'pzcn/openwrt-ppe-nss-ota' && github.ref == 'refs/heads/feat/immortalwrt-reusable-imagebuilder'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN: '42564640246'
+      SOURCE_SHA: '558bdc0c5122fb0cdcfae20c2af3fdef7a702e9b'
+      EXPECTED_TAG: 'imm-builder-4765b657-7d65a3ed-5796d271-g33bf83654e10'
+      ARTIFACT_NAME: immortalwrt-ppe-nss-re-ss-01
+    steps:
+      - name: Download previously verified Actions artifact
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/verified-builder"
+          gh run download "$SOURCE_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name "$ARTIFACT_NAME" --dir "$RUNNER_TEMP/verified-builder"
+
+      - name: Verify release asset names and SHA256 against signed-off build metadata
+        id: validate
+        run: |
+          set -Eeuo pipefail
+          export ASSET_DIR="$RUNNER_TEMP/verified-builder"
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+
+          root = Path(os.environ["ASSET_DIR"])
+          meta = root / "builder-metadata.json"
+          assert meta.is_file(), "missing builder-metadata.json"
+          data = json.loads(meta.read_text())
+          assert data["schema"] == 1
+          assert data["channel"] == "re-ss-01-immortal-imagebuilder"
+          assert data["profile"] == "jdcloud_re-ss-01"
+          assert data["packaging"] == "standalone"
+          assert data["tag"] == os.environ["EXPECTED_TAG"], "unexpected builder tag"
+          for name_key, hash_key in (
+              ("archive", "archive_sha256"),
+              ("overlay", "overlay_sha256"),
+              ("packages", "packages_sha256"),
+          ):
+              name = data[name_key]
+              assert Path(name).name == name, "metadata contains non-basename path"
+              path = root / name
+              assert path.is_file() and path.stat().st_size > 100, f"missing {name}"
+              actual = hashlib.file_digest(path.open("rb"), "sha256").hexdigest()
+              assert actual == data[hash_key], f"checksum mismatch for {name}"
+              print(f"SHA256 OK: {name} ({path.stat().st_size} bytes)")
+          assert (root / "source-commits.txt").is_file(), "missing source-commits.txt"
+          src = (root / "source-commits.txt").read_text()
+          assert data["immortalwrt_commit"] in src
+          assert data["ppe_nss_commit"] in src
+          assert data["base_overlay_commit"] in src
+          archive = data["archive"]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as out:
+              out.write(f"archive={archive}\n")
+          print(f"Ready to publish {data['tag']}")
+          PY
+
+      - name: Publish version-locked Builder Release (never GitHub latest)
+        env:
+          ASSET_DIR: ${{ runner.temp }}/verified-builder
+          IB_ARCHIVE_NAME: ${{ steps.validate.outputs.archive }}
+        run: |
+          set -Eeuo pipefail
+          cd "$ASSET_DIR"
+          assets=("$IB_ARCHIVE_NAME" base-overlay.tar.gz imagebuilder-packages.txt builder-metadata.json source-commits.txt)
+          if gh release view "$EXPECTED_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Builder Release already exists; uploading only any missing assets."
+            for asset in "${assets[@]}"; do
+              if ! gh release view "$EXPECTED_TAG" --repo "$GITHUB_REPOSITORY" \
+                --json assets --jq '.[].assets[].name' | grep -Fxq "$asset"; then
+                gh release upload "$EXPECTED_TAG" "$asset" --repo "$GITHUB_REPOSITORY"
+              fi
+            done
+          else
+            gh release create "$EXPECTED_TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" --latest=false \
+              --title "ImmortalWrt PPE/NSS standalone ImageBuilder ($EXPECTED_TAG)" \
+              --notes "Validated on Actions run $SOURCE_RUN: full-source ImmortalWrt PPE/NSS build, SHA256 checks, and actual ImageBuilder repack smoke test. Reuse only with matching source fingerprint and ABI. This release does not replace the OpenWrt latest channel." \
+              "${assets[@]}"
+          fi
+          gh release view "$EXPECTED_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json url,assets,isLatest --jq '{url: .url, isLatest: .isLatest, assets: [.assets[].name]}'
+          for asset in "${assets[@]}"; do
+            gh release view "$EXPECTED_TAG" --repo "$GITHUB_REPOSITORY" \
+              --json assets --jq '.[].assets[].name' | grep -Fxq "$asset"
+          done
+          echo "Verified all 5 Builder Release assets."
