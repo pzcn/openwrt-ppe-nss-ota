@@ -46,12 +46,14 @@ def package_fingerprint(root: Path = ROOT) -> str:
     return digest.hexdigest()
 
 
-def release_tag(immortal: str, ppe: str, base: str, core: str, packages: str) -> str:
+def release_tag(immortal: str, ppe: str, base: str, core: str, packages: str,
+                feeds: str) -> str:
     for value in (immortal, ppe, base):
         check_sha(value)
-    if not FP_SHA.fullmatch(core) or not FP_SHA.fullmatch(packages):
+    if any(not FP_SHA.fullmatch(value) for value in (core, packages, feeds)):
         raise ValueError("Expected SHA256 fingerprints")
-    return f"imm-builder-{immortal[:8]}-{ppe[:8]}-{base[:8]}-g{core[:12]}-p{packages[:8]}"
+    return (f"imm-builder-{immortal[:8]}-{ppe[:8]}-{base[:8]}"
+            f"-g{core[:12]}-p{packages[:8]}-f{feeds[:8]}")
 
 
 def sha256(path: Path) -> str:
@@ -67,14 +69,18 @@ def check_sha(value: str) -> None:
         raise ValueError("Expected a 40-character lowercase SHA")
 
 
-def tag(immortal: str, ppe: str, base: str, root: Path = ROOT) -> str:
+def tag(immortal: str, ppe: str, base: str, root: Path = ROOT,
+        feeds: str = "0" * 64) -> str:
     return release_tag(immortal, ppe, base, fingerprint(root),
-                       package_fingerprint(root))
+                       package_fingerprint(root), feeds)
 
 
 def metadata(args: argparse.Namespace) -> None:
     for value in (args.immortal, args.ppe, args.base):
         check_sha(value)
+    feeds = getattr(args, "feeds", "0" * 64)
+    if not FP_SHA.fullmatch(feeds):
+        raise ValueError("Invalid upstream feeds digest")
     for path in (args.archive, args.overlay, args.packages):
         if not path.is_file() or path.stat().st_size < 100:
             raise ValueError(f"Missing/empty builder artifact: {path}")
@@ -83,8 +89,9 @@ def metadata(args: argparse.Namespace) -> None:
         "channel": CHANNEL,
         "profile": PROFILE,
         "packaging": "standalone",
-        "tag": tag(args.immortal, args.ppe, args.base),
+        "tag": tag(args.immortal, args.ppe, args.base, feeds=feeds),
         "fingerprint": fingerprint(),
+        "feeds_fingerprint": feeds,
         "package_fingerprint": package_fingerprint(),
         "immortalwrt_commit": args.immortal,
         "ppe_nss_commit": args.ppe,
@@ -108,10 +115,14 @@ def verify(args: argparse.Namespace) -> None:
     for key in ("immortalwrt_commit", "ppe_nss_commit", "base_overlay_commit"):
         check_sha(doc.get(key, ""))
     packages = doc.get("package_fingerprint", "")
+    feeds = doc.get("feeds_fingerprint", "")
     if not isinstance(packages, str) or not FP_SHA.fullmatch(packages):
         raise ValueError("Missing package fingerprint in Builder metadata")
+    if not isinstance(feeds, str) or not FP_SHA.fullmatch(feeds):
+        raise ValueError("Missing feeds fingerprint in Builder metadata")
     expected = release_tag(doc["immortalwrt_commit"], doc["ppe_nss_commit"],
-                           doc["base_overlay_commit"], fingerprint(), packages)
+                           doc["base_overlay_commit"], fingerprint(), packages,
+                           feeds)
     if doc.get("tag") != expected or doc.get("fingerprint") != fingerprint():
         raise ValueError("Builder is stale for current core config; regenerate it")
     for key, path, checksum in (
@@ -131,9 +142,11 @@ def main() -> None:
     t = sub.add_parser("tag")
     for name in ("immortal", "ppe", "base"):
         t.add_argument(f"--{name}", required=True)
+    t.add_argument("--feeds", default="0" * 64)
     m = sub.add_parser("metadata")
     for name in ("immortal", "ppe", "base"):
         m.add_argument(f"--{name}", required=True)
+    m.add_argument("--feeds", default="0" * 64)
     m.add_argument("--archive", required=True, type=Path)
     m.add_argument("--overlay", required=True, type=Path)
     m.add_argument("--packages", required=True, type=Path)
@@ -145,7 +158,7 @@ def main() -> None:
     if args.action == "fingerprint":
         print(fingerprint())
     elif args.action == "tag":
-        print(tag(args.immortal, args.ppe, args.base))
+        print(tag(args.immortal, args.ppe, args.base, feeds=args.feeds))
     elif args.action == "metadata":
         metadata(args)
     else:
