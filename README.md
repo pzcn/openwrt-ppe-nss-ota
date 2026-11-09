@@ -1,129 +1,74 @@
-# RE-SS-01 PPE+NSS 固件
+# 京东云亚瑟 RE-SS-01 ImmortalWrt PPE/NSS 固件
 
-面向京东云 RE-SS-01（亚瑟）的 OpenWrt PPE+NSS 定制固件。构建基于 [Qualcommax NSS Builder](https://github.com/JuliusBairaktaris/Qualcommax_NSS_Builder) 发布的 ImageBuilder，集成常用 LuCI 应用、中文语言包和设备管理功能。
+本仓库统一构建 **ImmortalWrt + Julius PPE/NSS** 定制固件，目标设备为京东云 RE-SS-01（亚瑟）。当前实机扩容到 **1 GiB RAM、64 GB eMMC**，编译继续采用兼容的 ipq60xx 512M NSS 内存配置。
 
-当前设备配置：**1 GiB RAM、64 GB eMMC**。ImageBuilder 继续使用上游提供的 `jdcloud_re-ss-01` 设备配置（`ipq60xx-512m` 构建组）。
+## 已集成的功能
 
-## 固件功能
-
-- **网络加速**：PPE 有线硬件卸载、NSS Wi-Fi 数据路径
-- **管理界面**：Aurora 主题、简体中文及 PPE QoS 汉化
-- **常用应用**：文件管理、Web 终端、流量统计、无线历史记录、IRQ Balance、LLDP、PBR、WireGuard
-- **远程访问与代理**：Tailscale 内网组网、sing-box 内核及中文 LuCI JSON 配置管理
-- **网络唤醒**：Etherwake 及中文 LuCI 管理界面
-- **存储**：系统使用 F2FS `rootfs_data` 可写层；ImmortalWrt 版本不对 p27 设置固定挂载点
-- **诊断工具**：`tcpdump`、`conntrack`、`ip-full` 等
-
-### 内置 LuCI 页面
-
-| 位置 | 功能 |
+| 类型 | 组件 |
 | --- | --- |
-| **状态 → PPE / NSS 硬件加速** | 加速引擎、连接统计、折叠内核诊断 |
-| **网络 → 校园网认证** | Dr.COM 自定义地址、账号密码保存、登录注销和 0 点自动认证 |
-| **系统 → 备份 / 升级** | 固件备份、上传刷机、在线检查、安装更新与自动更新设置 |
-| **VPN → Tailscale** | 查看组网状态、配置 Tailscale 服务 |
-| **服务 → sing-box** | 上传、编辑、校验 JSON、控制服务及查看日志 |
-| **服务 → 网络唤醒** | 选择电脑的 MAC 和 LAN 接口，发送唤醒包 |
+| 网络加速 | PPE 有线硬件卸载、NSS Wi-Fi、PPE QoS、SQM |
+| LuCI 与中文 | Aurora 主题、原生管理页、简体中文语言包 |
+| 网络工具 | WireGuard、PBR、LLDP、IRQ Balance、tcpdump、conntrack |
+| 管理插件 | filemanager、ttyd、nlbwmon、statistics、wifihistory |
+| 远程访问 | Tailscale、中文 LuCI 管理页面 |
+| 代理 | sing-box 内核、v0.4.7 LuCI JSON 管理页面，默认关闭 |
+| 网络唤醒 | luci-app-wol、Etherwake、简体中文 |
+| 校园网 | Dr.COM 登录/注销、凭据管理、每天 00:00 自动认证 |
+| 更新 | 在线检查、SHA256 与 `sysupgrade -T` 验证、自动更新与软件包恢复 |
 
-所有新增页面使用 LuCI 原生控件，跟随系统主题。
+### 内置页面
 
-## 校园网认证
+- **状态 → PPE / NSS 硬件加速**：硬件加速状态、连接统计、折叠诊断。
+- **网络 → 校园网认证**：Dr.COM 自定义地址、认证与定时管理。
+- **系统 → 备份 / 升级**：手动升级、在线检查、自动更新设置。
+- **VPN → Tailscale**：远程组网和服务管理。
+- **服务 → sing-box**：JSON 配置、校验和服务控制。
+- **服务 → 网络唤醒**：通过 LAN 接口向指定 MAC 发送唤醒包。
 
-1. 进入「网络 → 校园网认证」，填写**认证基础地址**、用户名和密码，点击「保存认证信息」。
-2. 点击「连接校园网」，使用已保存的账号认证。
-3. 如需每日认证，勾选「启用0点自动认证」并保存。
-
-认证请求从 WAN 接口发起。对于需要本地 DNS 解析的校园网，直接使用认证网关 IPv4 地址通常更方便。
-
-**密码提醒：** HTTP 门户使用明文传输；记住密码后，凭据会存入路由器的配置文件并可能进入配置备份。
-
-详细说明：[校园网认证](docs/DRCOM-CAMPUS.md)。
-
-## Tailscale 与网络唤醒
-
-Tailscale 通过官方软件源集成，包含中文 LuCI 管理界面。首次使用需登录 Tailnet：
-
-```sh
-/etc/init.d/tailscale enable
-/etc/init.d/tailscale start
-tailscale up
-tailscale status
-```
-
-sing-box 也已恢复：内核与原先的中文 LuCI JSON 管理面板一起安装，默认关闭。导入 OpenWrt 配置后可校验并启动；如启用 TUN 分流，注意排除 Tailscale 隧道和远程管理流量，避免回环。
-
-网络唤醒保留官方 LuCI 插件与简体中文语言包，使用 `etherwake` 向电脑所在 LAN 发送唤醒包。
-
-详细说明：[Tailscale 与网络唤醒](docs/TAILSCALE-WOL.md)、[sing-box 配置管理](docs/SINGBOX.md)。
-
-## 固件更新
-
-在「系统 → 备份 / 升级」中使用「在线固件更新」，检查并安装 GitHub Releases 中适配该设备的固件。
-
-手动和自动更新都会验证设备型号、镜像 SHA256 和 `sysupgrade -T`，升级后尝试恢复额外安装的软件包。自动更新设置在同一页面保存。
-
-若设备上仍运行旧版 OTA，可先从 [Releases](../../releases) 下载新固件，通过原生固件上传功能升级一次。
-
-详细说明：[在线更新](docs/CUSTOM-OTA.md)。
-
-## ImmortalWrt PPE+NSS（专用 ImageBuilder + 自动更新）
-
-ImmortalWrt + PPE/NSS 使用独立的两阶段构建，不影响现有 OpenWrt ImageBuilder 和 OTA Release 渠道：
-
-- **基础构建**：当 ImmortalWrt、Julius PPE/NSS 或相关编译配置变化时，重新编译一次内核与驱动，生成包含匹配 APK 的独立 `imm-builder-...` ImageBuilder Release。 构建过程已启用 Actions 下载缓存和 `ccache` 编译缓存，并记录耗时。
-- **快速固件构建**：LuCI、翻译、配置、OTA 等文件变更时复用已发布的 ImageBuilder，不重复编译内核。
-- **上游自动更新**：每天检查上游版本，有变化才重新构建并发布 `imm-ppe-nss-...` 固件 Release；路由器继续使用独立的 ImmortalWrt OTA 通道。
-- **一致性检查**：ImageBuilder 与配套软件包检查源码 SHA、核心配置指纹及 SHA256；不混用内核 ABI 不匹配的官方快照模块。
-
-工作流：`.github/workflows/immortalwrt-reusable.yml`；完整源码构建仍保留 `.github/workflows/build-immortalwrt.yml`。
-
-详细说明：[ImmortalWrt PPE/NSS ImageBuilder 与自动更新](docs/IMMORTALWRT-PPE-NSS.md)。
+完整插件清单在 [config/add.txt](config/add.txt)，核心构建选项在 [config/immortalwrt-re-ss-01.config](config/immortalwrt-re-ss-01.config)，自动测试会检查必需插件是否齐全。
 
 ## 构建与下载
 
-1. 打开 [Actions → Build RE-SS-01 firmware](../../actions/workflows/build.yml)。
-2. 选择 **Run workflow**，可填写上游发行版 tag；留空则选择最新发布版本。
-3. 从 [Releases](../../releases) 下载 `sysupgrade.bin` 和校验文件。
+1. 进入 [Actions → ImmortalWrt NSS reusable ImageBuilder and firmware](../../actions/workflows/immortalwrt-reusable.yml)。
+2. 选择 **Run workflow**；按需决定是否强制重新编译和是否发布 Release。
+3. 从 [Releases](../../releases) 下载 `imm-ppe-nss-...` 标签的 sysupgrade 镜像及校验文件。
 
-工作流也会定期检查上游构建并生成对应版本。
+正常流程会先识别匹配的 `imm-builder-...` ImageBuilder Release：源代码或核心配置发生变化时构建并发布新的 Builder，其他情况使用已发布的 Builder 打包固件。Builder 与固件都保存在 Releases 中。
+
+构建流程说明：[ImmortalWrt 与专用 ImageBuilder](docs/IMMORTALWRT-PPE-NSS.md)。进一步的 ImageBuilder 复用加速留待单独优化。
+
+## 两个临时兼容补丁
+
+构建时暂时保留：
+
+1. **F2FS 可写层**：为京东云 eMMC 设备补齐 `kmod-fs-f2fs` 和 `f2fs-tools`，保证 p18 的 rootfs_data 可持久写入。
+2. **sysupgrade 保留配置**：补齐 ipq60xx eMMC `platform_copy_config` 与 `emmc_copy_config` 的调用关系。
+
+上游对应 [F2FS PR #26577](https://github.com/openwrt/openwrt/pull/26577)、[sysupgrade PR #26576](https://github.com/openwrt/openwrt/pull/26576)。等 ImmortalWrt 上游合并修复并经设备验证后，分别移除本地兼容补丁。详见 [临时补丁管理](docs/TEMPORARY-PATCHES.md)。
 
 ## 存储与升级
 
-以下分区挂载定制仅适用于现有 OpenWrt 版本。**ImmortalWrt 固件不内置自定义 `/etc/config/fstab` 或旧 extroot 迁移脚本**，由官方挂载机制管理 p27；F2FS `rootfs_data` 驱动和格式化工具仍保留。
+- **p18 / rootfs**：SquashFS + F2FS `rootfs_data`。
+- **p27**：已有 ext4 数据分区。固件使用 ImmortalWrt 自身挂载逻辑，无专用 extroot 或自动格式化配置。
 
-
-原始 64 GB eMMC 分区布局：
-
-| 分区 | 用途 |
-| --- | --- |
-| p18（活动 rootfs） | SquashFS 固件和 F2FS `rootfs_data` 可写层 |
-| p27 | ext4 数据存储，挂载到 `/mnt/storage` |
-
-首次初始化可能格式化 p18 中尚未建立文件系统的可写空间。**升级前请备份路由器配置和重要数据，核对当前设备的分区布局。**
-
-旧版 extroot 迁移脚本已移除；这项调整仅涉及挂载配置，p27 上的现有文件系统和数据保持原状。升级后如需访问数据分区，请检查实际挂载点。
-
-升级后可检查：
+升级之前请导出配置并备份重要数据。首次从旧固件升级，建议手动选择正确的 `imm-ppe-nss-...` 镜像并确认分区状态。
 
 ```sh
-df -h /overlay /mnt/storage
+df -h /overlay
 block info | grep mmcblk0p27
-logread | grep -Ei 'f2fs|rootfs_data|overlay'
+logread | grep -Ei 'f2fs|overlay|mount_root'
+ubus call luci.ppe-nss-monitor get_status
 ```
 
-固件镜像为 `sysupgrade` 格式，适用于已有兼容系统的设备。
+## 文档
 
-## 代码与说明
-
-- [PPE / NSS 硬件加速监控](docs/PPE-NSS-MONITOR.md)
-- [Dr.COM 校园网认证](docs/DRCOM-CAMPUS.md)
+- [ImmortalWrt 构建](docs/IMMORTALWRT-PPE-NSS.md)
+- [临时补丁](docs/TEMPORARY-PATCHES.md)
+- [Dr.COM 校园网](docs/DRCOM-CAMPUS.md)
 - [在线更新](docs/CUSTOM-OTA.md)
-- [Tailscale 与网络唤醒](docs/TAILSCALE-WOL.md)
-- [sing-box 配置管理](docs/SINGBOX.md)
-- [LuCI 简体中文](docs/CHINESE-LOCALIZATION.md)
-- `config/add.txt` / `config/remove.txt`：软件包增删
-- `files/`：固件文件覆盖层
-- `scripts/build.sh`：镜像构建与 Release 发布
-- `scripts/tests/`：离线测试
+- [PPE / NSS 监控](docs/PPE-NSS-MONITOR.md)
+- [Tailscale 与 WOL](docs/TAILSCALE-WOL.md)
+- [sing-box](docs/SINGBOX.md)
+- [中文本地化](docs/CHINESE-LOCALIZATION.md)
 
-固件升级前建议在电脑上留存配置备份。
+源码布局：`config/` 保存设备、插件与翻译配置；`files/` 为固件覆盖层；`scripts/` 保存源码构建、固件打包、补丁与测试代码。
