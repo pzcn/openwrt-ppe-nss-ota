@@ -1,0 +1,37 @@
+name: One-time cleanup merged SDK APK automation branch
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/cleanup-sdk-apk-branch.yml']
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    if: github.repository == 'pzcn/openwrt-ppe-nss-ota'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Delete merged APK automation feature branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          branch="feat/auto-compile-missing-apks-with-sdk"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" >/dev/null 2>&1; then
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch" >/dev/null
+          fi
+      - name: Remove temporary cleanup workflow
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name "Peizhe Zhang"
+          git config user.email "sdustpedro@gmail.com"
+          git fetch origin main
+          git checkout -B main origin/main
+          git rm .github/workflows/cleanup-sdk-apk-branch.yml
+          git commit -s -m "chore: remove temporary SDK APK branch cleanup workflow"
+          git push origin HEAD:main
