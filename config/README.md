@@ -9,7 +9,11 @@
 - `remove.txt`：需要移除的基础软件包。
 - `translations/`：PPE QoS 与固件更新页面的自定义翻译，构建时生成 `.lmo`。
 
-Aurora 固定为 v1.4.0、sing-box LuCI 固定为 v0.4.7；均从固定源码标签编译。PPE QoS 来自 Julius 的 LuCI 分支，其余常用软件包使用 ImmortalWrt feeds。
+Aurora 固定为 v1.4.0，从固定源码标签编译。HomeProxy、定时重启、CPU 调频、磁盘管理、DDNS-Go、autocore、default-settings-chn 和中文翻译均来自 ImmortalWrt 官方 feeds。PPE QoS 来自 Julius 的 LuCI 分支。
+
+## 中国区默认设置与 APK 软件源
+
+`default-settings-chn` 首次启动会配置中文环境、上海时区和 NTP，并可能切换 APK 镜像。此固件使用自编译 NSS 内核，`files/etc/uci-defaults/98-keep-immortalwrt-apk-feed` 在它之前设置官方 ImmortalWrt 源，避免被改到第三方普通软件源；已有自定义镜像设置不覆盖。
 
 ## F2FS 与存储
 

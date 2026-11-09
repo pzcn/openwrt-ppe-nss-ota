@@ -3,3 +3,6 @@ ip-tiny
 libopenssl-oqsprovider
 liboqs
 
+
+# The previous Builder may still default to the legacy sing-box LuCI UI.
+luci-app-sing-box

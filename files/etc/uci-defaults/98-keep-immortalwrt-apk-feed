@@ -1,0 +1,14 @@
+#!/bin/sh
+# Run before upstream 99-default-settings-chinese.
+# Preserve ImmortalWrt's official APK source for this custom NSS firmware.
+# A user-configured mirror is intentionally left untouched.
+if [ -f /etc/apk/repositories.d/distfeeds.list ]; then
+    if ! uci -q get system.@imm_init[0] >/dev/null; then
+        uci -q add system imm_init >/dev/null
+    fi
+    if [ -z "$(uci -q get system.@imm_init[0].apk_mirror)" ]; then
+        uci -q set system.@imm_init[0].apk_mirror='https://downloads.immortalwrt.org'
+        uci -q commit system
+    fi
+fi
+exit 0

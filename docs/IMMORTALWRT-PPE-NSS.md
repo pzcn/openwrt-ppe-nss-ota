@@ -57,9 +57,9 @@ Builder 的 `scripts/build-immortalwrt.sh` 指纹会忽略明确标记的 **firm
 
 ## 软件包与 LuCI
 
-当前固件保留：Aurora、PPE QoS、OTA、Tailscale、sing-box、WireGuard、WOL、文件管理、ttyd、nlbwmon、statistics、wifihistory、irqbalance、lldpd、PBR、tcpdump、conntrack、F2FS 工具、简体中文包。
+当前固件保留：Aurora、PPE QoS、OTA、Tailscale、HomeProxy/sing-box、WireGuard、WOL、文件管理、ttyd、nlbwmon、statistics、wifihistory、irqbalance、lldpd、PBR、autoreboot、cpufreq、default-settings-chn、autocore、diskman、ddns-go、tcpdump、conntrack、F2FS 工具、简体中文包。
 
-Dr.COM 校园网认证 App 的菜单、后端、启动脚本和定时认证任务在两条固件构建路径中排除，源码和离线测试保留在仓库。
+Dr.COM 校园网认证 App 的菜单、后端、启动脚本和定时认证任务在两条固件构建路径中排除，源码和离线测试保留在仓库。旧版 `luci-app-sing-box` 从预装列表删除，改用 ImmortalWrt 官方 `luci-app-homeproxy`；sing-box 内核保留。`default-settings-chn` 的镜像源切换由固件 UCI 默认脚本阻止，以保留匹配的 NSS 软件源。
 
 添加/排除包见 `config/add.txt`、`config/remove.txt`；设备及内核配置见 `config/immortalwrt-re-ss-01.config`。源码构建检查 Kconfig 必选项；ImageBuilder 使用匹配的完整 APK 包仓库。
 

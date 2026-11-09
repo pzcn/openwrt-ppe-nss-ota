@@ -1,5 +1,5 @@
 # Extra packages for JDCloud RE-SS-01 (one name per line).
-# Aurora and the sing-box LuCI application are compiled from pinned source tags.
+# Aurora is pinned separately; HomeProxy and the added apps use ImmortalWrt feeds.
 
 # Standard rootfs_data on the active p18/rootfs slot: add F2FS support.
 # F2FS kmod is built against the matching ImmortalWrt kernel, not generic snapshots.
@@ -47,6 +47,19 @@ luci-i18n-irqbalance-zh-cn
 luci-i18n-lldpd-zh-cn
 luci-i18n-pbr-zh-cn
 
+# Official ImmortalWrt extras: management, CPU, storage and DDNS.
+luci-app-autoreboot
+luci-i18n-autoreboot-zh-cn
+luci-app-cpufreq
+luci-i18n-cpufreq-zh-cn
+cpufreq
+autocore
+default-settings-chn
+luci-app-diskman
+luci-i18n-diskman-zh-cn
+luci-app-ddns-go
+luci-i18n-ddns-go-zh-cn
+
 # Wake on LAN: native LuCI UI, Ethernet magic packets and Simplified Chinese.
 luci-app-wol
 etherwake
@@ -59,8 +72,11 @@ luci-app-tailscale-community
 luci-i18n-tailscale-community-zh-cn
 kmod-tun
 
-# sing-box full core and JSON-based LuCI management.
-# Its LuCI application is built from the pinned source tag.
+# HomeProxy is the official ImmortalWrt LuCI management UI for sing-box.
+# Keep the sing-box core and ABI-matched nft TPROXY kernel support.
+luci-app-homeproxy
+luci-i18n-homeproxy-zh-cn
 sing-box
+kmod-nft-tproxy
 flock
 kmod-inet-diag
