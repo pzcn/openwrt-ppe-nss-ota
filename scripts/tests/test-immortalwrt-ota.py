@@ -81,7 +81,7 @@ with tempfile.TemporaryDirectory() as d:
     shell = '''
         . "$PPE_UPDATE_SCRIPT"
         uci() { echo 0; }
-        lookup() { printf '%s\n' "$SIMULATED_OTA_ERROR" >&2; return 2; }
+        lookup() { printf '%s\\n' "$SIMULATED_OTA_ERROR" >&2; exit 2; }
         cmd_status
     '''
     cases = {

@@ -153,7 +153,7 @@ cmd_status() {
 		printf '{"board":"%s","current":"%s","build":%s,"group":"%s","latest":"%s","latest_time":%s,"update":%s,"image":"%s","size":%s,"extras":"%s","missing":"","checked":false,"pending":"%s","auto":"%s","source":"%s"}\n' \
 			"$BOARD" "$OTA_TAG" "$OTA_BUILD" "$GROUP" "$LATEST" "$LATEST_TIME" "$avail" "$IMAGE" "$SIZE" \
 			"$(extras | tr '\n' ' ')" "$pending" "$auto" "GitHub Releases"
-	2>"$WORK/status-error.log"); then
+	) 2>"$WORK/status-error.log"; then
 		printf '%s\n' "$status_json"
 		return 0
 	fi
