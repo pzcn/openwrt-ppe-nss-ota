@@ -227,6 +227,10 @@ fi
 # Fail instead of silently producing a firmware without its reusable builder.
 grep -Fqx 'CONFIG_IB=y' "$IMM/.config"
 grep -Fqx 'CONFIG_IB_STANDALONE=y' "$IMM/.config"
+grep -Fqx 'CONFIG_SDK=y' "$IMM/.config" || {
+  echo "::error::Matching OpenWrt SDK was disabled by defconfig" >&2
+  exit 1
+}
 grep -Fqx 'CONFIG_CCACHE=y' "$IMM/.config"
 # Keep firmware buildable if upstream moves its Go Kconfig options.
 # Report missing performance settings, without skipping any required APK.
@@ -242,6 +246,7 @@ fi
 if grep -Fqx 'toolchain=official-immortalwrt' "$OUT/official-toolchain-status.txt"; then
   grep -Fqx 'CONFIG_EXTERNAL_TOOLCHAIN=y' "$IMM/.config"
   grep -Fqx 'CONFIG_EXTERNAL_TOOLCHAIN_IB=y' "$IMM/.config"
+  grep -Fqx 'CONFIG_EXTERNAL_TOOLCHAIN_SDK=y' "$IMM/.config"
   # Fail before the expensive compilation when Kconfig silently ignores the
   # external toolchain path (previously this failed 20 min later at wrapper).
   TOOLCHAIN_ROOT="$(sed -n 's/^CONFIG_TOOLCHAIN_ROOT="\([^"]*\)"$/\1/p' "$IMM/.config")"
@@ -311,6 +316,28 @@ test -n "$IB_ARCHIVE" && test -s "$IB_ARCHIVE" || {
   echo "::error::Standalone ImageBuilder was not produced" >&2
   exit 1
 }
+SDK_ARCHIVE="$(find "$TARGET" -maxdepth 1 -type f -name 'immortalwrt-sdk-*.tar.zst' -print -quit)"
+test -n "$SDK_ARCHIVE" && test -s "$SDK_ARCHIVE" || {
+  echo "::error::Matching OpenWrt SDK was not produced" >&2
+  exit 1
+}
+# An SDK must contain a buildroot, compiler and kernel module symbols.
+SDK_CONTENTS="$WORK/sdk-contents.txt"
+tar -I zstd -tf "$SDK_ARCHIVE" > "$SDK_CONTENTS"
+for required in \
+  '^[^/]+/rules[.]mk$' \
+  '^[^/]+/include/kernel[.]mk$' \
+  '^[^/]+/staging_dir/toolchain-[^/]+/bin/' \
+  '^[^/]+/build_dir/target-[^/]+/linux-[^/]+/linux-[^/]+/Module[.]symvers$'; do
+  grep -Eq "$required" "$SDK_CONTENTS" || {
+    echo "::error::SDK archive missing a necessary toolchain or kernel ABI file: $required" >&2
+    exit 1
+  }
+done
+if (( $(stat -c '%s' "$SDK_ARCHIVE") >= 2147483648 )); then
+  echo "::error::SDK is larger than the GitHub Release asset limit" >&2
+  exit 1
+fi
 # Full-source builds may emit a board-wide manifest even for one device.
 # Publish the single-device manifest under the stable per-device OTA name.
 if [[ -s "$TARGET/$MANIFEST" ]]; then
@@ -323,6 +350,8 @@ else
 fi
 cp "$IB_ARCHIVE" "$OUT/"
 IB_ARCHIVE="$OUT/$(basename "$IB_ARCHIVE")"
+cp "$SDK_ARCHIVE" "$OUT/"
+SDK_ARCHIVE="$OUT/$(basename "$SDK_ARCHIVE")"
 # An image manifest lists real installed APKs; Kconfig also lists virtual symbols.
 # ImageBuilder pins kernel/libc/base-files to its own compatible versions.
 awk 'NF >= 2 && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
@@ -356,6 +385,17 @@ python3 "$ROOT/scripts/immortalwrt_builder.py" verify \
 BUILDER_TAG="$(python3 "$ROOT/scripts/immortalwrt_builder.py" tag \
   --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
   --feeds "$FEEDS_FINGERPRINT")"
+# SDK and ImageBuilder are built from exactly the same configured source tree.
+python3 "$ROOT/scripts/immortalwrt_sdk.py" metadata \
+  --source "$IMM" --ppe-luci "$WORK/ppe-luci" \
+  --builder-metadata "$OUT/builder-metadata.json" \
+  --toolchain-status "$OUT/official-toolchain-status.txt" \
+  --archive "$SDK_ARCHIVE" --feed-lock "$OUT/sdk-feeds.lock.json" \
+  --output "$OUT/sdk-metadata.json"
+python3 "$ROOT/scripts/immortalwrt_sdk.py" verify \
+  --metadata "$OUT/sdk-metadata.json" \
+  --builder-metadata "$OUT/builder-metadata.json" \
+  --archive "$SDK_ARCHIVE" --feed-lock "$OUT/sdk-feeds.lock.json"
 cp "$TARGET/$IMAGE" "$OUT/"
 cp "$SOURCE_MANIFEST" "$OUT/$MANIFEST"
 cp "$IMM/.config" "$OUT/immortalwrt.config"
@@ -401,10 +441,11 @@ if [[ "$PUBLISH_RELEASE" == true ]]; then
   }
   if ! gh release view "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
     gh release create "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" \
-      --latest=false --title "ImmortalWrt PPE+NSS ImageBuilder ($BUILDER_TAG)" \
-      --notes "Standalone ImageBuilder for jdcloud_re-ss-01; kernel modules and userspace APKs are built from matching ImmortalWrt/PPE-NSS source commits. Use only with its included package set and matching metadata." \
+      --latest=false --title "ImmortalWrt PPE+NSS Builder and SDK ($BUILDER_TAG)" \
+      --notes "Standalone ImageBuilder and matching OpenWrt SDK for jdcloud_re-ss-01. See sdk-metadata.json and sdk-feeds.lock.json for exact source revision and SHA256." \
       "$IB_ARCHIVE" "$OUT/base-overlay.tar.gz" \
       "$OUT/imagebuilder-packages.txt" "$OUT/builder-metadata.json" \
+      "$SDK_ARCHIVE" "$OUT/sdk-metadata.json" "$OUT/sdk-feeds.lock.json" \
       "$OUT/source-commits.txt" "$OUT/official-toolchain-status.txt"
   fi
   cat > "$OUT/release-notes.md" <<EOF
