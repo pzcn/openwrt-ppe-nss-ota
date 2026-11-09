@@ -1,0 +1,125 @@
+name: Build Arthur ImmortalWrt - no sysupgrade patch, no F2FS
+
+on:
+  push:
+    branches:
+      - build/immortalwrt-no-patch-no-f2fs
+    paths:
+      - ".github/workflows/repack-immortalwrt-no-patch-no-f2fs.yml"
+      - "scripts/repack-immortalwrt.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: arthur-upstream-no-f2fs-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  repack:
+    name: Verified ImageBuilder repack / no patch / no F2FS
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILDER_TAG: imm-builder-4765b657-7d65a3ed-5796d271-g33bf83654e10
+      EMMC_CONFIG_PRESERVE_PATCH: "off"
+      EXCLUDE_F2FS_PACKAGES: "true"
+      PUBLISH_RELEASE: "false"
+    steps:
+      - name: Checkout firmware repacking scripts
+        uses: actions/checkout@v4
+
+      - name: Install ImageBuilder and inspection prerequisites
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update
+          sudo apt-get install -y zstd rsync jq squashfs-tools curl git
+
+      - name: Prepare Node.js for LuCI syntax verification
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Download published ABI-matched standalone ImageBuilder
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/matched-builder"
+          gh release download "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/matched-builder" \
+            --pattern '*imagebuilder*.tar.zst' \
+            --pattern 'base-overlay.tar.gz' \
+            --pattern 'imagebuilder-packages.txt' \
+            --pattern 'builder-metadata.json'
+          test "$(find "$RUNNER_TEMP/matched-builder" -maxdepth 1 -type f | wc -l)" -eq 4
+
+      - name: Build sysupgrade image without patch or F2FS packages
+        run: |
+          set -Eeuo pipefail
+          DIR="$RUNNER_TEMP/matched-builder"
+          ARCHIVE="$(find "$DIR" -maxdepth 1 -name '*imagebuilder*.tar.zst' -type f -print -quit)"
+          test -s "$ARCHIVE"
+          BUILDER_META="$DIR/builder-metadata.json" \
+          BUILDER_ARCHIVE="$ARCHIVE" \
+          BASE_OVERLAY="$DIR/base-overlay.tar.gz" \
+          BUILDER_PACKAGES="$DIR/imagebuilder-packages.txt" \
+          IMMORTAL_OUT_DIR="$GITHUB_WORKSPACE/out-no-patch-no-f2fs" \
+            bash scripts/repack-immortalwrt.sh
+
+      - name: Inspect firmware and prove both removals
+        run: |
+          set -Eeuo pipefail
+          OUT="$GITHUB_WORKSPACE/out-no-patch-no-f2fs"
+          NAME=immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade
+          IMAGE="$OUT/$NAME.bin"
+          MANIFEST="$OUT/immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest"
+          test -s "$IMAGE"
+          test -s "$MANIFEST"
+          if grep -Ei '(^|[^a-z])f2fs' "$MANIFEST"; then
+            echo "::error::F2FS package remains in the installed manifest"
+            exit 1
+          fi
+          grep -Eq '^kmod-fs-ext4[[:space:]]' "$MANIFEST"
+          mkdir -p "$RUNNER_TEMP/image-inspection"
+          tar -xOf "$IMAGE" sysupgrade-jdcloud_re-ss-01/root > "$RUNNER_TEMP/image-inspection/root.squashfs"
+          test -s "$RUNNER_TEMP/image-inspection/root.squashfs"
+          unsquashfs -cat "$RUNNER_TEMP/image-inspection/root.squashfs" \
+            lib/upgrade/platform.sh > "$RUNNER_TEMP/image-inspection/platform.sh"
+          test -s "$RUNNER_TEMP/image-inspection/platform.sh"
+          sh -n "$RUNNER_TEMP/image-inspection/platform.sh"
+          if grep -Fq 'platform_copy_config()' "$RUNNER_TEMP/image-inspection/platform.sh" \
+            || grep -Fq 'emmc_copy_config' "$RUNNER_TEMP/image-inspection/platform.sh"; then
+            echo "::error::sysupgrade configuration-save patch is present"
+            exit 1
+          fi
+          unsquashfs -ll "$RUNNER_TEMP/image-inspection/root.squashfs" > "$RUNNER_TEMP/image-inspection/files.txt"
+          if grep -E '/(mkfs|fsck)\.f2fs$|/f2fs\.ko(\.gz|\.zst)?$' "$RUNNER_TEMP/image-inspection/files.txt"; then
+            echo "::error::F2FS binaries or kernel modules remain in rootfs"
+            exit 1
+          fi
+          cp "$IMAGE" "$OUT/$NAME-no-patch-no-f2fs.bin"
+          cat > "$OUT/variant.txt" <<EOF
+          Device: JDCloud RE-SS-01 (Arthur)
+          OS: ImmortalWrt PPE/NSS
+          Base ImageBuilder: $BUILDER_TAG
+          sysupgrade platform_copy_config patch: absent (upstream unmodified)
+          F2FS kernel module and userspace APK packages: absent
+          ext4 support: retained
+          p27: no custom extroot or formatting
+          WARNING: Unformatted p18 rootfs_data may need F2FS formatting utilities under upstream fstools. Flashing may result in a tmpfs overlay and lost settings. This is an experimental firmware.
+          EOF
+          ( cd "$OUT" && sha256sum "$NAME-no-patch-no-f2fs.bin" > no-patch-no-f2fs.sha256 )
+
+      - name: Upload tested firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-arthur-no-patch-no-f2fs
+          path: |
+            out-no-patch-no-f2fs/*-no-patch-no-f2fs.bin
+            out-no-patch-no-f2fs/no-patch-no-f2fs.sha256
+            out-no-patch-no-f2fs/variant.txt
+            out-no-patch-no-f2fs/*.manifest
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
