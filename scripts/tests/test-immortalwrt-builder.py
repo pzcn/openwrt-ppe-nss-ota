@@ -130,7 +130,7 @@ assert ".build-cache/ccache" in builder_workflow
 assert "gh workflow run firmware-immortalwrt.yml" in builder_workflow
 assert "PUBLISH_RELEASE: \"false\"" in builder_workflow
 assert "scripts/repack-immortalwrt.sh" in firmware_workflow
-assert "scripts/build-immortalwrt.sh" not in firmware_workflow
+assert "run: bash scripts/build-immortalwrt.sh" not in firmware_workflow
 assert "19 4 * * *" in firmware_workflow
 assert "43 5 * * *" in builder_workflow
 assert "UTC_DAY % 2" in builder_workflow
