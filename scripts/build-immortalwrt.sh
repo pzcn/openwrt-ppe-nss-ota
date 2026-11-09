@@ -227,7 +227,10 @@ fi
 # Fail instead of silently producing a firmware without its reusable builder.
 grep -Fqx 'CONFIG_IB=y' "$IMM/.config"
 grep -Fqx 'CONFIG_IB_STANDALONE=y' "$IMM/.config"
-grep -Fqx 'CONFIG_SDK=y' "$IMM/.config" || { echo '::error::SDK was disabled by defconfig'; exit 1; }
+grep -Fqx 'CONFIG_SDK=y' "$IMM/.config" || {
+  echo "::error::Matching OpenWrt SDK was disabled by defconfig" >&2
+  exit 1
+}
 grep -Fqx 'CONFIG_CCACHE=y' "$IMM/.config"
 # Keep firmware buildable if upstream moves its Go Kconfig options.
 # Report missing performance settings, without skipping any required APK.
@@ -318,369 +321,21 @@ test -n "$SDK_ARCHIVE" && test -s "$SDK_ARCHIVE" || {
   echo "::error::Matching OpenWrt SDK was not produced" >&2
   exit 1
 }
-# Check that the SDK really contains a usable buildroot, toolchain and
-# kernel symbol map, not just an archive with an SDK-like name.
+# An SDK must contain a buildroot, compiler and kernel module symbols.
 SDK_CONTENTS="$WORK/sdk-contents.txt"
 tar -I zstd -tf "$SDK_ARCHIVE" > "$SDK_CONTENTS"
-for required in   '^[^/]+/rules[.]mk
-# Full-source builds may emit a board-wide manifest even for one device.
-# Publish the single-device manifest under the stable per-device OTA name.
-if [[ -s "$TARGET/$MANIFEST" ]]; then
-  SOURCE_MANIFEST="$TARGET/$MANIFEST"
-elif [[ -s "$TARGET/immortalwrt-qualcommax-ipq60xx.manifest" ]]; then
-  SOURCE_MANIFEST="$TARGET/immortalwrt-qualcommax-ipq60xx.manifest"
-else
-  echo "::error::No target package manifest was produced" >&2
-  exit 1
-fi
-cp "$IB_ARCHIVE" "$OUT/"
-IB_ARCHIVE="$OUT/$(basename "$IB_ARCHIVE")"
-# An image manifest lists real installed APKs; Kconfig also lists virtual symbols.
-# ImageBuilder pins kernel/libc/base-files to its own compatible versions.
-awk 'NF >= 2 && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
-     $1 != "kernel" && $1 != "libc" && $1 != "base-files" { print $1 }' \
-     "$SOURCE_MANIFEST" | sort -u > "$OUT/imagebuilder-packages.txt"
-test -s "$OUT/imagebuilder-packages.txt"
-for required in kmod-nss-wifi-drv luci-app-homeproxy sing-box \
-  luci-app-autoreboot luci-app-cpufreq default-settings-chn autocore \
-  luci-app-diskman luci-app-ddns-go kmod-fs-f2fs; do
-  grep -Fxq "$required" "$OUT/imagebuilder-packages.txt" || {
-    echo "::error::Built firmware manifest missing $required" >&2
-    exit 1
-  }
-done
-# The standalone Builder carries the exact platform.sh used in the full image.
-BASE_STAGE="$WORK/base-overlay-for-imagebuilder"
-mkdir -p "$BASE_STAGE"
-rsync -a "$BUILDER/devices/common/files.ppe-nss/" "$BASE_STAGE/"
-install -D -m 0644 "$IMM/files/lib/upgrade/platform.sh" "$BASE_STAGE/lib/upgrade/platform.sh"
-tar -czf "$OUT/base-overlay.tar.gz" -C "$BASE_STAGE" .
-python3 "$ROOT/scripts/immortalwrt_builder.py" metadata \
-  --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
-  --feeds "$FEEDS_FINGERPRINT" \
-  --archive "$IB_ARCHIVE" --overlay "$OUT/base-overlay.tar.gz" \
-  --packages "$OUT/imagebuilder-packages.txt" \
-  --output "$OUT/builder-metadata.json"
-python3 "$ROOT/scripts/immortalwrt_builder.py" verify \
-  --metadata "$OUT/builder-metadata.json" --archive "$IB_ARCHIVE" \
-  --overlay "$OUT/base-overlay.tar.gz" \
-  --packages "$OUT/imagebuilder-packages.txt"
-BUILDER_TAG="$(python3 "$ROOT/scripts/immortalwrt_builder.py" tag \
-  --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
-  --feeds "$FEEDS_FINGERPRINT")"
-cp "$TARGET/$IMAGE" "$OUT/"
-cp "$SOURCE_MANIFEST" "$OUT/$MANIFEST"
-cp "$IMM/.config" "$OUT/immortalwrt.config"
-(
-  cd "$OUT"
-  sha256sum "$IMAGE" "$MANIFEST" > sha256sums
-)
-python3 "$ROOT/scripts/immortalwrt_ota.py" metadata \
-  --tag "$TAG" --build "$BUILD_NUMBER" --immortal-commit "$IMM_SHA" \
-  --ppe-commit "$PPE_SHA" --image "$OUT/$IMAGE" --manifest "$OUT/$MANIFEST" \
-  --output "$OUT/ota.json"
-
-# Rebuild a firmware from the bundled repository before publishing the builder.
-SMOKE_BEGIN="$(date +%s)"
-echo "::group::Standalone ImageBuilder repack smoke test"
-BUILDER_META="$OUT/builder-metadata.json" \
-BUILDER_ARCHIVE="$IB_ARCHIVE" \
-BASE_OVERLAY="$OUT/base-overlay.tar.gz" \
-BUILDER_PACKAGES="$OUT/imagebuilder-packages.txt" \
-IMMORTAL_OUT_DIR="$OUT/ib-smoke" \
-PUBLISH_RELEASE=false bash "$ROOT/scripts/repack-immortalwrt.sh"
-test -s "$OUT/ib-smoke/$IMAGE"
-test -s "$OUT/ib-smoke/$MANIFEST"
-echo "::endgroup::"
-SMOKE_SECONDS=$(( $(date +%s) - SMOKE_BEGIN ))
-if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-  {
-    echo "### Build phase timings (seconds)"
-    echo "- Preparation + feeds + external cross-toolchain: ${PREP_SECONDS}s"
-    echo "- Download: ${DOWNLOAD_SECONDS}s"
-    echo "- Host tools, kernel, packages and ImageBuilder: ${COMPILE_SECONDS}s"
-    echo "- ImageBuilder smoke repack: ${SMOKE_SECONDS}s"
-    echo "- Bootstrap: ${GO_BOOTSTRAP_VERSION}"
-    du -sh "${CACHE_GO}" | sed 's/^/- Go cache on disk: /'
-  } >> "$GITHUB_STEP_SUMMARY"
-fi
-
-# Publish only after a successful full compilation, manifest, and OTA metadata.
-# Pull requests produce inspectable Actions artifacts but never update releases.
-if [[ "$PUBLISH_RELEASE" == true ]]; then
-  [[ "${GITHUB_REPOSITORY:-}" == pzcn/openwrt-ppe-nss-ota ]] || {
-    echo "This release channel is reserved for the canonical repository" >&2; exit 1;
-  }
-  if ! gh release view "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-    gh release create "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" \
-      --latest=false --title "ImmortalWrt PPE+NSS ImageBuilder ($BUILDER_TAG)" \
-      --notes "Standalone ImageBuilder for jdcloud_re-ss-01; kernel modules and userspace APKs are built from matching ImmortalWrt/PPE-NSS source commits. Use only with its included package set and matching metadata." \
-      "$IB_ARCHIVE" "$OUT/base-overlay.tar.gz" \
-      "$OUT/imagebuilder-packages.txt" "$OUT/builder-metadata.json" \
-      "$OUT/source-commits.txt" "$OUT/official-toolchain-status.txt"
-  fi
-  cat > "$OUT/release-notes.md" <<EOF
-# ImmortalWrt + PPE/NSS + RE-SS-01 customizations
-
-- ImmortalWrt master: $IMM_SHA
-- PPE/NSS source: $PPE_SHA
-- Customized config: $SOURCE_REV
-- Board: JDCloud RE-SS-01 (ipq60xx 512 MiB profile; 1 GiB hardware supported)
-- Packages: F2FS/ext4 storage, PPE monitor/QoS, OTA, WireGuard,
-  Tailscale, HomeProxy/sing-box, Aurora, official ImmortalWrt utilities, WOL and LuCI applications.
-- Uses the independent \`$TAG\` channel and does not replace OpenWrt Releases/latest.
-
-Experimental full-source build: verify wired PPE, Wi-Fi NSS, storage, and
-sysupgrade on the device before enabling unattended OTA.
-EOF
-  gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --latest=false \
-    --title "RE-SS-01 ImmortalWrt PPE+NSS ($BUILD_NUMBER)" \
-    --notes-file "$OUT/release-notes.md" \
-    "$OUT/$IMAGE" "$OUT/$MANIFEST" "$OUT/ota.json" \
-    "$OUT/sha256sums" "$OUT/source-commits.txt" "$OUT/immortalwrt.config"
-fi
-   '^[^/]+/include/kernel[.]mk
-# Full-source builds may emit a board-wide manifest even for one device.
-# Publish the single-device manifest under the stable per-device OTA name.
-if [[ -s "$TARGET/$MANIFEST" ]]; then
-  SOURCE_MANIFEST="$TARGET/$MANIFEST"
-elif [[ -s "$TARGET/immortalwrt-qualcommax-ipq60xx.manifest" ]]; then
-  SOURCE_MANIFEST="$TARGET/immortalwrt-qualcommax-ipq60xx.manifest"
-else
-  echo "::error::No target package manifest was produced" >&2
-  exit 1
-fi
-cp "$IB_ARCHIVE" "$OUT/"
-IB_ARCHIVE="$OUT/$(basename "$IB_ARCHIVE")"
-# An image manifest lists real installed APKs; Kconfig also lists virtual symbols.
-# ImageBuilder pins kernel/libc/base-files to its own compatible versions.
-awk 'NF >= 2 && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
-     $1 != "kernel" && $1 != "libc" && $1 != "base-files" { print $1 }' \
-     "$SOURCE_MANIFEST" | sort -u > "$OUT/imagebuilder-packages.txt"
-test -s "$OUT/imagebuilder-packages.txt"
-for required in kmod-nss-wifi-drv luci-app-homeproxy sing-box \
-  luci-app-autoreboot luci-app-cpufreq default-settings-chn autocore \
-  luci-app-diskman luci-app-ddns-go kmod-fs-f2fs; do
-  grep -Fxq "$required" "$OUT/imagebuilder-packages.txt" || {
-    echo "::error::Built firmware manifest missing $required" >&2
-    exit 1
-  }
-done
-# The standalone Builder carries the exact platform.sh used in the full image.
-BASE_STAGE="$WORK/base-overlay-for-imagebuilder"
-mkdir -p "$BASE_STAGE"
-rsync -a "$BUILDER/devices/common/files.ppe-nss/" "$BASE_STAGE/"
-install -D -m 0644 "$IMM/files/lib/upgrade/platform.sh" "$BASE_STAGE/lib/upgrade/platform.sh"
-tar -czf "$OUT/base-overlay.tar.gz" -C "$BASE_STAGE" .
-python3 "$ROOT/scripts/immortalwrt_builder.py" metadata \
-  --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
-  --feeds "$FEEDS_FINGERPRINT" \
-  --archive "$IB_ARCHIVE" --overlay "$OUT/base-overlay.tar.gz" \
-  --packages "$OUT/imagebuilder-packages.txt" \
-  --output "$OUT/builder-metadata.json"
-python3 "$ROOT/scripts/immortalwrt_builder.py" verify \
-  --metadata "$OUT/builder-metadata.json" --archive "$IB_ARCHIVE" \
-  --overlay "$OUT/base-overlay.tar.gz" \
-  --packages "$OUT/imagebuilder-packages.txt"
-BUILDER_TAG="$(python3 "$ROOT/scripts/immortalwrt_builder.py" tag \
-  --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
-  --feeds "$FEEDS_FINGERPRINT")"
-cp "$TARGET/$IMAGE" "$OUT/"
-cp "$SOURCE_MANIFEST" "$OUT/$MANIFEST"
-cp "$IMM/.config" "$OUT/immortalwrt.config"
-(
-  cd "$OUT"
-  sha256sum "$IMAGE" "$MANIFEST" > sha256sums
-)
-python3 "$ROOT/scripts/immortalwrt_ota.py" metadata \
-  --tag "$TAG" --build "$BUILD_NUMBER" --immortal-commit "$IMM_SHA" \
-  --ppe-commit "$PPE_SHA" --image "$OUT/$IMAGE" --manifest "$OUT/$MANIFEST" \
-  --output "$OUT/ota.json"
-
-# Rebuild a firmware from the bundled repository before publishing the builder.
-SMOKE_BEGIN="$(date +%s)"
-echo "::group::Standalone ImageBuilder repack smoke test"
-BUILDER_META="$OUT/builder-metadata.json" \
-BUILDER_ARCHIVE="$IB_ARCHIVE" \
-BASE_OVERLAY="$OUT/base-overlay.tar.gz" \
-BUILDER_PACKAGES="$OUT/imagebuilder-packages.txt" \
-IMMORTAL_OUT_DIR="$OUT/ib-smoke" \
-PUBLISH_RELEASE=false bash "$ROOT/scripts/repack-immortalwrt.sh"
-test -s "$OUT/ib-smoke/$IMAGE"
-test -s "$OUT/ib-smoke/$MANIFEST"
-echo "::endgroup::"
-SMOKE_SECONDS=$(( $(date +%s) - SMOKE_BEGIN ))
-if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-  {
-    echo "### Build phase timings (seconds)"
-    echo "- Preparation + feeds + external cross-toolchain: ${PREP_SECONDS}s"
-    echo "- Download: ${DOWNLOAD_SECONDS}s"
-    echo "- Host tools, kernel, packages and ImageBuilder: ${COMPILE_SECONDS}s"
-    echo "- ImageBuilder smoke repack: ${SMOKE_SECONDS}s"
-    echo "- Bootstrap: ${GO_BOOTSTRAP_VERSION}"
-    du -sh "${CACHE_GO}" | sed 's/^/- Go cache on disk: /'
-  } >> "$GITHUB_STEP_SUMMARY"
-fi
-
-# Publish only after a successful full compilation, manifest, and OTA metadata.
-# Pull requests produce inspectable Actions artifacts but never update releases.
-if [[ "$PUBLISH_RELEASE" == true ]]; then
-  [[ "${GITHUB_REPOSITORY:-}" == pzcn/openwrt-ppe-nss-ota ]] || {
-    echo "This release channel is reserved for the canonical repository" >&2; exit 1;
-  }
-  if ! gh release view "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-    gh release create "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" \
-      --latest=false --title "ImmortalWrt PPE+NSS ImageBuilder ($BUILDER_TAG)" \
-      --notes "Standalone ImageBuilder for jdcloud_re-ss-01; kernel modules and userspace APKs are built from matching ImmortalWrt/PPE-NSS source commits. Use only with its included package set and matching metadata." \
-      "$IB_ARCHIVE" "$OUT/base-overlay.tar.gz" \
-      "$OUT/imagebuilder-packages.txt" "$OUT/builder-metadata.json" \
-      "$OUT/source-commits.txt" "$OUT/official-toolchain-status.txt"
-  fi
-  cat > "$OUT/release-notes.md" <<EOF
-# ImmortalWrt + PPE/NSS + RE-SS-01 customizations
-
-- ImmortalWrt master: $IMM_SHA
-- PPE/NSS source: $PPE_SHA
-- Customized config: $SOURCE_REV
-- Board: JDCloud RE-SS-01 (ipq60xx 512 MiB profile; 1 GiB hardware supported)
-- Packages: F2FS/ext4 storage, PPE monitor/QoS, OTA, WireGuard,
-  Tailscale, HomeProxy/sing-box, Aurora, official ImmortalWrt utilities, WOL and LuCI applications.
-- Uses the independent \`$TAG\` channel and does not replace OpenWrt Releases/latest.
-
-Experimental full-source build: verify wired PPE, Wi-Fi NSS, storage, and
-sysupgrade on the device before enabling unattended OTA.
-EOF
-  gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --latest=false \
-    --title "RE-SS-01 ImmortalWrt PPE+NSS ($BUILD_NUMBER)" \
-    --notes-file "$OUT/release-notes.md" \
-    "$OUT/$IMAGE" "$OUT/$MANIFEST" "$OUT/ota.json" \
-    "$OUT/sha256sums" "$OUT/source-commits.txt" "$OUT/immortalwrt.config"
-fi
-   '^[^/]+/staging_dir/toolchain-[^/]+/bin/'   '^[^/]+/build_dir/target-[^/]+/linux-[^/]+/linux-[^/]+/Module[.]symvers
-# Full-source builds may emit a board-wide manifest even for one device.
-# Publish the single-device manifest under the stable per-device OTA name.
-if [[ -s "$TARGET/$MANIFEST" ]]; then
-  SOURCE_MANIFEST="$TARGET/$MANIFEST"
-elif [[ -s "$TARGET/immortalwrt-qualcommax-ipq60xx.manifest" ]]; then
-  SOURCE_MANIFEST="$TARGET/immortalwrt-qualcommax-ipq60xx.manifest"
-else
-  echo "::error::No target package manifest was produced" >&2
-  exit 1
-fi
-cp "$IB_ARCHIVE" "$OUT/"
-IB_ARCHIVE="$OUT/$(basename "$IB_ARCHIVE")"
-# An image manifest lists real installed APKs; Kconfig also lists virtual symbols.
-# ImageBuilder pins kernel/libc/base-files to its own compatible versions.
-awk 'NF >= 2 && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
-     $1 != "kernel" && $1 != "libc" && $1 != "base-files" { print $1 }' \
-     "$SOURCE_MANIFEST" | sort -u > "$OUT/imagebuilder-packages.txt"
-test -s "$OUT/imagebuilder-packages.txt"
-for required in kmod-nss-wifi-drv luci-app-homeproxy sing-box \
-  luci-app-autoreboot luci-app-cpufreq default-settings-chn autocore \
-  luci-app-diskman luci-app-ddns-go kmod-fs-f2fs; do
-  grep -Fxq "$required" "$OUT/imagebuilder-packages.txt" || {
-    echo "::error::Built firmware manifest missing $required" >&2
-    exit 1
-  }
-done
-# The standalone Builder carries the exact platform.sh used in the full image.
-BASE_STAGE="$WORK/base-overlay-for-imagebuilder"
-mkdir -p "$BASE_STAGE"
-rsync -a "$BUILDER/devices/common/files.ppe-nss/" "$BASE_STAGE/"
-install -D -m 0644 "$IMM/files/lib/upgrade/platform.sh" "$BASE_STAGE/lib/upgrade/platform.sh"
-tar -czf "$OUT/base-overlay.tar.gz" -C "$BASE_STAGE" .
-python3 "$ROOT/scripts/immortalwrt_builder.py" metadata \
-  --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
-  --feeds "$FEEDS_FINGERPRINT" \
-  --archive "$IB_ARCHIVE" --overlay "$OUT/base-overlay.tar.gz" \
-  --packages "$OUT/imagebuilder-packages.txt" \
-  --output "$OUT/builder-metadata.json"
-python3 "$ROOT/scripts/immortalwrt_builder.py" verify \
-  --metadata "$OUT/builder-metadata.json" --archive "$IB_ARCHIVE" \
-  --overlay "$OUT/base-overlay.tar.gz" \
-  --packages "$OUT/imagebuilder-packages.txt"
-BUILDER_TAG="$(python3 "$ROOT/scripts/immortalwrt_builder.py" tag \
-  --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
-  --feeds "$FEEDS_FINGERPRINT")"
-cp "$TARGET/$IMAGE" "$OUT/"
-cp "$SOURCE_MANIFEST" "$OUT/$MANIFEST"
-cp "$IMM/.config" "$OUT/immortalwrt.config"
-(
-  cd "$OUT"
-  sha256sum "$IMAGE" "$MANIFEST" > sha256sums
-)
-python3 "$ROOT/scripts/immortalwrt_ota.py" metadata \
-  --tag "$TAG" --build "$BUILD_NUMBER" --immortal-commit "$IMM_SHA" \
-  --ppe-commit "$PPE_SHA" --image "$OUT/$IMAGE" --manifest "$OUT/$MANIFEST" \
-  --output "$OUT/ota.json"
-
-# Rebuild a firmware from the bundled repository before publishing the builder.
-SMOKE_BEGIN="$(date +%s)"
-echo "::group::Standalone ImageBuilder repack smoke test"
-BUILDER_META="$OUT/builder-metadata.json" \
-BUILDER_ARCHIVE="$IB_ARCHIVE" \
-BASE_OVERLAY="$OUT/base-overlay.tar.gz" \
-BUILDER_PACKAGES="$OUT/imagebuilder-packages.txt" \
-IMMORTAL_OUT_DIR="$OUT/ib-smoke" \
-PUBLISH_RELEASE=false bash "$ROOT/scripts/repack-immortalwrt.sh"
-test -s "$OUT/ib-smoke/$IMAGE"
-test -s "$OUT/ib-smoke/$MANIFEST"
-echo "::endgroup::"
-SMOKE_SECONDS=$(( $(date +%s) - SMOKE_BEGIN ))
-if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-  {
-    echo "### Build phase timings (seconds)"
-    echo "- Preparation + feeds + external cross-toolchain: ${PREP_SECONDS}s"
-    echo "- Download: ${DOWNLOAD_SECONDS}s"
-    echo "- Host tools, kernel, packages and ImageBuilder: ${COMPILE_SECONDS}s"
-    echo "- ImageBuilder smoke repack: ${SMOKE_SECONDS}s"
-    echo "- Bootstrap: ${GO_BOOTSTRAP_VERSION}"
-    du -sh "${CACHE_GO}" | sed 's/^/- Go cache on disk: /'
-  } >> "$GITHUB_STEP_SUMMARY"
-fi
-
-# Publish only after a successful full compilation, manifest, and OTA metadata.
-# Pull requests produce inspectable Actions artifacts but never update releases.
-if [[ "$PUBLISH_RELEASE" == true ]]; then
-  [[ "${GITHUB_REPOSITORY:-}" == pzcn/openwrt-ppe-nss-ota ]] || {
-    echo "This release channel is reserved for the canonical repository" >&2; exit 1;
-  }
-  if ! gh release view "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-    gh release create "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" \
-      --latest=false --title "ImmortalWrt PPE+NSS ImageBuilder ($BUILDER_TAG)" \
-      --notes "Standalone ImageBuilder for jdcloud_re-ss-01; kernel modules and userspace APKs are built from matching ImmortalWrt/PPE-NSS source commits. Use only with its included package set and matching metadata." \
-      "$IB_ARCHIVE" "$OUT/base-overlay.tar.gz" \
-      "$OUT/imagebuilder-packages.txt" "$OUT/builder-metadata.json" \
-      "$OUT/source-commits.txt" "$OUT/official-toolchain-status.txt"
-  fi
-  cat > "$OUT/release-notes.md" <<EOF
-# ImmortalWrt + PPE/NSS + RE-SS-01 customizations
-
-- ImmortalWrt master: $IMM_SHA
-- PPE/NSS source: $PPE_SHA
-- Customized config: $SOURCE_REV
-- Board: JDCloud RE-SS-01 (ipq60xx 512 MiB profile; 1 GiB hardware supported)
-- Packages: F2FS/ext4 storage, PPE monitor/QoS, OTA, WireGuard,
-  Tailscale, HomeProxy/sing-box, Aurora, official ImmortalWrt utilities, WOL and LuCI applications.
-- Uses the independent \`$TAG\` channel and does not replace OpenWrt Releases/latest.
-
-Experimental full-source build: verify wired PPE, Wi-Fi NSS, storage, and
-sysupgrade on the device before enabling unattended OTA.
-EOF
-  gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --latest=false \
-    --title "RE-SS-01 ImmortalWrt PPE+NSS ($BUILD_NUMBER)" \
-    --notes-file "$OUT/release-notes.md" \
-    "$OUT/$IMAGE" "$OUT/$MANIFEST" "$OUT/ota.json" \
-    "$OUT/sha256sums" "$OUT/source-commits.txt" "$OUT/immortalwrt.config"
-fi
-; do
+for required in \
+  '^[^/]+/rules[.]mk$' \
+  '^[^/]+/include/kernel[.]mk$' \
+  '^[^/]+/staging_dir/toolchain-[^/]+/bin/' \
+  '^[^/]+/build_dir/target-[^/]+/linux-[^/]+/linux-[^/]+/Module[.]symvers$'; do
   grep -Eq "$required" "$SDK_CONTENTS" || {
-    echo "::error::SDK missing required buildroot or kernel module component: $required" >&2
+    echo "::error::SDK archive missing a necessary toolchain or kernel ABI file: $required" >&2
     exit 1
   }
 done
 if (( $(stat -c '%s' "$SDK_ARCHIVE") >= 2147483648 )); then
-  echo "::error::SDK exceeds GitHub Release's single-file limit" >&2
+  echo "::error::SDK is larger than the GitHub Release asset limit" >&2
   exit 1
 fi
 # Full-source builds may emit a board-wide manifest even for one device.
@@ -695,6 +350,8 @@ else
 fi
 cp "$IB_ARCHIVE" "$OUT/"
 IB_ARCHIVE="$OUT/$(basename "$IB_ARCHIVE")"
+cp "$SDK_ARCHIVE" "$OUT/"
+SDK_ARCHIVE="$OUT/$(basename "$SDK_ARCHIVE")"
 # An image manifest lists real installed APKs; Kconfig also lists virtual symbols.
 # ImageBuilder pins kernel/libc/base-files to its own compatible versions.
 awk 'NF >= 2 && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
@@ -728,6 +385,17 @@ python3 "$ROOT/scripts/immortalwrt_builder.py" verify \
 BUILDER_TAG="$(python3 "$ROOT/scripts/immortalwrt_builder.py" tag \
   --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
   --feeds "$FEEDS_FINGERPRINT")"
+# SDK and ImageBuilder are built from exactly the same configured source tree.
+python3 "$ROOT/scripts/immortalwrt_sdk.py" metadata \
+  --source "$IMM" --ppe-luci "$WORK/ppe-luci" \
+  --builder-metadata "$OUT/builder-metadata.json" \
+  --toolchain-status "$OUT/official-toolchain-status.txt" \
+  --archive "$SDK_ARCHIVE" --feed-lock "$OUT/sdk-feeds.lock.json" \
+  --output "$OUT/sdk-metadata.json"
+python3 "$ROOT/scripts/immortalwrt_sdk.py" verify \
+  --metadata "$OUT/sdk-metadata.json" \
+  --builder-metadata "$OUT/builder-metadata.json" \
+  --archive "$SDK_ARCHIVE" --feed-lock "$OUT/sdk-feeds.lock.json"
 cp "$TARGET/$IMAGE" "$OUT/"
 cp "$SOURCE_MANIFEST" "$OUT/$MANIFEST"
 cp "$IMM/.config" "$OUT/immortalwrt.config"
@@ -773,10 +441,11 @@ if [[ "$PUBLISH_RELEASE" == true ]]; then
   }
   if ! gh release view "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
     gh release create "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" \
-      --latest=false --title "ImmortalWrt PPE+NSS ImageBuilder ($BUILDER_TAG)" \
-      --notes "Standalone ImageBuilder for jdcloud_re-ss-01; kernel modules and userspace APKs are built from matching ImmortalWrt/PPE-NSS source commits. Use only with its included package set and matching metadata." \
+      --latest=false --title "ImmortalWrt PPE+NSS Builder and SDK ($BUILDER_TAG)" \
+      --notes "Standalone ImageBuilder and matching OpenWrt SDK for jdcloud_re-ss-01. See sdk-metadata.json and sdk-feeds.lock.json for exact source revision and SHA256." \
       "$IB_ARCHIVE" "$OUT/base-overlay.tar.gz" \
       "$OUT/imagebuilder-packages.txt" "$OUT/builder-metadata.json" \
+      "$SDK_ARCHIVE" "$OUT/sdk-metadata.json" "$OUT/sdk-feeds.lock.json" \
       "$OUT/source-commits.txt" "$OUT/official-toolchain-status.txt"
   fi
   cat > "$OUT/release-notes.md" <<EOF
