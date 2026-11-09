@@ -18,6 +18,9 @@ CORE_FILES = (
     "scripts/apply-immortalwrt-compat.sh",
     "config/immortalwrt-re-ss-01.config",
 )
+# Package selection is not a kernel ABI constraint, but rebuilding the
+# package repository after a change requires a distinct immutable Release.
+PACKAGE_FILES = ("config/add.txt", "config/remove.txt")
 SHA = re.compile(r"^[a-f0-9]{40}$")
 PROFILE = "jdcloud_re-ss-01"
 CHANNEL = "re-ss-01-immortal-imagebuilder"
@@ -31,6 +34,23 @@ def fingerprint(root: Path = ROOT) -> str:
         digest.update(data)
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+def package_fingerprint(root: Path = ROOT) -> str:
+    digest = hashlib.sha256()
+    for name in PACKAGE_FILES:
+        digest.update(name.encode("utf-8") + b"\0")
+        digest.update((root / name).read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def release_tag(immortal: str, ppe: str, base: str, core: str, packages: str) -> str:
+    for value in (immortal, ppe, base):
+        check_sha(value)
+    if not SHA.fullmatch(core) or not SHA.fullmatch(packages):
+        raise ValueError("Expected SHA256 fingerprints")
+    return f"imm-builder-{immortal[:8]}-{ppe[:8]}-{base[:8]}-g{core[:12]}-p{packages[:8]}"
 
 
 def sha256(path: Path) -> str:
@@ -47,9 +67,8 @@ def check_sha(value: str) -> None:
 
 
 def tag(immortal: str, ppe: str, base: str, root: Path = ROOT) -> str:
-    for value in (immortal, ppe, base):
-        check_sha(value)
-    return f"imm-builder-{immortal[:8]}-{ppe[:8]}-{base[:8]}-g{fingerprint(root)[:12]}"
+    return release_tag(immortal, ppe, base, fingerprint(root),
+                       package_fingerprint(root))
 
 
 def metadata(args: argparse.Namespace) -> None:
@@ -65,6 +84,7 @@ def metadata(args: argparse.Namespace) -> None:
         "packaging": "standalone",
         "tag": tag(args.immortal, args.ppe, args.base),
         "fingerprint": fingerprint(),
+        "package_fingerprint": package_fingerprint(),
         "immortalwrt_commit": args.immortal,
         "ppe_nss_commit": args.ppe,
         "base_overlay_commit": args.base,
@@ -86,8 +106,11 @@ def verify(args: argparse.Namespace) -> None:
         raise ValueError("Builder target or packaging mismatch")
     for key in ("immortalwrt_commit", "ppe_nss_commit", "base_overlay_commit"):
         check_sha(doc.get(key, ""))
-    expected = tag(doc["immortalwrt_commit"], doc["ppe_nss_commit"],
-                   doc["base_overlay_commit"])
+    packages = doc.get("package_fingerprint", "")
+    if not isinstance(packages, str) or not SHA.fullmatch(packages):
+        raise ValueError("Missing package fingerprint in Builder metadata")
+    expected = release_tag(doc["immortalwrt_commit"], doc["ppe_nss_commit"],
+                           doc["base_overlay_commit"], fingerprint(), packages)
     if doc.get("tag") != expected or doc.get("fingerprint") != fingerprint():
         raise ValueError("Builder is stale for current core config; regenerate it")
     for key, path, checksum in (
