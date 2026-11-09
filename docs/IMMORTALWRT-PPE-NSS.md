@@ -24,16 +24,44 @@
 
 - **每周日 05:43 UTC（北京时间 13:43）自动完整编译一次**，也可以随时点击 `Run workflow` 手动触发完整编译。
 - 两种触发方式完全一致，均直接调用 `scripts/build-immortalwrt.sh`；**不预先检查上游是否更新，不比较旧版 Builder 来跳过编译**。
-- 编译包含 ImmortalWrt、PPE/NSS、feeds、内核、所有 APK 和独立 ImageBuilder，并运行重打包烟雾测试。
-- 编译成功后上传 ImageBuilder 到 Releases，随后使用 `workflow_dispatch` 自动触发固件工作流。
-- 保留必要的文件校验与 Release 标签冲突保护：如果编译结果的标签已经存在，不覆盖旧 Release，但仍完成本次编译和触发固件工作流。
+- 编译包含 ImmortalWrt、PPE/NSS、feeds、内核、所有 APK、独立 ImageBuilder 和匹配的 **OpenWrt SDK**，并运行重打包烟雾测试。
+- 编译成功后在 **同一个 `imm-builder-...` Release** 上传 ImageBuilder、SDK、SHA256 元数据与 feeds 锁定文件，然后使用 `workflow_dispatch` 触发固件工作流。
+- 保留必要的文件校验与 Release 标签冲突保护：如果标签已经存在，不覆盖旧 Release；必须确认其 SDK 资产齐全才视为成功。SDK 归档也校验基本构建规则、工具链及内核 `Module.symvers`。
 
 **两条流水线之间的契约：**
 
-- Builder Release：`imm-builder-...`，包含 ImageBuilder 压缩包、`builder-metadata.json`、`base-overlay.tar.gz`、`imagebuilder-packages.txt`。
+- Builder Release：`imm-builder-...`，包含 ImageBuilder 压缩包、`builder-metadata.json`、`base-overlay.tar.gz`、`imagebuilder-packages.txt`，以及 `immortalwrt-sdk-*.tar.zst`、`sdk-metadata.json`、`sdk-feeds.lock.json`。
 - 固件 Release：`imm-ppe-nss-...`，包含 sysupgrade、manifest、`ota.json` 和 Builder 元数据。
 - `builder-metadata.json` 中的指纹用于记录该 Builder 的编译来源，而不是要求它与当前 Git 代码一致。固件侧校验 Builder 自身的 Release 标签、设备型号、渠道，以及压缩包、覆盖层和软件包列表的 SHA256；软件包只能来自该 Builder 的仓库。
 - `ota.json` 记录 `builder_tag` 和 `source_commit`，用于每天的无变动跳过判断。
+
+
+## 匹配 OpenWrt SDK：为新增插件补编 APK
+
+SDK **不是 ImageBuilder 的替代品**：ImageBuilder 将已有 APK 和覆盖层组装成固件；SDK 则包含与 Builder 同一次源码构建的目标头文件、库、交叉编译器以及内核符号表，可以补编用户态软件包及匹配当前内核的 kmod。
+
+完整 Builder 编译增加 `CONFIG_SDK=y`，并且因为当前优先使用经过 SHA256 校验的 ImmortalWrt 官方外部交叉工具链，必须同时设置 `CONFIG_EXTERNAL_TOOLCHAIN_SDK=y`。源码的 `target/sdk/Config.in` 明确规定这一依赖。两者由同一次 `make` 构建；SDK 缺少交叉编译工具链、构建规则或 `Module.symvers` 时将拒绝发布。
+
+打开 [Releases](../../releases) 中对应的 `imm-builder-...` 标签，一起下载：
+
+- `immortalwrt-sdk-qualcommax-ipq60xx*.tar.zst`：目标 `qualcommax/ipq60xx` 的配套 SDK；
+- `sdk-metadata.json`：SDK 归档 SHA256、对应 Builder 标签及 Builder 元数据 SHA256；
+- `sdk-feeds.lock.json`：ImmortalWrt 与六个 feed（packages、luci、routing、telephony、nss、独立 PPE QoS LuCI）的源码提交；
+- `builder-metadata.json`：与其配套的独立 ImageBuilder 来源信息。
+
+在仓库根目录校验（替换为下载的实际文件名）：
+
+```sh
+python3 scripts/immortalwrt_sdk.py verify \
+  --metadata sdk-metadata.json \
+  --builder-metadata builder-metadata.json \
+  --archive immortalwrt-sdk-qualcommax-ipq60xx_gcc-14.4.0_musl.Linux-x86_64.tar.zst \
+  --feed-lock sdk-feeds.lock.json
+```
+
+解压 SDK 后可按上游惯例添加 feed 或本地 package、运行 `make defconfig`、再运行 `make package/<包路径>/compile V=s`。**必须将所需 feed 锁定为 `sdk-feeds.lock.json` 内对应的提交**，不能直接拿其当前 HEAD 的新软件包冒充同一 Builder 版本。补编结果需要加入 **对应 Builder** 的离线 APK 仓库，才能由 ImageBuilder 正确处理依赖；尤其不能从别的固件混用 kmod、libc、libgcc。
+
+这次仅实现 **SDK 的构建、校验和发布**。尚未实现“通过 SDK 自动补编缺失包并上传到 Builder APK 仓库”，该功能需要单独的工作流及严格的版本匹配。发布 SDK 会增加一定磁盘、压缩和上传时间，但**不会重编第二套内核/NSS**。
 
 ## Builder 与固件的职责边界
 
