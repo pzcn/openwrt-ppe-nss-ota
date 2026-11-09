@@ -47,6 +47,29 @@ FP_SHA = re.compile(r"^[a-f0-9]{64}$")
 PROFILE = "jdcloud_re-ss-01"
 CHANNEL = "re-ss-01-immortal-imagebuilder"
 
+# Actions run 42594186291 created this *complete* standalone Builder with the
+# original metadata schema. Later edits changed source-provenance bookkeeping
+# and optional firmware overlays, not its kernel, NSS, or package ABI.
+# This is a single audited legacy release, NOT a wildcard bypass for old builds.
+LEGACY_TAG = "imm-builder-4765b657-7d65a3ed-5796d271-gfe40805a5baf"
+LEGACY_SOURCE_COMMIT = "b546e0cc79ab1328f24f120e88d7a9407575a277"
+LEGACY_META_SHA256 = "f0d03f353eadf9b9dc913770ef08157a34a2d3a1b8bd74196ac613479bbfe450"
+LEGACY_CORE_RECIPE_SHA256 = "2744befd95c62e0a76564eb5edb0f587f68f5b70f4476e773f18f6b18e32a9b9"
+# Hashes of *source-build* dependencies, unchanged since that successful run.
+# These are canonical Git blob object IDs, independent of Git checkout depth.
+LEGACY_CORE_BLOBS = {
+    "scripts/reuse-official-toolchain.sh": "0dee01da44c211d1b1716e8861bdff002e0b8fbd",
+    "scripts/port-ppe-nss-to-immortalwrt.sh": "fbc6a29a065b0bb0361aa71d4e0c7982014575cb",
+    "scripts/apply-immortalwrt-compat.sh": "4e967a80d2ce1a9e7865122167e0e0e1ee0d59eb",
+    "config/immortalwrt-re-ss-01.config": "490f353437cfc11c7af3411acda56d4d3a419a90",
+}
+# GitHub's published SHA256 digests for the immutable Builder input files.
+LEGACY_ASSET_SHA256 = {
+    "archive": "8fdd1c39ce2d64fc92f19c7028c38181450e814397c64529b9d35de4bb3ed4e0",
+    "overlay": "eec8cfb7eecc3841fa9086c4822f3f618dd0ee41ca55645893a5ec3e23ff5042",
+    "packages": "19278099026c4f608b4d95460a73cecbcaf74a3f909db64498ea15961d1f2f44",
+}
+
 
 def fingerprint(root: Path = ROOT) -> str:
     digest = hashlib.sha256()
@@ -88,8 +111,62 @@ def sha256(path: Path) -> str:
 
 
 def check_sha(value: str) -> None:
-    if not SHA.fullmatch(value):
+    if not isinstance(value, str) or not SHA.fullmatch(value):
         raise ValueError("Expected a 40-character lowercase SHA")
+
+
+def git_blob_id(data: bytes) -> str:
+    """Match Git's content-addressed blob ID without needing full Git history."""
+    return hashlib.sha1(f"blob {len(data)}\\0".encode().replace(b"\\0", b"\\x00") + data).hexdigest()
+
+
+def legacy_sources_compatible(root: Path = ROOT) -> bool:
+    """Fail closed if kernel, NSS, toolchain or source recipe is modified.
+
+    The firmware-only overlay is intentionally outside the ABI comparison;
+    editing LuCI, Dr.COM, OTA or other files/ assets cannot require a rebuild.
+    """
+    try:
+        recipe = core_recipe_bytes((root / CORE_RECIPE).read_bytes())
+        if hashlib.sha256(recipe).hexdigest() != LEGACY_CORE_RECIPE_SHA256:
+            return False
+        return all(git_blob_id((root / name).read_bytes()) == old
+                   for name, old in LEGACY_CORE_BLOBS.items())
+    except (OSError, ValueError):
+        return False
+
+
+def check_metadata(path: Path) -> tuple[dict, bool]:
+    """Return (metadata, is_pinned_legacy_builder) on ABI-safe metadata."""
+    doc = json.loads(path.read_text())
+    if doc.get("schema") != 1 or doc.get("channel") != CHANNEL:
+        raise ValueError("Wrong builder channel or schema")
+    if doc.get("profile") != PROFILE or doc.get("packaging") != "standalone":
+        raise ValueError("Builder target or packaging mismatch")
+    for key in ("immortalwrt_commit", "ppe_nss_commit", "base_overlay_commit"):
+        check_sha(doc.get(key, ""))
+
+    if doc.get("tag") == LEGACY_TAG:
+        # Both its metadata and its compiler provenance are pinned. The old
+        # schema lacks feed/package digests, so do not accept any other tag.
+        if sha256(path) != LEGACY_META_SHA256:
+            raise ValueError("Pinned legacy Builder metadata integrity mismatch")
+        if not legacy_sources_compatible():
+            raise ValueError("Legacy Builder kernel/NSS build inputs have changed")
+        return doc, True
+
+    packages = doc.get("package_fingerprint", "")
+    feeds = doc.get("feeds_fingerprint", "")
+    if not isinstance(packages, str) or not FP_SHA.fullmatch(packages):
+        raise ValueError("Missing package fingerprint in Builder metadata")
+    if not isinstance(feeds, str) or not FP_SHA.fullmatch(feeds):
+        raise ValueError("Missing feeds fingerprint in Builder metadata")
+    expected = release_tag(doc["immortalwrt_commit"], doc["ppe_nss_commit"],
+                           doc["base_overlay_commit"], fingerprint(), packages,
+                           feeds)
+    if doc.get("tag") != expected or doc.get("fingerprint") != fingerprint():
+        raise ValueError("Builder is stale for current core config; regenerate it")
+    return doc, False
 
 
 def tag(immortal: str, ppe: str, base: str, root: Path = ROOT,
@@ -130,32 +207,19 @@ def metadata(args: argparse.Namespace) -> None:
 
 
 def verify(args: argparse.Namespace) -> None:
-    doc = json.loads(args.metadata.read_text())
-    if doc.get("schema") != 1 or doc.get("channel") != CHANNEL:
-        raise ValueError("Wrong builder channel or schema")
-    if doc.get("profile") != PROFILE or doc.get("packaging") != "standalone":
-        raise ValueError("Builder target or packaging mismatch")
-    for key in ("immortalwrt_commit", "ppe_nss_commit", "base_overlay_commit"):
-        check_sha(doc.get(key, ""))
-    packages = doc.get("package_fingerprint", "")
-    feeds = doc.get("feeds_fingerprint", "")
-    if not isinstance(packages, str) or not FP_SHA.fullmatch(packages):
-        raise ValueError("Missing package fingerprint in Builder metadata")
-    if not isinstance(feeds, str) or not FP_SHA.fullmatch(feeds):
-        raise ValueError("Missing feeds fingerprint in Builder metadata")
-    expected = release_tag(doc["immortalwrt_commit"], doc["ppe_nss_commit"],
-                           doc["base_overlay_commit"], fingerprint(), packages,
-                           feeds)
-    if doc.get("tag") != expected or doc.get("fingerprint") != fingerprint():
-        raise ValueError("Builder is stale for current core config; regenerate it")
+    doc, legacy = check_metadata(args.metadata)
     for key, path, checksum in (
         ("archive", args.archive, "archive_sha256"),
         ("overlay", args.overlay, "overlay_sha256"),
         ("packages", args.packages, "packages_sha256"),
     ):
-        if path.name != doc.get(key) or sha256(path) != doc.get(checksum):
+        actual_hash = sha256(path)
+        if path.name != doc.get(key) or actual_hash != doc.get(checksum):
             raise ValueError(f"Builder artifact integrity mismatch: {key}")
-    print(f"Verified ImageBuilder: {doc['tag']}")
+        if legacy and actual_hash != LEGACY_ASSET_SHA256[key]:
+            raise ValueError(f"Pinned legacy Builder asset digest mismatch: {key}")
+    print(f"Verified ImageBuilder: {doc['tag']}"
+          + (" (audited legacy ABI)" if legacy else ""))
 
 
 def main() -> None:
@@ -174,6 +238,8 @@ def main() -> None:
     m.add_argument("--overlay", required=True, type=Path)
     m.add_argument("--packages", required=True, type=Path)
     m.add_argument("--output", required=True, type=Path)
+    c = sub.add_parser("check")
+    c.add_argument("--metadata", required=True, type=Path)
     v = sub.add_parser("verify")
     for name in ("metadata", "archive", "overlay", "packages"):
         v.add_argument(f"--{name}", required=True, type=Path)
@@ -184,6 +250,10 @@ def main() -> None:
         print(tag(args.immortal, args.ppe, args.base, feeds=args.feeds))
     elif args.action == "metadata":
         metadata(args)
+    elif args.action == "check":
+        doc, legacy = check_metadata(args.metadata)
+        print("Compatible Builder: " + doc["tag"]
+              + (" (audited legacy ABI)" if legacy else ""))
     else:
         verify(args)
 
