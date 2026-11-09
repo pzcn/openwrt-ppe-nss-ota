@@ -23,7 +23,7 @@
 **Builder 工作流：** `.github/workflows/builder-immortalwrt.yml`
 
 - 每天 05:43 UTC 启动一次轻量日历门禁，只有偶数 UTC epoch 日才检查；实际每隔 48 小时检查一次（跨月节奏不变）。
-- 比较 ImmortalWrt、Julius PPE/NSS、基础 Builder 三个上游源码 SHA，核心配置指纹和软件包清单指纹。对应 `imm-builder-...` Release 已存在则跳过。
+- 比较 ImmortalWrt、Julius PPE/NSS、基础 Builder 三个源码 SHA，ImmortalWrt packages/LuCI/routing/telephony、NSS packages、PPE QoS LuCI 六个 feed 提交，以及核心配置和软件包清单指纹。对应 `imm-builder-...` Release 已存在则跳过。
 - 需要更新时调用 `scripts/build-immortalwrt.sh` 编译内核、NSS、所有 APK 和独立 ImageBuilder，并运行重打包烟雾测试。
 - 构建产物上传到 Releases；**成功发布后使用 `workflow_dispatch` 触发固件工作流**，不在 Builder 工作流里重复发布固件。
 - 支持手动强制源码编译（相同 Tag 的 Release 不会覆写）和禁用发布。
@@ -39,7 +39,7 @@
 
 `config/add.txt`、`config/remove.txt` 不再使已有 Builder 的**核心兼容性**失效。打包会按最新插件清单尝试选用匹配 Builder 内的软件包：APK 已存在可直接重打包；不存在则明确失败，不能强行混用普通 Snapshot kmod。两个清单变化也会产生新的 Builder 发行版指纹，使两天一次的完整构建能够补编缺少的软件包。
 
-单独的上游 feeds 若在 ImmortalWrt/PPE/NSS 三个受监控 SHA 不变时更新，不会凭空产生新 APK；该类更新需后续扩展 feed 版本跟踪，或手动强制 Builder 构建。
+官方 packages、LuCI、routing、telephony 与 NSS/QoS feed 使用单独的源码提交指纹，能识别主系统 SHA 未变化时的上游插件版本更新。只有 Builder 重新编译后，新 APK 才能用于后续固件打包。
 
 ## 两个兼容补丁
 
