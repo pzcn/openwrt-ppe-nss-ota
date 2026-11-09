@@ -1,0 +1,184 @@
+name: Build ImmortalWrt PPE/NSS ImageBuilder from source
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Recompile even when the same ImageBuilder Release exists"
+        type: boolean
+        required: false
+        default: false
+      publish_release:
+        description: "Publish Builder and trigger firmware repack"
+        type: boolean
+        required: false
+        default: true
+  schedule:
+    # The early parity gate below makes the actual check every 48 hours UTC.
+    - cron: "43 5 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: re-ss-01-builder
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Check upstream core versions (two-day cadence)
+    runs-on: ubuntu-24.04
+    outputs:
+      needs_builder: ${{ steps.check.outputs.needs_builder }}
+      builder_tag: ${{ steps.check.outputs.builder_tag }}
+      immortal_sha: ${{ steps.check.outputs.immortal_sha }}
+      ppe_sha: ${{ steps.check.outputs.ppe_sha }}
+      base_sha: ${{ steps.check.outputs.base_sha }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check scheduled day and published Builder
+        id: check
+        shell: bash
+        env:
+          FORCE_BUILD: ${{ inputs.force_build || false }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == schedule ]]; then
+            UTC_DAY=$(( $(date -u +%s) / 86400 ))
+            if (( UTC_DAY % 2 != 0 )); then
+              echo "needs_builder=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::Off-day: Builder source check runs every second UTC day."
+              exit 0
+            fi
+          fi
+          IMM_SHA="$(git ls-remote https://github.com/immortalwrt/immortalwrt.git refs/heads/master | cut -f1)"
+          PPE_SHA="$(git ls-remote https://github.com/JuliusBairaktaris/openwrt-ppe-nss.git refs/heads/ppe-nss | cut -f1)"
+          BASE_SHA="$(git ls-remote https://github.com/JuliusBairaktaris/Qualcommax_NSS_Builder.git refs/heads/main | cut -f1)"
+          for sha in "$IMM_SHA" "$PPE_SHA" "$BASE_SHA"; do
+            [[ "$sha" =~ ^[a-f0-9]{40}$ ]] || { echo "::error::Unable to resolve upstream commit"; exit 1; }
+          done
+          TAG="$(python3 scripts/immortalwrt_builder.py tag \
+            --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA")"
+          echo "builder_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "immortal_sha=$IMM_SHA" >> "$GITHUB_OUTPUT"
+          echo "ppe_sha=$PPE_SHA" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          if [[ "$FORCE_BUILD" != true ]] && gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "needs_builder=false" >> "$GITHUB_OUTPUT"
+            echo "## No core update" >> "$GITHUB_STEP_SUMMARY"
+            echo "ImageBuilder already exists: $TAG" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "needs_builder=true" >> "$GITHUB_OUTPUT"
+            echo "## Full ImmortalWrt / NSS source build required" >> "$GITHUB_STEP_SUMMARY"
+            echo "Builder tag: $TAG" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  build:
+    name: Compile kernel, NSS, APKs and standalone Builder
+    needs: resolve
+    if: needs.resolve.outputs.needs_builder == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PUBLISH_BUILDER: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
+      EXPECTED_TAG: ${{ needs.resolve.outputs.builder_tag }}
+      EXPECTED_IMM_SHA: ${{ needs.resolve.outputs.immortal_sha }}
+      EXPECTED_PPE_SHA: ${{ needs.resolve.outputs.ppe_sha }}
+      EXPECTED_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore downloaded source archives
+        uses: actions/cache@v4
+        with:
+          path: .build-cache/dl
+          key: immortal-ipq60xx-downloads-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            immortal-ipq60xx-downloads-v1-${{ runner.os }}-
+      - name: Restore compiler objects (ccache)
+        uses: actions/cache@v4
+        with:
+          path: .build-cache/ccache
+          key: immortal-ipq60xx-ccache-v1-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            immortal-ipq60xx-ccache-v1-${{ runner.os }}-
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo apt-get clean
+          df -h
+      - name: Install source compilation dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential ack antlr3 asciidoc autoconf automake autopoint \
+            binutils bison bzip2 ccache clang cmake cpio curl device-tree-compiler \
+            file flex gawk gettext git gperf haveged help2man intltool jq \
+            libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+            libmpfr-dev libncurses-dev libreadline-dev libssl-dev libtool \
+            ninja-build p7zip-full patch pkgconf python3 python3-pip \
+            python3-ply python3-pyelftools qemu-utils rsync scons \
+            squashfs-tools subversion swig texinfo unzip wget xmlto xxd \
+            zlib1g-dev zstd
+      - name: Setup dashboard dependencies
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run offline checks
+        run: |
+          python3 scripts/tests/test-extra-apps.py
+          python3 scripts/tests/test-immortalwrt-ota.py
+          python3 scripts/tests/test-immortalwrt-builder.py
+          python3 scripts/tests/test-immortalwrt-compat.py
+          python3 scripts/tests/test-luci-native.py
+          python3 scripts/tests/test-luci-i18n.py
+          node scripts/tests/test-luci-autocheckboxes.js
+          node scripts/tests/test-ppe-nss-monitor.js
+      - name: Build ImageBuilder and test its ability to repackage
+        env:
+          PUBLISH_RELEASE: "false"
+        run: bash scripts/build-immortalwrt.sh
+      - name: Publish new Builder and dispatch firmware workflow
+        if: env.PUBLISH_BUILDER == 'true'
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          DIR="$GITHUB_WORKSPACE/out-immortal"
+          META="$DIR/builder-metadata.json"
+          TAG="$(jq -er '.tag' "$META")"
+          [[ "$TAG" == "$EXPECTED_TAG" ]] || { echo "::error::Builder tag changed during compilation"; exit 1; }
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::notice::Builder already exists; release is immutable, no duplicate publication."
+          else
+            ARCHIVE="$(find "$DIR" -maxdepth 1 -name '*imagebuilder*.tar.zst' -type f -print -quit)"
+            test -s "$ARCHIVE"
+            gh release create "$TAG" -R "$GITHUB_REPOSITORY" --latest=false \
+              --title "ImmortalWrt PPE+NSS ImageBuilder ($TAG)" \
+              --notes "ABI-matched standalone ImageBuilder for RE-SS-01. Firmware is produced by the separate firmware workflow." \
+              "$ARCHIVE" "$DIR/base-overlay.tar.gz" "$DIR/imagebuilder-packages.txt" \
+              "$META" "$DIR/source-commits.txt" "$DIR/official-toolchain-status.txt"
+            echo "Published ImageBuilder: $TAG"
+          fi
+          # workflow_dispatch is allowed to trigger another workflow using GITHUB_TOKEN.
+          gh workflow run firmware-immortalwrt.yml -R "$GITHUB_REPOSITORY" \
+            --ref main -f "builder_tag=$TAG"
+          echo "Triggered the firmware workflow with Builder: $TAG" >> "$GITHUB_STEP_SUMMARY"
+      - name: Report compilation cache efficiency
+        if: always()
+        run: |
+          if command -v ccache >/dev/null 2>&1; then
+            CCACHE_DIR="$GITHUB_WORKSPACE/.build-cache/ccache" ccache --show-stats || true
+          fi
+      - name: Upload compiled Builder and test image artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-compiled-builder
+          path: out-immortal/
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: error

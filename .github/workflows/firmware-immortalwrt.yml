@@ -1,0 +1,184 @@
+name: Firmware from released ImmortalWrt ImageBuilder
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/firmware-immortalwrt.yml"
+      - "scripts/**"
+      - "config/**"
+      - "files/**"
+  pull_request:
+    paths:
+      - ".github/workflows/firmware-immortalwrt.yml"
+      - ".github/workflows/builder-immortalwrt.yml"
+      - "scripts/**"
+      - "config/**"
+      - "files/**"
+  schedule:
+    # Every day: publish only if firmware sources or the available Builder changed.
+    - cron: "19 4 * * *"
+  workflow_dispatch:
+    inputs:
+      builder_tag:
+        description: "Optional specific published imm-builder-... tag (blank: newest)"
+        type: string
+        required: false
+        default: ""
+      force_firmware:
+        description: "Repack even when this source and Builder were already released"
+        type: boolean
+        required: false
+        default: false
+      publish_release:
+        description: "Publish the firmware Release after successful repack"
+        type: boolean
+        required: false
+        default: true
+
+permissions:
+  contents: write
+
+# A Builder release may dispatch this workflow while a code-push build is queued.
+# Serialize both so they cannot publish duplicate firmware at once.
+concurrency:
+  group: re-ss-01-firmware
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Offline checks (no image compilation)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell and Python syntax
+        run: |
+          for script in scripts/build-immortalwrt.sh scripts/repack-immortalwrt.sh scripts/reuse-official-toolchain.sh scripts/apply-immortalwrt-compat.sh; do bash -n "$script"; done
+          python3 -m compileall -q scripts
+      - name: Validate plugins, LuCI, Dr.COM, OTA, Builder and eMMC patches
+        run: |
+          python3 scripts/tests/test-luci-i18n.py
+          python3 scripts/tests/test-luci-native.py
+          node scripts/tests/test-luci-autocheckboxes.js
+          node scripts/tests/test-ppe-nss-monitor.js
+          node scripts/tests/test-drcom-rpc.js
+          python3 scripts/tests/test-drcom.py
+          python3 scripts/tests/test-extra-apps.py
+          python3 scripts/tests/test-immortalwrt-ota.py
+          python3 scripts/tests/test-immortalwrt-builder.py
+          python3 scripts/tests/test-immortalwrt-compat.py
+
+  firmware:
+    name: Resolve existing Builder and repack firmware
+    if: github.event_name != 'pull_request'
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PUBLISH_RELEASE: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Find a published Builder and check if firmware changed
+        id: resolve
+        env:
+          REQUESTED_TAG: ${{ inputs.builder_tag || '' }}
+          FORCE_FIRMWARE: ${{ inputs.force_firmware || false }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ -n "$REQUESTED_TAG" ]]; then
+            [[ "$REQUESTED_TAG" =~ ^imm-builder-[a-zA-Z0-9._-]+$ ]] || { echo "::error::Invalid Builder tag"; exit 1; }
+            TAG="$REQUESTED_TAG"
+          else
+            TAG="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --jq '[.[] | select(.draft == false and .prerelease == false and (.tag_name | startswith("imm-builder-")))] | sort_by(.published_at) | last | .tag_name // empty')"
+          fi
+          if [[ -z "$TAG" ]]; then
+            echo "needs_image=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No published ImageBuilder exists. Wait for the two-day Builder workflow."
+            exit 0
+          fi
+          echo "builder_tag=$TAG" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/imm-builder-download"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" \
+            -D "$RUNNER_TEMP/imm-builder-download" -p builder-metadata.json
+          META="$RUNNER_TEMP/imm-builder-download/builder-metadata.json"
+          EXPECTED="$(python3 scripts/immortalwrt_builder.py fingerprint)"
+          FOUND="$(jq -er '.fingerprint' "$META")"
+          META_TAG="$(jq -er '.tag' "$META")"
+          if [[ "$META_TAG" != "$TAG" || "$EXPECTED" != "$FOUND" ]]; then
+            if [[ -n "$REQUESTED_TAG" ]]; then
+              echo "::error::Requested Builder does not match current kernel/NSS source configuration."
+              exit 1
+            fi
+            echo "needs_image=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Newest Builder does not match the current core config. Await the scheduled Builder build."
+            exit 0
+          fi
+          if [[ "$FORCE_FIRMWARE" != true ]]; then
+            LATEST="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --jq '[.[] | select(.draft == false and (.tag_name | startswith("imm-ppe-nss-")))] | sort_by(.published_at) | last | .tag_name // empty')"
+            if [[ -n "$LATEST" ]]; then
+              mkdir -p "$RUNNER_TEMP/imm-last-firmware"
+              if gh release download "$LATEST" -R "$GITHUB_REPOSITORY" \
+                -D "$RUNNER_TEMP/imm-last-firmware" -p ota.json >/dev/null 2>&1; then
+                OLD_META="$RUNNER_TEMP/imm-last-firmware/ota.json"
+                if jq -e --arg builder "$TAG" --arg source "$GITHUB_SHA" \
+                    '.builder_tag == $builder and .source_commit == $source' "$OLD_META" >/dev/null; then
+                  echo "needs_image=false" >> "$GITHUB_OUTPUT"
+                  echo "## No new firmware" >> "$GITHUB_STEP_SUMMARY"
+                  echo "Existing firmware matches source $GITHUB_SHA and Builder $TAG." >> "$GITHUB_STEP_SUMMARY"
+                  exit 0
+                fi
+              fi
+            fi
+          fi
+          echo "needs_image=true" >> "$GITHUB_OUTPUT"
+          echo "## Repack firmware" >> "$GITHUB_STEP_SUMMARY"
+          echo "Builder: $TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install ImageBuilder repack dependencies
+        if: steps.resolve.outputs.needs_image == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zstd rsync jq python3 make
+      - name: Setup Node.js for LuCI checks
+        if: steps.resolve.outputs.needs_image == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Download exactly matching Builder assets
+        if: steps.resolve.outputs.needs_image == 'true'
+        env:
+          BUILDER_TAG: ${{ steps.resolve.outputs.builder_tag }}
+        run: |
+          set -Eeuo pipefail
+          gh release download "$BUILDER_TAG" -R "$GITHUB_REPOSITORY" \
+            -D "$RUNNER_TEMP/imm-builder-download" \
+            -p '*imagebuilder*.tar.zst' -p 'base-overlay.tar.gz' \
+            -p 'imagebuilder-packages.txt'
+      - name: Repack firmware from Builder (never compile kernel)
+        if: steps.resolve.outputs.needs_image == 'true'
+        run: |
+          set -Eeuo pipefail
+          DIR="$RUNNER_TEMP/imm-builder-download"
+          ARCHIVE="$(find "$DIR" -maxdepth 1 -type f -name '*imagebuilder*.tar.zst' -print -quit)"
+          test -n "$ARCHIVE"
+          BUILDER_META="$DIR/builder-metadata.json" \
+          BUILDER_ARCHIVE="$ARCHIVE" \
+          BASE_OVERLAY="$DIR/base-overlay.tar.gz" \
+          BUILDER_PACKAGES="$DIR/imagebuilder-packages.txt" \
+          bash scripts/repack-immortalwrt.sh
+      - name: Upload repacked firmware for inspection
+        if: steps.resolve.outputs.needs_image == 'true' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-repacked-firmware
+          path: out-immortal/
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: error
