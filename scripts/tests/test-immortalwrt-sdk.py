@@ -136,6 +136,11 @@ toolchain_script = (ROOT / "scripts/reuse-official-toolchain.sh").read_text()
 build_script = (ROOT / "scripts/build-immortalwrt.sh").read_text()
 builder_workflow = (ROOT / ".github/workflows/builder-immortalwrt.yml").read_text()
 assert "CONFIG_SDK=y" in config
+assert 'bash "$ROOT/scripts/test-sdk-smoke.sh" "$SDK_ARCHIVE" "$WORK/sdk-smoke"' in build_script
+assert (ROOT / "scripts/test-sdk-smoke.sh").is_file()
+subprocess.run(["bash", "-n", str(ROOT / "scripts/test-sdk-smoke.sh")],
+               check=True, capture_output=True)
+
 assert "CONFIG_EXTERNAL_TOOLCHAIN_SDK=y" in toolchain_script
 assert "CONFIG_EXTERNAL_TOOLCHAIN_SDK=y" in build_script
 assert "grep -Fqx 'CONFIG_SDK=y'" in build_script
