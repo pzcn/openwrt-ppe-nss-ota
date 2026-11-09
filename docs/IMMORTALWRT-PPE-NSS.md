@@ -63,11 +63,21 @@ Dr.COM 校园网认证 App 的菜单、后端、启动脚本和定时认证任�
 
 添加/排除包见 `config/add.txt`、`config/remove.txt`；设备及内核配置见 `config/immortalwrt-re-ss-01.config`。源码构建检查 Kconfig 必选项；ImageBuilder 使用匹配的完整 APK 包仓库。
 
-## 缓存现状
+## Builder 编译耗时与加速
 
-`dl/`、ccache 和官方 GCC/musl 工具链复用已接入。2026-11-09 的一次完整编译日志显示下载缓存命中、ccache 命中率 25.45%、官方工具链通过验证，但完整编译仍约 97 分钟。这些机制不影响固件工作流复用最新已发布 Builder；下一轮单独研究加速方案。
+[2026-11-09 Builder Actions #42594186291](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/42594186291) 实际耗时约 **142 分钟**；构建脚本报告 `make download` **143 秒**，`make -j$(nproc)` **7884 秒**（131.4 分钟）。这是首次未命中历史下载缓存与 ccache 的冷启动，ccache 只有同一轮任务内部的 **3183/29977（10.62%）** 命中。官方 GCC 14.4.0/musl 1.2.6 交叉工具链已经被复用。
 
-ImageBuilder 已作为 Release 资产发布，没有第二套 Builder 缓存。
+现在恢复三种独立缓存：
+
+- `.build-cache/dl`：下载源码归档、Go modules；
+- `.build-cache/ccache`：C/C++ 编译对象（1.6 GB 上限）；
+- `.build-cache/go-build`：Go 的标准库和交叉编译结果，配置项 `CONFIG_GOLANG_BUILD_CACHE_DIR`，不再丢在每次构建都会清空的 `tmp/go-build`。
+
+同时使用 GitHub `actions/setup-go@v6` 安装官方 Go 1.26 二进制，利用官方 packages feed 自带的 `GOLANG_EXTERNAL_BOOTSTRAP_ROOT` 与 `GOLANG_BUILD_BOOTSTRAP` 配置跳过多级旧 Go 自举。匹配的 Go 1.27 宿主编译器仍会构建。设置未生效时在主编译之前失败，避免静默回退。新增分阶段计时，后续可以对比实际收益。
+
+GitHub Actions 默认缓存 **7 天未访问可能清理**，仓库额度默认 **10 GB**；每周一次编译接近 7 天边界。若缓存经常失效，应将仓库 Actions 缓存保留期调整到至少 14 天（在 GitHub 设置中操作），或者改用有持久磁盘的自托管 Runner。任何缓存都不能跨编译组合强行复用不兼容的 NSS/kmod 内核对象。
+
+本项目已经使用官方预编译交叉工具链；大幅缩短编译时间的下一步通常是更高核心数的 Runner 或受版本校验约束的持久化增量构建，而不是给 `make download` 增加线程。**本次改动尚未跑完整源码构建性能对照**，加速幅度需从下一次 Actions 日志测量。
 
 ## 设备验证
 

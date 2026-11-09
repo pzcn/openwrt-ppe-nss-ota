@@ -187,6 +187,12 @@ assert 'External toolchain root missing after make defconfig' in full_build
 assert 'ln -s "$CACHE_DL" "$IMM/dl"' in full_build
 assert 'ln -s "$CACHE_CCACHE" "$IMM/.ccache"' in full_build
 assert 'ccache --show-stats' in full_build
+assert 'CACHE_GO="$CACHE_ROOT/go-build"' in full_build
+assert 'CONFIG_GOLANG_BUILD_CACHE_DIR=' in full_build
+assert 'CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT=' in full_build
+assert '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' in full_build
+assert 'OpenWrt did not disable the multi-generation Go bootstrap' in full_build
+assert 'SMOKE_SECONDS=' in full_build
 assert "reuse-official-toolchain.sh" in full_build
 assert 'Built firmware manifest missing' in full_build
 assert 'Standalone ImageBuilder repack smoke test' in full_build
@@ -197,6 +203,10 @@ firmware_workflow = (ROOT / ".github/workflows/firmware-immortalwrt.yml").read_t
 assert "actions/cache@v4" in builder_workflow
 assert ".build-cache/dl" in builder_workflow
 assert ".build-cache/ccache" in builder_workflow
+assert ".build-cache/go-build" in builder_workflow
+assert "go-version: '1.26'" in builder_workflow
+assert "actions/setup-go@v6" in builder_workflow
+assert "Restore Go compilation cache" in builder_workflow
 assert "gh workflow run firmware-immortalwrt.yml" in builder_workflow
 assert "PUBLISH_RELEASE: \"false\"" in builder_workflow
 assert "scripts/repack-immortalwrt.sh" in firmware_workflow
