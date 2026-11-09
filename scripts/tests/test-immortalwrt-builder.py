@@ -191,7 +191,7 @@ assert 'CACHE_GO="$CACHE_ROOT/go-build"' in full_build
 assert 'CONFIG_GOLANG_BUILD_CACHE_DIR=' in full_build
 assert 'CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT=' in full_build
 assert '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' in full_build
-assert 'OpenWrt did not disable the multi-generation Go bootstrap' in full_build
+assert 'External Go bootstrap Kconfig was not retained' in full_build
 assert 'SMOKE_SECONDS=' in full_build
 assert "reuse-official-toolchain.sh" in full_build
 assert 'Built firmware manifest missing' in full_build

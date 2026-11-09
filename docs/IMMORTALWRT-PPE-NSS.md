@@ -73,7 +73,7 @@ Dr.COM 校园网认证 App 的菜单、后端、启动脚本和定时认证任�
 - `.build-cache/ccache`：C/C++ 编译对象（1.6 GB 上限）；
 - `.build-cache/go-build`：Go 的标准库和交叉编译结果，配置项 `CONFIG_GOLANG_BUILD_CACHE_DIR`，不再丢在每次构建都会清空的 `tmp/go-build`。
 
-同时使用 GitHub `actions/setup-go@v6` 安装官方 Go 1.26 二进制，利用官方 packages feed 自带的 `GOLANG_EXTERNAL_BOOTSTRAP_ROOT` 与 `GOLANG_BUILD_BOOTSTRAP` 配置跳过多级旧 Go 自举。匹配的 Go 1.27 宿主编译器仍会构建。设置未生效时在主编译之前失败，避免静默回退。新增分阶段计时，后续可以对比实际收益。
+同时使用 GitHub `actions/setup-go@v6` 安装官方 Go 1.26 二进制，利用官方 packages feed 自带的 `GOLANG_EXTERNAL_BOOTSTRAP_ROOT` 与 `GOLANG_BUILD_BOOTSTRAP` 配置跳过多级旧 Go 自举。匹配的 Go 1.27 宿主编译器仍会构建。设置未生效时在主编译之前明确告警，并自动使用上游默认方式继续编译。新增分阶段计时，后续可以对比实际收益。
 
 GitHub Actions 默认缓存 **7 天未访问可能清理**，仓库额度默认 **10 GB**；每周一次编译接近 7 天边界。若缓存经常失效，应将仓库 Actions 缓存保留期调整到至少 14 天（在 GitHub 设置中操作），或者改用有持久磁盘的自托管 Runner。任何缓存都不能跨编译组合强行复用不兼容的 NSS/kmod 内核对象。
 

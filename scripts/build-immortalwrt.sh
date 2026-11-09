@@ -228,13 +228,17 @@ fi
 grep -Fqx 'CONFIG_IB=y' "$IMM/.config"
 grep -Fqx 'CONFIG_IB_STANDALONE=y' "$IMM/.config"
 grep -Fqx 'CONFIG_CCACHE=y' "$IMM/.config"
-# Never silently waste time if defconfig drops the Go performance settings.
-grep -Fxq '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' "$IMM/.config" || {
-  echo "::error::OpenWrt did not disable the multi-generation Go bootstrap." >&2
-  exit 1
-}
-grep -Fxq "CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT=\"$GO_BOOTSTRAP_ROOT\"" "$IMM/.config"
-grep -Fxq "CONFIG_GOLANG_BUILD_CACHE_DIR=\"$CACHE_GO\"" "$IMM/.config"
+# Keep firmware buildable if upstream moves its Go Kconfig options.
+# Report missing performance settings, without skipping any required APK.
+if grep -Fxq '# CONFIG_GOLANG_BUILD_BOOTSTRAP is not set' "$IMM/.config" &&
+   grep -Fxq "CONFIG_GOLANG_EXTERNAL_BOOTSTRAP_ROOT=\"$GO_BOOTSTRAP_ROOT\"" "$IMM/.config"; then
+  echo "Using official $GO_BOOTSTRAP_VERSION as OpenWrt Go bootstrap."
+else
+  echo "::warning::External Go bootstrap Kconfig was not retained; using upstream Go bootstrap." >&2
+fi
+if ! grep -Fxq "CONFIG_GOLANG_BUILD_CACHE_DIR=\"$CACHE_GO\"" "$IMM/.config"; then
+  echo "::warning::Persistent Go cache Kconfig was not retained; using upstream Go cache." >&2
+fi
 if grep -Fqx 'toolchain=official-immortalwrt' "$OUT/official-toolchain-status.txt"; then
   grep -Fqx 'CONFIG_EXTERNAL_TOOLCHAIN=y' "$IMM/.config"
   grep -Fqx 'CONFIG_EXTERNAL_TOOLCHAIN_IB=y' "$IMM/.config"
