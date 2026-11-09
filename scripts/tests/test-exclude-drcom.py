@@ -22,9 +22,13 @@ sources = [
     "usr/share/rpcd/ucode/luci.drcom",
     "www/luci-static/resources/view/network/drcom-native.js",
 ]
-assert 'sh "$ROOT/scripts/exclude-drcom-from-firmware.sh" "$IMM/files"' in build
-assert 'sh "$ROOT/scripts/exclude-drcom-from-firmware.sh" "$WORK/overlay"' in repack
+assert 'sh "$ROOT/scripts/stage-firmware-overlay.sh" "$IMM/files"' in build
+assert 'sh "$ROOT/scripts/stage-firmware-overlay.sh" "$WORK/overlay"' in repack
+stage_script = root / "scripts/stage-firmware-overlay.sh"
+assert 'sh "$SCRIPT_DIR/exclude-drcom-from-firmware.sh" "$1"' in stage_script.read_text()
+assert "drcom" not in build.lower()
 subprocess.run(["sh", "-n", str(filter_script)], check=True)
+subprocess.run(["sh", "-n", str(stage_script)], check=True)
 
 for name in sources:
     assert (root / "files" / name).is_file(), "Source missing from repository: " + name
@@ -39,7 +43,7 @@ with tempfile.TemporaryDirectory() as d:
     keep.parent.mkdir(parents=True, exist_ok=True)
     keep.write_text("keep")
     for _ in range(2):
-        subprocess.run(["sh", str(filter_script), str(overlay)], check=True)
+        subprocess.run(["sh", str(stage_script), str(overlay)], check=True)
     assert all(not (overlay / name).exists() for name in sources)
     assert keep.read_text() == "keep"
 assert "Dr.COM, F2FS/ext4" not in build

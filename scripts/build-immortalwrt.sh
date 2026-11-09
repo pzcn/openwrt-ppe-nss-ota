@@ -133,8 +133,8 @@ clone https://github.com/lauyv/luci-app-sing-box.git v0.4.7 "$IMM/package/luci-a
   bash dashboard/build.sh
 )
 
-# Preserve the PPE/NSS QoS + system upgrade init pieces and the original
-# custom LuCI, Tailscale, sing-box, WOL, and storage layout.
+# BEGIN firmware-only overlay (excluded from Builder fingerprint)
+# Preserve PPE/NSS defaults and apply firmware-only LuCI and app selection.
 mkdir -p "$IMM/files"
 rsync -a "$BUILDER/devices/common/files.ppe-nss/" "$IMM/files/"
 rsync -a "$ROOT/files/" "$IMM/files/"
@@ -144,8 +144,8 @@ rm -f "$IMM/files/www/luci-static/resources/view/system/ppe-update.js" \
       "$IMM/files/etc/ppe-release" \
       "$IMM/files/etc/config/fstab" \
       "$IMM/files/etc/uci-defaults/96-migrate-legacy-extroot"
-# Keep app sources in Git but remove their files before compiling.
-sh "$ROOT/scripts/exclude-drcom-from-firmware.sh" "$IMM/files"
+# App inclusion/exclusion is applied at image packaging time, not in Builder.
+sh "$ROOT/scripts/stage-firmware-overlay.sh" "$IMM/files"
 
 # Temporary F2FS and eMMC sysupgrade fixes, bundled in full and repacked images.
 bash "$ROOT/scripts/apply-immortalwrt-compat.sh" "$IMM" "$IMM/files"
@@ -167,6 +167,7 @@ for s in "$IMM/files/usr/sbin/ppe-update" \
   sh -n "$s"
 done
 node --check "$IMM/files/www/luci-static/resources/view/system/flash.js"
+# END firmware-only overlay
 
 # All user-requested packages are taken from ImmortalWrt's own source feeds.
 # Kernel packages are compiled with this exact kernel; no OpenWrt snapshot APKs.

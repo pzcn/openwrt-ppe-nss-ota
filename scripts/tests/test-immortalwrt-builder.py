@@ -25,13 +25,36 @@ with tempfile.TemporaryDirectory() as d:
     for name in mod.CORE_FILES:
         p = tmp / name
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text("core configuration\n")
+        if name == mod.CORE_RECIPE:
+            p.write_text(
+                "compile setup\n"
+                + mod.FIRMWARE_ONLY_BEGIN.decode()
+                + "custom app selection\n"
+                + mod.FIRMWARE_ONLY_END.decode()
+                + "compile tail\n"
+            )
+        else:
+            p.write_text("core configuration\n")
     for name in mod.PACKAGE_FILES:
         p = tmp / name
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("initial package selection\n")
     one = mod.fingerprint(tmp)
     assert len(one) == 64
+    recipe = tmp / mod.CORE_RECIPE
+    original_recipe = recipe.read_text()
+    recipe.write_text(original_recipe.replace("custom app selection", "change Dr.COM and LuCI"))
+    assert mod.fingerprint(tmp) == one, "Firmware-only apps cannot invalidate Builder"
+    recipe.write_text(original_recipe.replace("compile tail", "compile tail changed"))
+    assert mod.fingerprint(tmp) != one, "Source compile logic must invalidate Builder"
+    recipe.write_text(original_recipe)
+    for invalid in (b"no markers at all", mod.FIRMWARE_ONLY_BEGIN * 2 + mod.FIRMWARE_ONLY_END):
+        try:
+            mod.core_recipe_bytes(invalid)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Missing/duplicate app staging markers were accepted")
     assert mod.tag(imm, ppe, base, tmp) != mod.tag(imm, "d" * 40, base, tmp)
     package_before = mod.package_fingerprint(tmp)
     (tmp / "config/add.txt").parent.mkdir(parents=True, exist_ok=True)
@@ -148,4 +171,11 @@ assert 'git -C "$IMM/feeds/$feed" rev-parse HEAD' in full_build
 assert "scripts/apply-immortalwrt-compat.sh" in mod.CORE_FILES
 assert "config/add.txt" not in mod.CORE_FILES
 assert "config/add.txt" in mod.PACKAGE_FILES
-print("PASS daily firmware and unconditional weekly/manual Builder Actions")
+assert mod.CORE_RECIPE in mod.CORE_FILES
+assert "scripts/stage-firmware-overlay.sh" not in mod.CORE_FILES
+assert "scripts/exclude-drcom-from-firmware.sh" not in mod.CORE_FILES
+assert "drcom" not in full_build.lower()
+assert "drcom" not in builder_workflow.lower()
+assert mod.FIRMWARE_ONLY_BEGIN.decode().rstrip("\n") in full_build
+assert mod.FIRMWARE_ONLY_END.decode().rstrip("\n") in full_build
+print("PASS firmware app policy excluded from Builder fingerprint and workflow")

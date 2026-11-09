@@ -11,8 +11,29 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 # Only source-build inputs belong here; overlay, plugin selections and
 # metadata scripts can change without invalidating a compiled ImageBuilder.
+CORE_RECIPE = "scripts/build-immortalwrt.sh"
+FIRMWARE_ONLY_BEGIN = b"# BEGIN firmware-only overlay (excluded from Builder fingerprint)\n"
+FIRMWARE_ONLY_END = b"# END firmware-only overlay\n"
+
+
+def core_recipe_bytes(raw: bytes) -> bytes:
+    """Exclude only the explicitly marked firmware-overlay staging block.
+
+    Changes to kernel, feeds, NSS and compile commands outside these markers
+    still invalidate the ABI-matched Builder. A missing/duplicate marker is
+    a hard error; never accidentally hash the wrong script portion.
+    """
+    if raw.count(FIRMWARE_ONLY_BEGIN) != 1 or raw.count(FIRMWARE_ONLY_END) != 1:
+        raise ValueError("Firmware-only overlay markers missing or duplicated")
+    before, tail = raw.split(FIRMWARE_ONLY_BEGIN, 1)
+    firmware_only, after = tail.split(FIRMWARE_ONLY_END, 1)
+    if not firmware_only:
+        raise ValueError("Empty firmware-only overlay section")
+    return before + b"# firmware-only overlay omitted from core fingerprint\n" + after
+
+
 CORE_FILES = (
-    "scripts/build-immortalwrt.sh",
+    CORE_RECIPE,
     "scripts/reuse-official-toolchain.sh",
     "scripts/port-ppe-nss-to-immortalwrt.sh",
     "scripts/apply-immortalwrt-compat.sh",
@@ -31,6 +52,8 @@ def fingerprint(root: Path = ROOT) -> str:
     digest = hashlib.sha256()
     for name in CORE_FILES:
         data = (root / name).read_bytes()
+        if name == CORE_RECIPE:
+            data = core_recipe_bytes(data)
         digest.update(name.encode("utf-8") + b"\0")
         digest.update(data)
         digest.update(b"\0")
