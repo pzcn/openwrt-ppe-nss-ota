@@ -47,9 +47,19 @@ const sample = {
 	conntrack: { available: true, hardware: 35, software: 12, total: 190 },
 	ppe: { hw_setting: true, offload_stats: 'rx 1234', debugfs_found: true },
 	nss: { wifi_active: true, visible_cores: 2, running_cores: 2,
-		wifi_config: '1', flows_found: true }
+		wifi_config: '1', flows_found: true },
+	telemetry: {
+		ppe: { live_entries: 5, offloaded_total: 87, table_full: 3,
+			rejected_total: 16, xmit_drop: 1 },
+		ppe_ports: { ports: 2, packets: 300, bytes: 220000, drop_packets: 1 },
+		nss: { installed: 2, bridged_installed: 1, pushed_total: 29,
+			bridged_active: 2 },
+		wifi: { vdevs: 2, reports: 42, rx_bytes: 750000,
+			rx_packets: 125, tx_packets: 112, rx_enqueue_fail: 3,
+			tx_dropped: 4, tx_ring_full: 1 }
+	}
 };
-let poller = null, frequency = null, status = sample;
+let poller = null, frequency = null, status = sample, clock = 100000;
 const sandbox = {
 	E,
 	view: { extend: methods => methods },
@@ -62,7 +72,7 @@ const sandbox = {
 		resolveDefault: promise => promise,
 		bind: (fn, ctx, ...args) => fn.bind(ctx, ...args)
 	},
-	Date, Promise, isFinite
+	Date: { now: () => clock }, Promise, isFinite
 };
 
 const methods = vm.runInNewContext('(function() {\n' + source + '\n})()', sandbox);
@@ -86,13 +96,47 @@ assert.equal(nodes.filter(n => n.tag === 'button').length, 0);
 assert.equal(frequency, 8);
 assert.equal(typeof poller, 'function');
 
-assert.equal(value('ppe-state'), '已启用');
-assert.equal(value('wifi-state'), '已启用');
+assert.equal(value('ppe-state'), '已启用（配置）');
+assert.equal(value('wifi-state'), '已启用（模块参数）');
 assert.equal(value('nss-state'), '2 / 2 运行');
+assert.equal(value('ppe-live'), '5');
+assert.equal(value('nss-live'), '2');
+assert.equal(value('nss-bridged'), '1');
+assert.equal(value('ppe-offloaded'), '87');
+assert.equal(value('nss-pushed'), '29');
+assert.equal(value('ppe-rate'), '采样中');
+assert.equal(value('wifi-rate'), '采样中');
+assert.equal(value('wifi-rx'), '125');
+assert.equal(value('wifi-tx'), '112');
 assert.equal(value('hw'), '35');
 assert.equal(value('sw'), '12');
 assert.equal(value('ct'), '190');
-assert.equal(value('ppe-debug'), 'rx 1234');
+assert(value('ppe-debug').includes('rx 1234'));
+assert(value('nss-debug').includes('驱动'));
+clock += 8000;
+page.apply({
+	...sample,
+	telemetry: {
+		...sample.telemetry,
+		ppe_ports: { ...sample.telemetry.ppe_ports, bytes: 1220000 },
+		wifi: { ...sample.telemetry.wifi, rx_bytes: 1750000 }
+	}
+});
+assert.equal(value('ppe-rate'), '1.00 Mb/s');
+assert.equal(value('wifi-rate'), '1.00 Mb/s');
+
+// A 32-bit counter wrap/reboot must NOT display a negative/fictitious rate.
+clock += 8000;
+page.apply({
+	...sample,
+	telemetry: {
+		...sample.telemetry,
+		ppe_ports: { ...sample.telemetry.ppe_ports, bytes: 100 },
+		wifi: { ...sample.telemetry.wifi, rx_bytes: 100 }
+	}
+});
+assert.equal(value('ppe-rate'), '采样中');
+assert.equal(value('wifi-rate'), '采样中');
 
 page.apply({
 	schema: 1,
@@ -100,9 +144,10 @@ page.apply({
 	ppe: { hw_setting: false },
 	nss: { wifi_active: false, visible_cores: 0 }
 });
-assert.equal(value('ppe-state'), '未启用');
-assert.equal(value('wifi-state'), '未启用');
+assert.equal(value('ppe-state'), '未启用（配置）');
+assert.equal(value('wifi-state'), '未启用（模块参数）');
 assert.equal(value('hw'), '—');
+assert.equal(value('ppe-live'), '—');
 assert.equal(value('nss-state'), '未知');
 
 page.apply(null);
