@@ -32,6 +32,9 @@ mapfile -t IB_DIRS < <(find "$WORK/builder" -mindepth 1 -maxdepth 1 -type d -nam
 [[ "${#IB_DIRS[@]}" -eq 1 ]] || { echo "::error::Unexpected ImageBuilder archive layout" >&2; exit 1; }
 IB="${IB_DIRS[0]}"
 test -f "$IB/Makefile"
+# Only if requested packages are missing, use the exact matching SDK to
+# compile APKs and augment this extracted ImageBuilder's local repository.
+bash "$ROOT/scripts/rebuild-missing-apks.sh" "$IB" "$META"
 
 # Combine the PPE base files with user customizations and fresh OTA metadata.
 tar -xzf "$BASE_OVERLAY" -C "$WORK/overlay"

@@ -55,7 +55,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check shell and Python syntax
         run: |
-          for script in scripts/build-immortalwrt.sh scripts/repack-immortalwrt.sh scripts/reuse-official-toolchain.sh scripts/apply-immortalwrt-compat.sh; do bash -n "$script"; done
+          for script in scripts/build-immortalwrt.sh scripts/repack-immortalwrt.sh scripts/rebuild-missing-apks.sh scripts/reuse-official-toolchain.sh scripts/apply-immortalwrt-compat.sh; do bash -n "$script"; done
           python3 -m compileall -q scripts
       - name: Validate plugins, LuCI, Dr.COM, OTA, Builder and eMMC patches
         run: |
@@ -70,6 +70,7 @@ jobs:
           python3 scripts/tests/test-immortalwrt-ota.py
           python3 scripts/tests/test-immortalwrt-builder.py
           python3 scripts/tests/test-immortalwrt-sdk.py
+          python3 scripts/tests/test-immortalwrt-sdk-apks.py
           python3 scripts/tests/test-immortalwrt-compat.py
           python3 scripts/tests/test-exclude-drcom.py
 
@@ -78,7 +79,7 @@ jobs:
     if: github.event_name != 'pull_request'
     needs: validate
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 180
     env:
       GH_TOKEN: ${{ github.token }}
       PUBLISH_RELEASE: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
@@ -152,6 +153,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - name: Reuse extra APKs already built by the same SDK
+        if: steps.resolve.outputs.needs_image == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .build-cache/sdk-apks
+          key: sdk-apks-v1-${{ steps.resolve.outputs.builder_tag }}-${{ hashFiles('config/add.txt', 'config/remove.txt') }}
       - name: Download exactly matching Builder assets
         if: steps.resolve.outputs.needs_image == 'true'
         env:
@@ -162,7 +169,7 @@ jobs:
             -D "$RUNNER_TEMP/imm-builder-download" \
             -p '*imagebuilder*.tar.zst' -p 'base-overlay.tar.gz' \
             -p 'imagebuilder-packages.txt'
-      - name: Repack firmware from Builder (never compile kernel)
+      - name: Repack firmware (SDK compiles missing packages only)
         if: steps.resolve.outputs.needs_image == 'true'
         run: |
           set -Eeuo pipefail
