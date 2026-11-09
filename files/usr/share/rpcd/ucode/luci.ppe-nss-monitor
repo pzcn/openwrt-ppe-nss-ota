@@ -79,6 +79,23 @@ function connection_counts() {
 	};
 }
 
+/* A fixed, read-only helper translates upstream debugfs formats to JSON.
+ * It emits aggregates only, never a connection's IP addresses or ports. */
+function driver_counters() {
+	let p = popen('/usr/libexec/ppe-nss-telemetry 2>/dev/null', 'r');
+	if (!p)
+		return null;
+	let raw = p.read('all');
+	p.close();
+	if (!raw)
+		return null;
+	try {
+		return json(raw);
+	} catch (e) {
+		return null;
+	}
+}
+
 function nss_boot() {
 	let paths = glob('/sys/kernel/debug/*.nss/boot') || [];
 	let running = 0, inspected = 0;
@@ -107,6 +124,7 @@ const methods = {
 			let param = bool_file('/sys/module/ath11k/parameters/nss_offload');
 			return {
 				schema: 1,
+				telemetry: driver_counters(),
 				conntrack: connection_counts(),
 				ppe: {
 					hw_setting: firewall_hw(),
