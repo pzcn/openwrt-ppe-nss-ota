@@ -21,6 +21,21 @@ PKG = re.compile(r"^[a-z0-9][a-z0-9+._-]*$")
 APK = re.compile(r"^[a-z0-9][a-z0-9+._-]*-[0-9][a-zA-Z0-9.+_~-]*\.apk$")
 PACKAGE_LIMIT = 256
 CACHE_SCHEMA = 1
+PROTECTED = frozenset(("kernel", "base-files", "libc", "libgcc", "libstdcpp"))
+
+
+def apk_package_name(filename: str) -> str:
+    """Extract the package name from OpenWrt APK: name-version[-rN].apk."""
+    if not APK.fullmatch(filename):
+        raise ValueError(f"Unexpected APK filename: {filename}")
+    stem = filename[:-4]
+    head, marker, release = stem.rpartition("-r")
+    if marker and release.isdigit():
+        stem = head
+    name, sep, version = stem.rpartition("-")
+    if not sep or not version[:1].isdigit() or not PKG.fullmatch(name):
+        raise ValueError(f"Unrecognized APK package filename: {filename}")
+    return name
 
 
 def request_names(path: Path) -> list[str]:
@@ -35,8 +50,7 @@ def request_names(path: Path) -> list[str]:
 
 
 def package_in_directory(folder: Path, name: str) -> bool:
-    return any(f.is_file() and f.name.startswith(name + "-") and
-               APK.fullmatch(f.name) and f.name[len(name)+1:][:1].isdigit()
+    return any(f.is_file() and apk_package_name(f.name) == name
                for f in folder.glob(name + "-*.apk"))
 
 
@@ -101,8 +115,7 @@ def safe_apk_files(cache: Path, identity: dict, expected: list[str]) -> list[Pat
         names.add(name)
         files.append(candidate)
     for pkg in expected:
-        if not any(f.name.startswith(pkg + "-") and f.name[len(pkg)+1].isdigit()
-                   for f in files):
+        if not any(apk_package_name(f.name) == pkg for f in files):
             raise ValueError(f"SDK APK bundle is missing requested package {pkg}")
     return files
 
@@ -117,15 +130,18 @@ def collect(sdk_bin: Path, imagebuilder: Path, cache: Path,
         raise ValueError("SDK did not compile any APKs")
     outputs: list[Path] = []
     filenames = set()
+    existing_names = {apk_package_name(f.name)
+                      for f in existing.glob("*.apk") if f.is_file()}
     for path in discovered:
         if not path.is_file() or not APK.fullmatch(path.name):
             raise ValueError(f"Unexpected compiled artifact: {path}")
+        name = apk_package_name(path.name)
         if path.name in filenames:
             raise ValueError(f"Duplicate SDK APK basename: {path.name}")
         filenames.add(path.name)
-        # Preserve ImageBuilder's own existing APKs, kernel ABI and libc.
-        # Versions for the same package must never be silently replaced.
-        if (existing / path.name).exists():
+        # Never introduce or replace toolchain ABI packages or any package
+        # already provided by the immutable standalone ImageBuilder.
+        if name in PROTECTED or name in existing_names:
             continue
         outputs.append(path)
     if not outputs or len(outputs) > PACKAGE_LIMIT:
@@ -147,8 +163,15 @@ def collect(sdk_bin: Path, imagebuilder: Path, cache: Path,
 def install(cache: Path, imagebuilder: Path, identity: dict, expected: list[str]) -> int:
     files = safe_apk_files(cache, identity, expected)
     repo = imagebuilder / "packages"
+    existing_names = {apk_package_name(f.name)
+                      for f in repo.glob("*.apk") if f.is_file()}
     installed = 0
     for file in files:
+        pkg_name = apk_package_name(file.name)
+        if pkg_name in PROTECTED:
+            raise ValueError(f"SDK APK cannot replace toolchain ABI package: {pkg_name}")
+        if pkg_name in existing_names and not (repo / file.name).exists():
+            raise ValueError(f"SDK APK version conflicts with existing Builder: {pkg_name}")
         dest = repo / file.name
         if dest.exists():
             if sha256(dest) != sha256(file):
