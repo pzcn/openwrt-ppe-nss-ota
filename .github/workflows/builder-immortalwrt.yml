@@ -34,6 +34,7 @@ jobs:
       immortal_sha: ${{ steps.check.outputs.immortal_sha }}
       ppe_sha: ${{ steps.check.outputs.ppe_sha }}
       base_sha: ${{ steps.check.outputs.base_sha }}
+      feeds_fingerprint: ${{ steps.check.outputs.feeds_fingerprint }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -59,12 +60,34 @@ jobs:
           for sha in "$IMM_SHA" "$PPE_SHA" "$BASE_SHA"; do
             [[ "$sha" =~ ^[a-f0-9]{40}$ ]] || { echo "::error::Unable to resolve upstream commit"; exit 1; }
           done
+          # These independent feeds may update even when ImmortalWrt master does not.
+          # Ordered exactly like build-immortalwrt.sh's post-fetch verification.
+          FEEDS_FINGERPRINT="$(
+            {
+              for repo_ref in \
+                "https://github.com/immortalwrt/packages.git|HEAD" \
+                "https://github.com/immortalwrt/luci.git|HEAD" \
+                "https://github.com/openwrt/routing.git|HEAD" \
+                "https://github.com/openwrt/telephony.git|HEAD" \
+                "https://github.com/JuliusBairaktaris/nss-packages.git|refs/heads/ppe-nss" \
+                "https://github.com/JuliusBairaktaris/luci.git|refs/heads/luci-app-ppe-qos"
+              do
+                url="${repo_ref%%|*}"
+                ref="${repo_ref#*|}"
+                sha="$(git ls-remote "$url" "$ref" | cut -f1)"
+                [[ "$sha" =~ ^[a-f0-9]{40}$ ]] || { echo "::error::Unable to resolve feed: $url" >&2; exit 1; }
+                printf '%s\n' "$sha"
+              done
+            } | sha256sum | cut -d' ' -f1
+          )"
           TAG="$(python3 scripts/immortalwrt_builder.py tag \
-            --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA")"
+            --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
+            --feeds "$FEEDS_FINGERPRINT")"
           echo "builder_tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "immortal_sha=$IMM_SHA" >> "$GITHUB_OUTPUT"
           echo "ppe_sha=$PPE_SHA" >> "$GITHUB_OUTPUT"
           echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "feeds_fingerprint=$FEEDS_FINGERPRINT" >> "$GITHUB_OUTPUT"
           if [[ "$FORCE_BUILD" != true ]] && gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "needs_builder=false" >> "$GITHUB_OUTPUT"
             echo "## No core update" >> "$GITHUB_STEP_SUMMARY"
@@ -88,6 +111,7 @@ jobs:
       EXPECTED_IMM_SHA: ${{ needs.resolve.outputs.immortal_sha }}
       EXPECTED_PPE_SHA: ${{ needs.resolve.outputs.ppe_sha }}
       EXPECTED_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
+      EXPECTED_FEEDS_FINGERPRINT: ${{ needs.resolve.outputs.feeds_fingerprint }}
     steps:
       - uses: actions/checkout@v4
       - name: Restore downloaded source archives
