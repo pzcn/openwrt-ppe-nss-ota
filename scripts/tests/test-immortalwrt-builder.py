@@ -135,12 +135,17 @@ assert "PUBLISH_RELEASE: \"false\"" in builder_workflow
 assert "scripts/repack-immortalwrt.sh" in firmware_workflow
 assert "run: bash scripts/build-immortalwrt.sh" not in firmware_workflow
 assert "19 4 * * *" in firmware_workflow
-assert "43 5 * * *" in builder_workflow
-assert "UTC_DAY % 2" in builder_workflow
-assert "immortalwrt/packages.git|HEAD" in builder_workflow
-assert "EXPECTED_FEEDS_FINGERPRINT" in builder_workflow
+assert '43 5 * * 0' in builder_workflow
+assert "workflow_dispatch:" in builder_workflow
+assert "needs_builder" not in builder_workflow
+assert "git ls-remote" not in builder_workflow
+assert "force_build" not in builder_workflow
+assert "PUBLISH_BUILDER" not in builder_workflow
+assert "    if: needs.resolve" not in builder_workflow
+assert "    needs: resolve" not in builder_workflow
+assert "Publish Builder and trigger firmware repack" in builder_workflow
 assert 'git -C "$IMM/feeds/$feed" rev-parse HEAD' in full_build
 assert "scripts/apply-immortalwrt-compat.sh" in mod.CORE_FILES
 assert "config/add.txt" not in mod.CORE_FILES
 assert "config/add.txt" in mod.PACKAGE_FILES
-print("PASS separate daily firmware / two-day Builder Actions, cache and provenance")
+print("PASS daily firmware and unconditional weekly/manual Builder Actions")

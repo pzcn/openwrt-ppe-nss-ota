@@ -22,11 +22,11 @@
 
 **Builder 工作流：** `.github/workflows/builder-immortalwrt.yml`
 
-- 每天 05:43 UTC 启动一次轻量日历门禁，只有偶数 UTC epoch 日才检查；实际每隔 48 小时检查一次（跨月节奏不变）。
-- 比较 ImmortalWrt、Julius PPE/NSS、基础 Builder 三个源码 SHA，ImmortalWrt packages/LuCI/routing/telephony、NSS packages、PPE QoS LuCI 六个 feed 提交，以及核心配置和软件包清单指纹。对应 `imm-builder-...` Release 已存在则跳过。
-- 需要更新时调用 `scripts/build-immortalwrt.sh` 编译内核、NSS、所有 APK 和独立 ImageBuilder，并运行重打包烟雾测试。
-- 构建产物上传到 Releases；**成功发布后使用 `workflow_dispatch` 触发固件工作流**，不在 Builder 工作流里重复发布固件。
-- 支持手动强制源码编译（相同 Tag 的 Release 不会覆写）和禁用发布。
+- **每周日 05:43 UTC（北京时间 13:43）自动完整编译一次**，也可以随时点击 `Run workflow` 手动触发完整编译。
+- 两种触发方式完全一致，均直接调用 `scripts/build-immortalwrt.sh`；**不预先检查上游是否更新，不比较旧版 Builder 来跳过编译**。
+- 编译包含 ImmortalWrt、PPE/NSS、feeds、内核、所有 APK 和独立 ImageBuilder，并运行重打包烟雾测试。
+- 编译成功后上传 ImageBuilder 到 Releases，随后使用 `workflow_dispatch` 自动触发固件工作流。
+- 保留必要的文件校验与 Release 标签冲突保护：如果编译结果的标签已经存在，不覆盖旧 Release，但仍完成本次编译和触发固件工作流。
 
 **两条流水线之间的契约：**
 
