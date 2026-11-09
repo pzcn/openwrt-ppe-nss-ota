@@ -21,6 +21,14 @@ on:
       - "config/**"
       - "files/**"
       - "docs/IMMORTALWRT-PPE-NSS.md"
+  pull_request:
+    paths:
+      - ".github/workflows/immortalwrt-reusable.yml"
+      - "scripts/**"
+      - "config/**"
+      - "files/**"
+      - "docs/**"
+      - "README.md"
   schedule:
     # Check upstream once a day; no build when all versions already match.
     - cron: "41 3 * * *"
@@ -33,7 +41,33 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate:
+    name: Validate ImmortalWrt firmware (offline)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell and Python syntax
+        run: |
+          bash -n scripts/build-immortalwrt.sh scripts/repack-immortalwrt.sh scripts/reuse-official-toolchain.sh scripts/apply-immortalwrt-compat.sh
+          python3 -m compileall -q scripts
+      - name: Test plugins, LuCI, Dr.COM, OTA and eMMC fixes
+        run: |
+          python3 scripts/tests/test-luci-i18n.py
+          python3 scripts/tests/test-luci-native.py
+          node scripts/tests/test-luci-autocheckboxes.js
+          node scripts/tests/test-ppe-nss-monitor.js
+          node scripts/tests/test-drcom-rpc.js
+          python3 scripts/tests/test-drcom.py
+          python3 scripts/tests/test-extra-apps.py
+          python3 scripts/tests/test-immortalwrt-ota.py
+          python3 scripts/tests/test-immortalwrt-builder.py
+          python3 scripts/tests/test-immortalwrt-compat.py
+
   build:
+    if: github.event_name != 'pull_request'
+    needs: validate
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
@@ -176,7 +210,7 @@ jobs:
           node scripts/tests/test-luci-autocheckboxes.js
           node scripts/tests/test-ppe-nss-monitor.js
           python3 scripts/tests/test-extra-apps.py
-          bash scripts/tests/test-custom-ota.sh
+          python3 scripts/tests/test-immortalwrt-compat.py
           python3 scripts/tests/test-immortalwrt-ota.py
           python3 scripts/tests/test-immortalwrt-builder.py
           bash -n scripts/reuse-official-toolchain.sh

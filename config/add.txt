@@ -1,8 +1,8 @@
 # Extra packages for JDCloud RE-SS-01 (one name per line).
-# Aurora is installed from the separately verified upstream GitHub APK; it is not listed here.
+# Aurora and the sing-box LuCI application are compiled from pinned source tags.
 
 # Standard rootfs_data on the active p18/rootfs slot: add F2FS support.
-# F2FS kmod comes from the upstream matching ImageBuilder, never generic snapshots.
+# F2FS kmod is built against the matching ImmortalWrt kernel, not generic snapshots.
 # f2fs-tools depends on mkf2fs and f2fsck (including mkfs.f2fs).
 block-mount
 kmod-fs-ext4
@@ -60,7 +60,7 @@ luci-i18n-tailscale-community-zh-cn
 kmod-tun
 
 # sing-box full core and JSON-based LuCI management.
-# Its LuCI APK is pinned separately in the ImageBuilder script.
+# Its LuCI application is built from the pinned source tag.
 sing-box
 flock
 kmod-inet-diag

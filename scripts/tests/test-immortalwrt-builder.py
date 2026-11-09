@@ -110,9 +110,11 @@ assert 'Built firmware manifest missing' in full_build
 assert 'Standalone ImageBuilder repack smoke test' in full_build
 assert 'IMMORTAL_OUT_DIR=' in full_build
 assert 'PACKAGES+=" -$pkg"' in (ROOT / "scripts/repack-immortalwrt.sh").read_text()
-for name in ("build-immortalwrt.yml", "immortalwrt-reusable.yml"):
+for name in ("immortalwrt-reusable.yml",):
     workflow = (ROOT / ".github" / "workflows" / name).read_text()
     assert "actions/cache@v4" in workflow
     assert ".build-cache/dl" in workflow
     assert ".build-cache/ccache" in workflow
 print("PASS Actions source download cache and ccache wiring")
+
+assert "scripts/apply-immortalwrt-compat.sh" in mod.CORE_FILES

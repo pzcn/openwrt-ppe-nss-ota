@@ -138,12 +138,11 @@ for item in visible:
 
     for phrase in ("不会", "不再", "不会回退", "不会修改"):
         assert phrase not in content, f"Defensive phrase {phrase}: {item}"
-build_script = (root / "scripts/build.sh").read_text(encoding="utf-8")
-assert 'rm -f "$WORK/ib/files/www/luci-static/resources/view/system/ppe-update.js"' in build_script
-assert '"$WORK/ib/files/usr/share/luci/menu.d/luci-app-ppe-update.json"' in build_script
-assert 'Build failed at line $LINENO' in build_script
-notes = build_script.split('cat > "$WORK/notes.md" <<EOF', 1)[1].split("\nEOF", 1)[0]
-assert "pzcn" not in notes.lower()
-assert "不会" not in notes
-assert "在线固件更新" in notes
-print("PASS: native LuCI, versioned RPC, concise user-facing copy and URL readback")
+build_script = (root / "scripts/build-immortalwrt.sh").read_text(encoding="utf-8")
+assert 'rm -f "$IMM/files/www/luci-static/resources/view/system/ppe-update.js"' in build_script
+assert '"$IMM/files/usr/share/luci/menu.d/luci-app-ppe-update.json"' in build_script
+assert 'ImmortalWrt build failed at line $LINENO' in build_script
+assert "scripts/immortalwrt_ota.py" in build_script
+assert "scripts/apply-immortalwrt-compat.sh" in build_script
+subprocess.run(["bash", "-n", str(root / "scripts/build-immortalwrt.sh")], check=True)
+print("PASS: native LuCI, URL persistence, OTA and concise text")
