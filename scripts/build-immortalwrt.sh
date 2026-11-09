@@ -93,6 +93,22 @@ patch -p1 -d "$IMM/feeds/packages" < \
 git clone --quiet --depth 1 --filter=blob:none --sparse --branch luci-app-ppe-qos \
   https://github.com/JuliusBairaktaris/luci.git "$WORK/ppe-luci"
 git -C "$WORK/ppe-luci" sparse-checkout set applications/luci-app-qca-ppe-qos
+# Track the actual feed commits, not only ImmortalWrt's main branch.
+# The resolver computes the same digest from the remote feed HEADs.
+FEEDS_FINGERPRINT="$(
+  {
+    for feed in packages luci routing telephony nss; do
+      git -C "$IMM/feeds/$feed" rev-parse HEAD
+    done
+    git -C "$WORK/ppe-luci" rev-parse HEAD
+  } | sha256sum | cut -d' ' -f1
+)"
+if [[ -n "${EXPECTED_FEEDS_FINGERPRINT:-}" &&
+      "$EXPECTED_FEEDS_FINGERPRINT" != "$FEEDS_FINGERPRINT" ]]; then
+  echo "::error::Upstream feed HEADs changed since Builder version resolution" >&2
+  exit 1
+fi
+printf 'Feeds=%s\n' "$FEEDS_FINGERPRINT" >> "$OUT/source-commits.txt"
 rm -rf "$IMM/feeds/luci/applications/luci-app-qca-ppe-qos"
 cp -a "$WORK/ppe-luci/applications/luci-app-qca-ppe-qos" "$IMM/feeds/luci/applications/"
 # The first feeds update indexed LuCI before this extra application existed.
@@ -306,6 +322,7 @@ install -D -m 0644 "$IMM/files/lib/upgrade/platform.sh" "$BASE_STAGE/lib/upgrade
 tar -czf "$OUT/base-overlay.tar.gz" -C "$BASE_STAGE" .
 python3 "$ROOT/scripts/immortalwrt_builder.py" metadata \
   --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
+  --feeds "$FEEDS_FINGERPRINT" \
   --archive "$IB_ARCHIVE" --overlay "$OUT/base-overlay.tar.gz" \
   --packages "$OUT/imagebuilder-packages.txt" \
   --output "$OUT/builder-metadata.json"
@@ -314,7 +331,8 @@ python3 "$ROOT/scripts/immortalwrt_builder.py" verify \
   --overlay "$OUT/base-overlay.tar.gz" \
   --packages "$OUT/imagebuilder-packages.txt"
 BUILDER_TAG="$(python3 "$ROOT/scripts/immortalwrt_builder.py" tag \
-  --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA")"
+  --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" \
+  --feeds "$FEEDS_FINGERPRINT")"
 cp "$TARGET/$IMAGE" "$OUT/"
 cp "$SOURCE_MANIFEST" "$OUT/$MANIFEST"
 cp "$IMM/.config" "$OUT/immortalwrt.config"
