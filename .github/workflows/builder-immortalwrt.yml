@@ -1,4 +1,4 @@
-name: Build ImmortalWrt PPE/NSS ImageBuilder from source
+name: Build ImmortalWrt PPE/NSS Builder and matching SDK
 
 on:
   # Always compile on either trigger. No upstream version preflight.
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   build:
-    name: Compile kernel, NSS, APKs and standalone Builder
+    name: Compile kernel, NSS, APKs, standalone Builder and SDK
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
@@ -78,38 +78,60 @@ jobs:
           python3 scripts/tests/test-extra-apps.py
           python3 scripts/tests/test-immortalwrt-ota.py
           python3 scripts/tests/test-immortalwrt-builder.py
+          python3 scripts/tests/test-immortalwrt-sdk.py
           python3 scripts/tests/test-immortalwrt-compat.py
           python3 scripts/tests/test-luci-i18n.py
-      - name: Build ImageBuilder and test its ability to repackage
+      - name: Build matching ImageBuilder and SDK with smoke tests
         env:
           PUBLISH_RELEASE: "false"
         run: bash scripts/build-immortalwrt.sh
-      - name: Publish Builder and trigger firmware repack
+      - name: Publish paired ImageBuilder and SDK, then trigger firmware
         shell: bash
         run: |
           set -Eeuo pipefail
           DIR="$GITHUB_WORKSPACE/out-immortal"
           META="$DIR/builder-metadata.json"
+          SDK_META="$DIR/sdk-metadata.json"
           TAG="$(jq -er '.tag' "$META")"
           [[ "$TAG" == imm-builder-* ]] || { echo "::error::Invalid compiled Builder tag"; exit 1; }
+          SDK_NAME="$(jq -er '.archive' "$SDK_META")"
+          SDK_ARCHIVE="$DIR/$SDK_NAME"
+          test -s "$SDK_ARCHIVE"
+          jq -e --arg tag "$TAG" '.builder_tag == $tag and .target == "qualcommax/ipq60xx"' "$SDK_META" >/dev/null
+          python3 scripts/immortalwrt_sdk.py verify \
+            --metadata "$SDK_META" --builder-metadata "$META" \
+            --archive "$SDK_ARCHIVE" --feed-lock "$DIR/sdk-feeds.lock.json"
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::notice::The compiled Builder tag is already published; preserving immutable Release."
+            echo "::notice::Builder $TAG already exists; preserve immutable Release."
+            # A build is complete only when the existing Release also has a
+            # compatible SDK, never silently succeed with an SDK-less Builder.
+            EXISTING="$(gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+            for required in "$SDK_NAME" sdk-metadata.json sdk-feeds.lock.json; do
+              if ! grep -Fxq "$required" <<< "$EXISTING"; then
+                echo "::error::Existing Builder $TAG lacks matching SDK asset: $required" >&2
+                exit 1
+              fi
+            done
           else
             ARCHIVE="$(find "$DIR" -maxdepth 1 -name '*imagebuilder*.tar.zst' -type f -print -quit)"
             test -s "$ARCHIVE"
             gh release create "$TAG" -R "$GITHUB_REPOSITORY" --latest=false \
-              --title "ImmortalWrt PPE+NSS ImageBuilder ($TAG)" \
-              --notes "ABI-matched standalone ImageBuilder for RE-SS-01. Firmware is produced by the separate firmware workflow." \
+              --title "ImmortalWrt PPE+NSS ImageBuilder + SDK ($TAG)" \
+              --notes "ABI-matched standalone ImageBuilder and source-build SDK for JDCloud RE-SS-01 (qualcommax/ipq60xx). Use sdk-metadata.json and sdk-feeds.lock.json to verify and pin matching kernel, toolchain and feeds." \
               "$ARCHIVE" "$DIR/base-overlay.tar.gz" "$DIR/imagebuilder-packages.txt" \
-              "$META" "$DIR/source-commits.txt" "$DIR/official-toolchain-status.txt"
-            echo "Published ImageBuilder: $TAG"
+              "$META" "$SDK_ARCHIVE" "$SDK_META" "$DIR/sdk-feeds.lock.json" \
+              "$DIR/source-commits.txt" "$DIR/official-toolchain-status.txt"
+            echo "Published matched ImageBuilder and SDK: $TAG"
           fi
           # workflow_dispatch is allowed to trigger another workflow using GITHUB_TOKEN.
           gh workflow run firmware-immortalwrt.yml -R "$GITHUB_REPOSITORY" \
             --ref main -f "builder_tag=$TAG"
           {
             echo "## Weekly/manual full source build completed"
-            echo "Builder: $TAG"
+            echo "Builder + SDK Release: $TAG"
+            echo "SDK archive: $SDK_NAME"
+            echo "SDK SHA256: $(jq -r '.archive_sha256' "$SDK_META")"
+            echo "Source feed lock: sdk-feeds.lock.json"
             echo "Triggered firmware workflow using the built Builder."
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Report compilation cache efficiency
@@ -118,7 +140,7 @@ jobs:
           if command -v ccache >/dev/null 2>&1; then
             CCACHE_DIR="$GITHUB_WORKSPACE/.build-cache/ccache" ccache --show-stats || true
           fi
-      - name: Upload compiled Builder and test image artifacts
+      - name: Upload compiled Builder, matched SDK and test image artifacts
         if: success()
         uses: actions/upload-artifact@v4
         with:
