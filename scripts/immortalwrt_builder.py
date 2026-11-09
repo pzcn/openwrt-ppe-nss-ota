@@ -88,8 +88,55 @@ def sha256(path: Path) -> str:
 
 
 def check_sha(value: str) -> None:
-    if not SHA.fullmatch(value):
+    if not isinstance(value, str) or not SHA.fullmatch(value):
         raise ValueError("Expected a 40-character lowercase SHA")
+
+
+def check_metadata(path: Path) -> tuple[dict, bool]:
+    """Validate the Builder's own provenance, not the current Git checkout.
+
+    The newest released Builder is the firmware toolchain. The repo may have
+    changed LuCI pages, OTA scripts, overlays or even compiler recipes since
+    that Builder was published. Those changes must not block repacking.
+    """
+    doc = json.loads(path.read_text())
+    if doc.get("schema") != 1 or doc.get("channel") != CHANNEL:
+        raise ValueError("Wrong builder channel or schema")
+    if doc.get("profile") != PROFILE or doc.get("packaging") != "standalone":
+        raise ValueError("Builder target or packaging mismatch")
+    for key in ("immortalwrt_commit", "ppe_nss_commit", "base_overlay_commit"):
+        check_sha(doc.get(key, ""))
+    recorded_core = doc.get("fingerprint")
+    if not isinstance(recorded_core, str) or not FP_SHA.fullmatch(recorded_core):
+        raise ValueError("Builder metadata has an invalid recorded core fingerprint")
+
+    packages = doc.get("package_fingerprint")
+    feeds = doc.get("feeds_fingerprint")
+    legacy = packages is None and feeds is None
+    if legacy:
+        # Before independently-versioned package and feed metadata, the tag
+        # used only source SHAs and the recorded Builder core fingerprint.
+        expected = (f"imm-builder-{doc['immortalwrt_commit'][:8]}"
+                    f"-{doc['ppe_nss_commit'][:8]}"
+                    f"-{doc['base_overlay_commit'][:8]}"
+                    f"-g{recorded_core[:12]}")
+    else:
+        if (not isinstance(packages, str) or not FP_SHA.fullmatch(packages)
+                or not isinstance(feeds, str) or not FP_SHA.fullmatch(feeds)):
+            raise ValueError("Builder metadata has incomplete package/feed revisions")
+        expected = release_tag(doc["immortalwrt_commit"], doc["ppe_nss_commit"],
+                               doc["base_overlay_commit"], recorded_core,
+                               packages, feeds)
+    if doc.get("tag") != expected:
+        raise ValueError("Builder release tag and recorded provenance do not match")
+    for name in ("archive", "overlay", "packages"):
+        if (not isinstance(doc.get(name), str)
+                or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+-]*", doc[name])):
+            raise ValueError(f"Invalid Builder asset name: {name}")
+        checksum = doc.get(f"{name}_sha256")
+        if not isinstance(checksum, str) or not FP_SHA.fullmatch(checksum):
+            raise ValueError(f"Invalid Builder asset digest: {name}")
+    return doc, legacy
 
 
 def tag(immortal: str, ppe: str, base: str, root: Path = ROOT,
@@ -130,32 +177,16 @@ def metadata(args: argparse.Namespace) -> None:
 
 
 def verify(args: argparse.Namespace) -> None:
-    doc = json.loads(args.metadata.read_text())
-    if doc.get("schema") != 1 or doc.get("channel") != CHANNEL:
-        raise ValueError("Wrong builder channel or schema")
-    if doc.get("profile") != PROFILE or doc.get("packaging") != "standalone":
-        raise ValueError("Builder target or packaging mismatch")
-    for key in ("immortalwrt_commit", "ppe_nss_commit", "base_overlay_commit"):
-        check_sha(doc.get(key, ""))
-    packages = doc.get("package_fingerprint", "")
-    feeds = doc.get("feeds_fingerprint", "")
-    if not isinstance(packages, str) or not FP_SHA.fullmatch(packages):
-        raise ValueError("Missing package fingerprint in Builder metadata")
-    if not isinstance(feeds, str) or not FP_SHA.fullmatch(feeds):
-        raise ValueError("Missing feeds fingerprint in Builder metadata")
-    expected = release_tag(doc["immortalwrt_commit"], doc["ppe_nss_commit"],
-                           doc["base_overlay_commit"], fingerprint(), packages,
-                           feeds)
-    if doc.get("tag") != expected or doc.get("fingerprint") != fingerprint():
-        raise ValueError("Builder is stale for current core config; regenerate it")
+    doc, legacy = check_metadata(args.metadata)
     for key, path, checksum in (
         ("archive", args.archive, "archive_sha256"),
         ("overlay", args.overlay, "overlay_sha256"),
         ("packages", args.packages, "packages_sha256"),
     ):
-        if path.name != doc.get(key) or sha256(path) != doc.get(checksum):
+        if path.name != doc[key] or sha256(path) != doc[checksum]:
             raise ValueError(f"Builder artifact integrity mismatch: {key}")
-    print(f"Verified ImageBuilder: {doc['tag']}")
+    print(f"Verified ImageBuilder: {doc['tag']}"
+          + (" (legacy metadata)" if legacy else ""))
 
 
 def main() -> None:
@@ -174,6 +205,8 @@ def main() -> None:
     m.add_argument("--overlay", required=True, type=Path)
     m.add_argument("--packages", required=True, type=Path)
     m.add_argument("--output", required=True, type=Path)
+    c = sub.add_parser("check")
+    c.add_argument("--metadata", required=True, type=Path)
     v = sub.add_parser("verify")
     for name in ("metadata", "archive", "overlay", "packages"):
         v.add_argument(f"--{name}", required=True, type=Path)
@@ -184,6 +217,10 @@ def main() -> None:
         print(tag(args.immortal, args.ppe, args.base, feeds=args.feeds))
     elif args.action == "metadata":
         metadata(args)
+    elif args.action == "check":
+        doc, legacy = check_metadata(args.metadata)
+        print("Compatible Builder: " + doc["tag"]
+              + (" (legacy metadata)" if legacy else ""))
     else:
         verify(args)
 

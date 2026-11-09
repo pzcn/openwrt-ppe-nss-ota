@@ -100,7 +100,7 @@ jobs:
           fi
           if [[ -z "$TAG" ]]; then
             echo "needs_image=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No published ImageBuilder exists. Wait for the two-day Builder workflow."
+            echo "::notice::No published ImageBuilder exists. Run the weekly/manual Builder workflow first."
             exit 0
           fi
           echo "builder_tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -108,18 +108,16 @@ jobs:
           gh release download "$TAG" -R "$GITHUB_REPOSITORY" \
             -D "$RUNNER_TEMP/imm-builder-download" -p builder-metadata.json
           META="$RUNNER_TEMP/imm-builder-download/builder-metadata.json"
-          EXPECTED="$(python3 scripts/immortalwrt_builder.py fingerprint)"
-          FOUND="$(jq -er '.fingerprint' "$META")"
+          # Firmware always consumes the latest published Builder. Release
+          # metadata describes THAT compiled ABI, not today's Git recipe.
+          # Check the release's own profile/tag/format; the following repack
+          # job verifies SHA256 of the archive, overlay and package list.
           META_TAG="$(jq -er '.tag' "$META")"
-          if [[ "$META_TAG" != "$TAG" || "$EXPECTED" != "$FOUND" ]]; then
-            if [[ -n "$REQUESTED_TAG" ]]; then
-              echo "::error::Requested Builder does not match current kernel/NSS source configuration."
-              exit 1
-            fi
-            echo "needs_image=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Newest Builder does not match the current core config. Await the scheduled Builder build."
-            exit 0
-          fi
+          [[ "$META_TAG" == "$TAG" ]] || {
+            echo "::error::Selected Builder release tag differs from its metadata."
+            exit 1
+          }
+          python3 scripts/immortalwrt_builder.py check --metadata "$META"
           if [[ "$FORCE_FIRMWARE" != true ]]; then
             LATEST="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
               --jq '[.[] | select(.draft == false and (.tag_name | startswith("imm-ppe-nss-")))] | sort_by(.published_at) | last | .tag_name // empty')"

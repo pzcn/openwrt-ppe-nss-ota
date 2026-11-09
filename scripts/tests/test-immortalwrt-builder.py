@@ -90,6 +90,44 @@ with tempfile.TemporaryDirectory() as d:
     kwargs = dict(metadata=metadata, archive=archive,
                   overlay=overlay, packages=packages)
     mod.verify(argparse.Namespace(**kwargs))
+    # Repacked firmware uses the latest RELEASED Builder, even after changes
+    # in the local kernel build recipe, LuCI, OTA, or other source files.
+    (tmp / mod.CORE_RECIPE).write_text(original_recipe.replace(
+        "compile tail", "a newer full-build recipe"))
+    mod.verify(argparse.Namespace(**kwargs))
+    (tmp / mod.CORE_RECIPE).write_text(original_recipe)
+    assert mod.check_metadata(metadata)[1] is False
+
+    # A real Builder from Actions run 42594186291 predates the new
+    # independent package/feed fingerprints. Its old metadata format still
+    # identifies the target, compiled source commits and all asset digests.
+    legacy = dict(doc)
+    legacy.pop("package_fingerprint")
+    legacy.pop("feeds_fingerprint")
+    legacy["tag"] = (
+        f"imm-builder-{imm[:8]}-{ppe[:8]}-{base[:8]}"
+        f"-g{legacy['fingerprint'][:12]}"
+    )
+    legacy_meta = tmp / "legacy-builder-metadata.json"
+    legacy_meta.write_text(json.dumps(legacy))
+    legacy_kwargs = dict(kwargs, metadata=legacy_meta)
+    assert mod.check_metadata(legacy_meta)[1] is True
+    mod.verify(argparse.Namespace(**legacy_kwargs))
+
+    # Old and new formats must never accept a corrupted release tag.
+    legacy["tag"] = "imm-builder-invalid"
+    legacy_meta.write_text(json.dumps(legacy))
+    try:
+        mod.check_metadata(legacy_meta)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Accepted an inconsistent legacy Builder tag")
+    legacy["tag"] = (
+        f"imm-builder-{imm[:8]}-{ppe[:8]}-{base[:8]}"
+        f"-g{legacy['fingerprint'][:12]}"
+    )
+    legacy_meta.write_text(json.dumps(legacy))
 
     # Verify CLI metadata arguments (not just the internal Python call).
     cli_meta = tmp / "cli-metadata.json"
@@ -109,6 +147,12 @@ with tempfile.TemporaryDirectory() as d:
     )
 
     packages.write_bytes(b"tampered packages" * 10)
+    try:
+        mod.verify(argparse.Namespace(**legacy_kwargs))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("Legacy Builder accepted a tampered package manifest")
     try:
         mod.verify(argparse.Namespace(**kwargs))
     except ValueError:
@@ -178,4 +222,7 @@ assert "drcom" not in full_build.lower()
 assert "drcom" not in builder_workflow.lower()
 assert mod.FIRMWARE_ONLY_BEGIN.decode().rstrip("\n") in full_build
 assert mod.FIRMWARE_ONLY_END.decode().rstrip("\n") in full_build
-print("PASS firmware app policy excluded from Builder fingerprint and workflow")
+assert "immortalwrt_builder.py check --metadata \"$META\"" in firmware_workflow
+assert 'EXPECTED="$(python3 scripts/immortalwrt_builder.py fingerprint)"' not in firmware_workflow
+assert "sort_by(.published_at) | last" in firmware_workflow
+print("PASS firmware always reuses newest Builder with release metadata verification")
