@@ -172,12 +172,12 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   done
 done < "$ROOT/config/add.txt"
 
-# Kconfig can report recursive-dependency errors yet return status 0.
 # Prefer matching official compiled GCC/musl when available. This does not
 # import official kernel modules, DTB or NSS packages.
 bash "$ROOT/scripts/reuse-official-toolchain.sh" "$IMM" "$CACHE_DL" \
   "$OUT/official-toolchain-status.txt"
 
+# Kconfig can report recursive-dependency errors yet return status 0.
 # Keep the diagnostic and fail instead of continuing with partial .config.
 make defconfig 2>&1 | tee "$WORK/defconfig.log"
 if grep -Fq 'error: recursive dependency detected!' "$WORK/defconfig.log"; then
@@ -319,9 +319,7 @@ if [[ "$PUBLISH_RELEASE" == true ]]; then
       --notes "Standalone ImageBuilder for jdcloud_re-ss-01; kernel modules and userspace APKs are built from matching ImmortalWrt/PPE-NSS source commits. Use only with its included package set and matching metadata." \
       "$IB_ARCHIVE" "$OUT/base-overlay.tar.gz" \
       "$OUT/imagebuilder-packages.txt" "$OUT/builder-metadata.json" \
-      "$OUT/source-commits.txt"
-  fi
-  cat > "$OUT/release-notes.md""$OUT/official-toolchain-status.txt"
+      "$OUT/source-commits.txt" "$OUT/official-toolchain-status.txt"
   fi
   cat > "$OUT/release-notes.md" <<EOF
 # ImmortalWrt + PPE/NSS + RE-SS-01 customizations
