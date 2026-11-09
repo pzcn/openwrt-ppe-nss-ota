@@ -31,7 +31,7 @@
 - 备份/升级页面中的 OTA（额外安装软件包的恢复尝试也保留）
 - Tailscale、sing-box JSON 面板、WireGuard 和网络唤醒
 - 文件管理、ttyd、nlbwmon、statistics、wifihistory、irqbalance、lldpd、PBR
-- p18 F2FS `rootfs_data` 可写层；p27 保留原分区，不设置自定义挂载点，也不执行旧 extroot 迁移
+- p18 `rootfs_data` 使用上游默认可写层机制，不额外请求 F2FS 驱动或工具；p27 保留 ext4 分区，不设置自定义挂载点，也不执行旧 extroot 迁移
 
 所有 kernel 模块必须由这个 ImmortalWrt 源码构建，不使用另一个固件的预编译 `kmod-*.apk`。
 
@@ -119,7 +119,7 @@ uci show firewall | grep flow_offloading
 ppe-update status
 ```
 
-特别检查 Wi-Fi NSS、PPE flowtable、WAN/LAN、F2FS 持久化、官方 p27 挂载行为、WireGuard、Tailscale 和 sing-box。仅编译成功**不能证明**这些运行时功能已通过真机验证。首次新 Builder 应先通过设备端 PPE/NSS、F2FS、网络与 sysupgrade 测试，再启用路由器无人值守安装。
+特别检查 Wi-Fi NSS、PPE flowtable、WAN/LAN、p18 可写层持久化、官方 p27 挂载行为、WireGuard、Tailscale 和 sing-box。未额外安装 F2FS 工具时，未格式化且容量较大的 rootfs_data 可能会因上游 fstools 默认尝试 mkfs.f2fs 而初始化失败；移除附加包**不代表消除了该风险**。仅编译成功**不能证明**这些运行时功能已通过真机验证。首次新 Builder 应先通过设备端 PPE/NSS、overlay 持久化、网络与 sysupgrade 测试，再启用路由器无人值守安装。
 
 ## 注意
 
