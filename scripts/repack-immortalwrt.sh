@@ -42,6 +42,24 @@ rm -f "$WORK/overlay/www/luci-static/resources/view/system/ppe-update.js" \
       "$WORK/overlay/etc/ppe-release" \
       "$WORK/overlay/etc/config/fstab" \
       "$WORK/overlay/etc/uci-defaults/96-migrate-legacy-extroot"
+# A/B test only: the upstream image has no platform_copy_config for Arthur.
+# Never let a pre-existing platform.sh override turn the control build into a
+# mislabeled experiment. Patching occurs only through the pinned source script.
+case "${EMMC_CONFIG_PRESERVE_PATCH:-off}" in
+  off)
+    if [[ -e "$WORK/overlay/lib/upgrade/platform.sh" ]]; then
+      echo "::error::An unexpected platform.sh override invalidates the no-patch control" >&2
+      exit 1
+    fi
+    ;;
+  on)
+    bash "$ROOT/scripts/apply-arthur-config-save-patch.sh" "$WORK/overlay"
+    ;;
+  *)
+    echo "::error::EMMC_CONFIG_PRESERVE_PATCH must be on or off" >&2
+    exit 1
+    ;;
+esac
 I18N_DIR="$WORK/overlay/usr/lib/lua/luci/i18n"
 mkdir -p "$I18N_DIR"
 python3 "$ROOT/scripts/build_luci_i18n.py" \

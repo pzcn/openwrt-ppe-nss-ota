@@ -1,0 +1,122 @@
+name: Repack ImmortalWrt Arthur sysupgrade config-save A/B
+
+on:
+  push:
+    branches: [experiment/immortalwrt-sysupgrade-save-ab]
+    paths:
+      - ".github/workflows/repack-immortalwrt-config-save-ab.yml"
+      - "scripts/repack-immortalwrt.sh"
+      - "scripts/apply-arthur-config-save-patch.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: immortal-config-save-ab-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  repack:
+    name: ImageBuilder / ${{ matrix.variant }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [no-patch, with-patch]
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILDER_TAG: imm-builder-4765b657-7d65a3ed-5796d271-g33bf83654e10
+      VARIANT: ${{ matrix.variant }}
+      PUBLISH_RELEASE: "false"
+    steps:
+      - name: Checkout verified Builder-compatible firmware source
+        uses: actions/checkout@v4
+
+      - name: Install image and rootfs verification prerequisites
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update
+          sudo apt-get install -y zstd rsync jq squashfs-tools curl git
+      - name: Set up Node.js for LuCI custom UI checks
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Download previously verified standalone ImageBuilder Release
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/matched-builder"
+          gh release download "$BUILDER_TAG" --repo "$GITHUB_REPOSITORY" \
+            --dir "$RUNNER_TEMP/matched-builder" \
+            --pattern '*imagebuilder*.tar.zst' \
+            --pattern 'base-overlay.tar.gz' \
+            --pattern 'imagebuilder-packages.txt' \
+            --pattern 'builder-metadata.json'
+          find "$RUNNER_TEMP/matched-builder" -maxdepth 1 -type f -printf '%f\n'
+          test "$(find "$RUNNER_TEMP/matched-builder" -maxdepth 1 -type f | wc -l)" -eq 4
+
+      - name: Repack the sysupgrade firmware using this ImageBuilder
+        run: |
+          set -Eeuo pipefail
+          case "$VARIANT" in
+            with-patch) PATCH=on ;;
+            no-patch)   PATCH=off ;;
+            *) exit 1 ;;
+          esac
+          ARCHIVE="$(find "$RUNNER_TEMP/matched-builder" -maxdepth 1 -name '*imagebuilder*.tar.zst' -type f -print -quit)"
+          test -s "$ARCHIVE"
+          BUILDER_META="$RUNNER_TEMP/matched-builder/builder-metadata.json" \
+          BUILDER_ARCHIVE="$ARCHIVE" \
+          BASE_OVERLAY="$RUNNER_TEMP/matched-builder/base-overlay.tar.gz" \
+          BUILDER_PACKAGES="$RUNNER_TEMP/matched-builder/imagebuilder-packages.txt" \
+          IMMORTAL_OUT_DIR="$GITHUB_WORKSPACE/out-$VARIANT" \
+          EMMC_CONFIG_PRESERVE_PATCH="$PATCH" \
+            bash scripts/repack-immortalwrt.sh
+
+      - name: Prove the resulting rootfs has the correct patch state
+        run: |
+          set -Eeuo pipefail
+          OUT="$GITHUB_WORKSPACE/out-$VARIANT"
+          IMAGE=immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin
+          test -s "$OUT/$IMAGE"
+          mkdir -p "$RUNNER_TEMP/image-inspection"
+          tar -xOf "$OUT/$IMAGE" sysupgrade-jdcloud_re-ss-01/root > "$RUNNER_TEMP/image-inspection/root.squashfs"
+          test -s "$RUNNER_TEMP/image-inspection/root.squashfs"
+          unsquashfs -cat "$RUNNER_TEMP/image-inspection/root.squashfs" \
+            lib/upgrade/platform.sh > "$RUNNER_TEMP/image-inspection/platform.sh"
+          test -s "$RUNNER_TEMP/image-inspection/platform.sh"
+          sh -n "$RUNNER_TEMP/image-inspection/platform.sh"
+          if [[ "$VARIANT" == with-patch ]]; then
+            grep -Fq 'platform_copy_config()' "$RUNNER_TEMP/image-inspection/platform.sh"
+            grep -Fq 'emmc_copy_config' "$RUNNER_TEMP/image-inspection/platform.sh"
+          else
+            ! grep -Fq 'platform_copy_config()' "$RUNNER_TEMP/image-inspection/platform.sh"
+          fi
+          # Preserve conventional sysupgrade filename; add a uniquely named
+          # copy so both experimental images can coexist after download.
+          cp "$OUT/$IMAGE" "$OUT/${IMAGE%.bin}-$VARIANT.bin"
+          {
+            echo "Variant: $VARIANT"
+            echo "Builder: $BUILDER_TAG"
+            echo "Upstream platform.sh: immortalwrt/immortalwrt @ 4765b657625ec5bbda74b44400465fe043802b30"
+            echo "Patch: platform_copy_config() -> emmc_copy_config() only for jdcloud,re-ss-01"
+            echo "Configuration retained during sysupgrade: $(if [[ "$VARIANT" == with-patch ]]; then echo patched; else echo upstream-unpatched; fi)"
+            echo "Note: F2FS overlay/reboot persistence is a separate issue; neither image changes that behavior."
+          } > "$OUT/variant.txt"
+          ( cd "$OUT" && sha256sum "${IMAGE%.bin}-$VARIANT.bin" > "$VARIANT.sha256" )
+          echo "Validated rootfs platform.sh and generated $VARIANT sysupgrade image."
+
+      - name: Upload explicitly differentiated firmware variant
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-arthur-configsave-${{ matrix.variant }}
+          path: |
+            out-${{ matrix.variant }}/*-${{ matrix.variant }}.bin
+            out-${{ matrix.variant }}/${{ matrix.variant }}.sha256
+            out-${{ matrix.variant }}/variant.txt
+            out-${{ matrix.variant }}/*.manifest
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
