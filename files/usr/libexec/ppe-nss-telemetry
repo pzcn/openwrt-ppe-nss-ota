@@ -1,0 +1,114 @@
+#!/bin/sh
+# Read-only qca_ppe / nss-wifi-drv debugfs snapshot. No connection addresses.
+set -eu
+DEBUGFS="${PPE_NSS_DEBUGFS_ROOT:-/sys/kernel/debug}"
+
+first_readable() {
+	for path in "$DEBUGFS"/*."$1"/"$2"; do
+		if [ -r "$path" ]; then
+			printf '%s\n' "$path"
+			return 0
+		fi
+	done
+	return 1
+}
+
+ppe=null
+ppe_ports=null
+nss=null
+wifi=null
+
+if ppe_file=$(first_readable ppe offload); then
+	ppe=$(awk '
+		BEGIN { live="null"; added="null"; full="null"; rejected=0; seen=0; rseen=0; drops="null" }
+		$1=="live_entries" && $2 ~ /^[0-9]+$/ { live=$2; seen=1 }
+		$1=="offloaded" && $2 ~ /^[0-9]+$/ { added=$2; seen=1 }
+		$1=="xmit_drop" && $2 ~ /^[0-9]+$/ { drops=$2 }
+		$1=="table_full" && $2 ~ /^[0-9]+$/ { full=$2 }
+		$1 ~ /^(ingress_not_switch_port|ingress_vlan_domain|unsupported_match|unsupported_protocol|unsupported_action|no_egress_l2_header|egress_not_switch_port|snat_and_dnat|ipv6_nat|table_full|hardware_op_failed)$/ && $2 ~ /^[0-9]+$/ {
+			rejected += $2; rseen=1
+		}
+		END {
+			if (!seen) { printf "null"; exit }
+			printf "{\"live_entries\":%s,\"offloaded_total\":%s,\"table_full\":%s,\"xmit_drop\":%s,\"rejected_total\":", live, added, full, drops
+			if (rseen) printf "%.0f", rejected; else printf "null"
+			printf "}"
+		}
+	' "$ppe_file" 2>/dev/null) || ppe=null
+
+	# Egress bytes include ordinary switch traffic, NOT only offloaded flows.
+	egress_file="$(dirname "$ppe_file")/egress"
+	if [ -r "$egress_file" ]; then
+		ppe_ports=$(awk '
+			$1=="port" && $2=="packets" && $3=="bytes" { ports=1; next }
+			$1=="vsi" || $1=="vport" { ports=0 }
+			ports && NF>=5 && $1 ~ /^[0-9]+$/ && $2 ~ /^[0-9]+$/ && $3 ~ /^[0-9]+$/ {
+				n++; packets+=$2; bytes+=$3
+				if ($4 ~ /^[0-9]+$/) drops+=$4
+			}
+			END {
+				if (!n) { printf "null"; exit }
+				printf "{\"ports\":%d,\"packets\":%.0f,\"bytes\":%.0f,\"drop_packets\":%.0f}", n, packets, bytes, drops
+			}
+		' "$egress_file" 2>/dev/null) || ppe_ports=null
+	fi
+fi
+
+if nss_file=$(first_readable nss flows); then
+	# Only aggregates; "installed" is live while "pushed" is cumulative.
+	nss=$(awk '
+		BEGIN { bound="null"; pushed="null"; live=0; bridge=0; found=0; br_active="null" }
+		$1=="bound" && $3=="pushed" && $2 ~ /^[0-9]+$/ && $4 ~ /^[0-9]+$/ {
+			bound=$2; pushed=$4; found=1
+		}
+		$1=="proto" {
+			for (i=1; i<NF; i++) {
+				if ($i=="installed" && $(i+1)=="1") {
+					live++
+					if ($0 ~ / bridged /) bridge++
+					break
+				}
+			}
+		}
+		$1=="bridged" && $2=="on" {
+			for (i=1; i<NF; i++)
+				if ($i=="active" && $(i+1) ~ /^[0-9]+$/)
+					br_active=$(i+1)
+		}
+		END {
+			if (!found) { printf "null"; exit }
+			printf "{\"bound_total\":%s,\"pushed_total\":%s,\"installed\":%d,\"bridged_installed\":%d,\"bridged_active\":%s}", bound, pushed, live, bridge, br_active
+		}
+	' "$nss_file" 2>/dev/null) || nss=null
+
+	wifi_file="$(dirname "$nss_file")/wifili_rx"
+	if [ -r "$wifi_file" ]; then
+		# Firmware sends per-vdev DELTAS; host accumulates 32-bit counters.
+		wifi=$(awk '
+			$1=="vdev" && $2=="if" && $3 ~ /^[0-9]+$/ && $4=="reports" {
+				vdevs++; reports+=$5; active=1; next
+			}
+			active && $1=="rx" && $2=="enqueue" {
+				if ($3 ~ /^[0-9]+$/) rx_packets+=$3
+				for (i=1; i<NF; i++) {
+					if ($i=="bytes" && $(i+1) ~ /^[0-9]+$/) rx_bytes+=$(i+1)
+					if ($i=="fail" && $(i+1) ~ /^[0-9]+$/) rx_fail+=$(i+1)
+				}
+			}
+			active && $1=="tx" && $2=="rcvd" {
+				if ($3 ~ /^[0-9]+$/) tx_packets+=$3
+				for (i=1; i<NF; i++) {
+					if ($i=="dropped" && $(i+1) ~ /^[0-9]+$/) tx_dropped+=$(i+1)
+					if ($i=="hw_ring_full" && $(i+1) ~ /^[0-9]+$/) tx_ring_full+=$(i+1)
+				}
+			}
+			END {
+				if (!vdevs) { printf "null"; exit }
+				printf "{\"vdevs\":%d,\"reports\":%.0f,\"rx_packets\":%.0f,\"rx_bytes\":%.0f,\"rx_enqueue_fail\":%.0f,\"tx_packets\":%.0f,\"tx_dropped\":%.0f,\"tx_ring_full\":%.0f}", vdevs, reports, rx_packets, rx_bytes, rx_fail, tx_packets, tx_dropped, tx_ring_full
+			}
+		' "$wifi_file" 2>/dev/null) || wifi=null
+	fi
+fi
+
+printf '{"ppe":%s,"ppe_ports":%s,"nss":%s,"wifi":%s}\n' \
+	"$ppe" "$ppe_ports" "$nss" "$wifi"
