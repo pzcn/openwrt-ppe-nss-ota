@@ -96,7 +96,12 @@ assert "CONFIG_EXTERNAL_TOOLCHAIN_IB=y" in official
 assert "14.4.0" in official and "1.2.6" in official
 assert "sha256sum -c --status" in official
 assert 'IMM_USE_OFFICIAL_TOOLCHAIN' in official
-assert "reuse-official-toolchain.sh" in full_build if "full_build" in globals() else True
+# Regression: relative "bash scripts/ext-toolchain.sh" configures a fake
+# scripts/ext-toolchain.sh/.config and fails 20 minutes later at wrapper.
+assert 'bash "$IMM/scripts/ext-toolchain.sh" \\' in official
+assert 'bash scripts/ext-toolchain.sh' not in official
+assert 'CONFIG_TOOLCHAIN_ROOT=' in official
+assert 'External toolchain root missing after make defconfig' in full_build
 assert 'ln -s "$CACHE_DL" "$IMM/dl"' in full_build
 assert 'ln -s "$CACHE_CCACHE" "$IMM/.ccache"' in full_build
 assert 'ccache --show-stats' in full_build

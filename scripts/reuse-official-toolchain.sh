@@ -61,8 +61,17 @@ use_official() {
   # ext-toolchain.sh appends the exact compiler paths and libraries, then
   # invokes defconfig. Reassert the required IB flags before the final pass.
   printf 'CONFIG_DEVEL=y\nCONFIG_EXTERNAL_TOOLCHAIN_IB=y\n' >> "$IMM/.config"
-  if ! (cd "$IMM" && bash scripts/ext-toolchain.sh \
+  # The official script derives the buildroot from its argv[0], using
+  # "${0%/scripts/*}". A relative "scripts/ext-toolchain.sh" invocation
+  # silently writes to "scripts/ext-toolchain.sh/.config" instead of .config.
+  # Always supply the absolute path, then prove it configured THIS buildroot.
+  if ! (cd "$IMM" && bash "$IMM/scripts/ext-toolchain.sh" \
       --toolchain "$toolchain" --overwrite-config --config qualcommax/ipq60xx); then
+    cp "$ORIGINAL_CONFIG" "$IMM/.config"
+    return 1
+  fi
+  if ! grep -Fqx "CONFIG_TOOLCHAIN_ROOT=\"$toolchain\"" "$IMM/.config"; then
+    echo "::warning::Official toolchain configuration did not set its absolute root; reverting to source toolchain." >&2
     cp "$ORIGINAL_CONFIG" "$IMM/.config"
     return 1
   fi
@@ -73,10 +82,16 @@ CONFIG_IB=y
 CONFIG_IB_STANDALONE=y
 CONFIG_CCACHE=y
 CONFIG
-  grep -Fqx 'CONFIG_EXTERNAL_TOOLCHAIN=y' "$IMM/.config" || {
-    cp "$ORIGINAL_CONFIG" "$IMM/.config"
-    return 1
-  }
+  for required in \
+    'CONFIG_EXTERNAL_TOOLCHAIN=y' \
+    'CONFIG_EXTERNAL_TOOLCHAIN_IB=y' \
+    "CONFIG_TOOLCHAIN_ROOT=\"$toolchain\""; do
+    if ! grep -Fqx "$required" "$IMM/.config"; then
+      echo "::warning::Official toolchain setup missing $required; falling back to source compilation" >&2
+      cp "$ORIGINAL_CONFIG" "$IMM/.config"
+      return 1
+    fi
+  done
   printf 'toolchain=official-immortalwrt\narchive=%s\nsha256=%s\ncompiler=GCC 14.4.0\nlibc=musl 1.2.6\n' \
     "$ARCHIVE" "$SHA256" > "$STATUS_FILE"
   echo "Using verified official ImmortalWrt prebuilt toolchain: $ARCHIVE"

@@ -191,6 +191,18 @@ grep -Fqx 'CONFIG_CCACHE=y' "$IMM/.config"
 if grep -Fqx 'toolchain=official-immortalwrt' "$OUT/official-toolchain-status.txt"; then
   grep -Fqx 'CONFIG_EXTERNAL_TOOLCHAIN=y' "$IMM/.config"
   grep -Fqx 'CONFIG_EXTERNAL_TOOLCHAIN_IB=y' "$IMM/.config"
+  # Fail before the expensive compilation when Kconfig silently ignores the
+  # external toolchain path (previously this failed 20 min later at wrapper).
+  TOOLCHAIN_ROOT="$(sed -n 's/^CONFIG_TOOLCHAIN_ROOT="\([^"]*\)"$/\1/p' "$IMM/.config")"
+  if [[ -z "$TOOLCHAIN_ROOT" || ! -d "$TOOLCHAIN_ROOT" ]]; then
+    echo "::error::External toolchain root missing after make defconfig: ${TOOLCHAIN_ROOT:-unset}" >&2
+    exit 1
+  fi
+  bash "$IMM/scripts/ext-toolchain.sh" --toolchain "$TOOLCHAIN_ROOT" --test c || {
+    echo "::error::External compiler test failed before build" >&2
+    exit 1
+  }
+  echo "Verified official toolchain root: $TOOLCHAIN_ROOT"
 fi
 
 # Kconfig silently omits unavailable packages. Refuse a deceptively
