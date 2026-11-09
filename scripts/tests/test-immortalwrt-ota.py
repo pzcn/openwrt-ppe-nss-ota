@@ -2,6 +2,8 @@
 """Offline tests for the independent ImmortalWrt PPE/NSS update channel."""
 import importlib.util
 import json
+import os
+import subprocess
 from pathlib import Path
 import tempfile
 
@@ -27,6 +29,9 @@ with tempfile.TemporaryDirectory() as d:
     result = path.read_text()
     assert "releases?per_page=100" in result
     assert 'startswith("imm-ppe-nss-")' in result
+    assert "no ImmortalWrt firmware release" in result
+    assert 'type == "array"' in result
+    assert "invalid GitHub Releases API response" in result
     assert "re-ss-01-immortal-ppe-nss" in result
     assert "/etc/immortal-ppe-ota-release" in result
     assert "immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin" in result
@@ -68,3 +73,43 @@ with tempfile.TemporaryDirectory() as d:
         raise AssertionError("Unexpected image was accepted")
 
 print("PASS independent ImmortalWrt OTA metadata and shell preparation")
+
+
+# The status UI must distinguish no published firmware from unreachable APIs.
+# Stub only lookup(), so these tests never require a router or network.
+with tempfile.TemporaryDirectory() as d:
+    shell = '''
+        . "$PPE_UPDATE_SCRIPT"
+        uci() { echo 0; }
+        lookup() { printf '%s\n' "$SIMULATED_OTA_ERROR" >&2; return 2; }
+        cmd_status
+    '''
+    cases = {
+        "no ImmortalWrt firmware release is published on this channel":
+            "当前尚未发布 ImmortalWrt 固件",
+        "cannot reach custom GitHub Releases API":
+            "无法访问 GitHub Releases API",
+        "invalid GitHub Releases API response":
+            "GitHub Releases API 返回数据异常",
+        "custom OTA metadata does not match this device":
+            "更新渠道、设备或固件元数据不匹配",
+    }
+    for simulated, expected in cases.items():
+        env = dict(os.environ)
+        env.update(
+            PPE_UPDATE_LIB="1",
+            PPE_UPDATE_SCRIPT=str(ROOT / "files/usr/sbin/ppe-update"),
+            PPE_WORK=str(Path(d) / "work"),
+            PPE_STATE=str(Path(d) / "state"),
+            SIMULATED_OTA_ERROR=simulated,
+        )
+        proc = subprocess.run(
+            ["sh", "-c", shell], env=env, capture_output=True,
+            check=True, text=True,
+        )
+        status = json.loads(proc.stdout)
+        assert expected in status["error"], (simulated, status)
+        assert status["source"] == "GitHub Releases"
+
+luci = (ROOT / "files/www/luci-static/resources/view/system/flash.js").read_text()
+assert "请确认 GitHub 可以从路由器访问" not in luci

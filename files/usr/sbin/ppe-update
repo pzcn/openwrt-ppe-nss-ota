@@ -135,12 +135,16 @@ extras() {
 }
 
 cmd_status() {
-	auto=$(uci -q get ppe-update.main.auto)
-	pending=$(tr "\n" " " 2>/dev/null <"$STATE/packages")
-	(
+	auto=$(uci -q get ppe-update.main.auto 2>/dev/null)
+	[ -n "$auto" ] || auto=0
+	pending=""
+	[ ! -r "$STATE/packages" ] || pending=$(tr '\n' ' ' <"$STATE/packages")
+	mkdir -p "$WORK"
+	# Preserve the real reason for failure. A missing channel release is not
+	# a router networking failure; neither are invalid metadata or API errors.
+	if status_json=$(
 		lookup ""
-		# Release discovery must not depend on APK mirror health or optional
-		# package compatibility simulations (which can be slow or unreliable).
+		# Discovery must not depend on APK mirror health or compatibility checks.
 		if newer; then
 			avail=true
 		else
@@ -148,10 +152,27 @@ cmd_status() {
 		fi
 		printf '{"board":"%s","current":"%s","build":%s,"group":"%s","latest":"%s","latest_time":%s,"update":%s,"image":"%s","size":%s,"extras":"%s","missing":"","checked":false,"pending":"%s","auto":"%s","source":"%s"}\n' \
 			"$BOARD" "$OTA_TAG" "$OTA_BUILD" "$GROUP" "$LATEST" "$LATEST_TIME" "$avail" "$IMAGE" "$SIZE" \
-			"$(extras | tr '\n' ' ')" "$pending" "${auto:-0}" "GitHub Releases"
-	) 2>/dev/null ||
-		printf '{"board":"%s","current":"%s","group":"%s","error":"更新源暂不可用","pending":"%s","auto":"%s","source":"%s"}\n' \
-			"$BOARD" "$OTA_TAG" "$GROUP" "$pending" "${auto:-0}" "GitHub Releases"
+			"$(extras | tr '\n' ' ')" "$pending" "$auto" "GitHub Releases"
+	2>"$WORK/status-error.log"); then
+		printf '%s\n' "$status_json"
+		return 0
+	fi
+
+	# Error messages below are fixed strings so that the RPC reply stays
+	# valid JSON even when GitHub returns unexpected content.
+	if grep -Fq 'no ImmortalWrt firmware release' "$WORK/status-error.log"; then
+		reason='当前尚未发布 ImmortalWrt 固件（已有 Builder 不等于已有固件）'
+	elif grep -Fq 'cannot reach custom GitHub Releases API' "$WORK/status-error.log"; then
+		reason='无法访问 GitHub Releases API，请检查路由器网络或 DNS'
+	elif grep -Eq 'invalid GitHub Releases API response|failed to parse GitHub firmware release index' "$WORK/status-error.log"; then
+		reason='GitHub Releases API 返回数据异常（可能是访问限制）'
+	elif grep -Eq 'metadata|checksum|not on the expected channel|unexpected firmware|missing local firmware|board or PPE group mismatch' "$WORK/status-error.log"; then
+		reason='更新渠道、设备或固件元数据不匹配'
+	else
+		reason='固件检查失败，请通过 SSH 执行 ppe-update check 查看原因'
+	fi
+	printf '{"board":"%s","current":"%s","group":"%s","error":"%s","pending":"%s","auto":"%s","source":"%s"}\n' \
+		"$BOARD" "$OTA_TAG" "$GROUP" "$reason" "$pending" "$auto" "GitHub Releases"
 }
 
 cmd_check() {

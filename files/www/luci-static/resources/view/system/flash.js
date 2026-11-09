@@ -215,7 +215,7 @@ return view.extend({
 					'升级后将尝试恢复额外安装的软件包。')));
 			rows.push(customOTARow('升级校验', '升级前校验固件完整性与设备兼容性。'));
 		} else if (st.error) {
-			rows.push(customOTARow('检查结果', E('span', st.error + '。请确认 GitHub 可以从路由器访问。')));
+			rows.push(customOTARow('检查结果', E('span', st.error)));
 		} else {
 			rows.push(customOTARow('检查结果', '当前已是最新版本'));
 			rows.push(customOTARow('自动更新', autoOn

@@ -55,7 +55,12 @@ def prepare(overlay: Path, tag: str, build: int) -> None:
         ("EXPECTED_MANIFEST='openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest'",
          f"EXPECTED_MANIFEST='{MANIFEST}'"),
         ("LATEST=$(jsonfilter -i \"$WORK/github.json\" -e '@.tag_name')",
-         """LATEST=$(jq -r 'map(select(.draft == false and (.tag_name | startswith("imm-ppe-nss-")))) | .[0].tag_name // empty' "$WORK/github.json")"""),
+         """if ! jq -e 'type == "array"' "$WORK/github.json" >/dev/null 2>&1; then
+    die "invalid GitHub Releases API response"
+fi
+LATEST=$(jq -r 'map(select(.draft == false and (.tag_name | startswith("imm-ppe-nss-")))) | .[0].tag_name // empty' "$WORK/github.json") ||
+    die "failed to parse GitHub firmware release index"
+[ -n "$LATEST" ] || die "no ImmortalWrt firmware release is published on this channel" """),
         ('\tota-ppe-nss-*) ;;', '\timm-ppe-nss-*) ;;'),
         ('\tppe-nss-*) ;;', '\timmortal-*) ;;'),
     ]
