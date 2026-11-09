@@ -95,11 +95,22 @@ jobs:
           echo "builder_tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "upstream_immortal=$IMM_SHA" >> "$GITHUB_OUTPUT"
           echo "upstream_ppe=$PPE_SHA" >> "$GITHUB_OUTPUT"
+          # Never start hours of full kernel/NSS compilation from a push or
+          # a scheduled check. Manual workflow_dispatch may build on demand.
           if [[ "$FORCE_CORE" == true ]] || \
              ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [[ "$EVENT_NAME" != workflow_dispatch ]]; then
+              echo "needs_core=false" >> "$GITHUB_OUTPUT"
+              echo "needs_image=false" >> "$GITHUB_OUTPUT"
+              echo "::notice::No matching ImageBuilder Release. Automatic full build disabled; use Run workflow to build manually."
+              if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+                printf '## Build skipped\n\nNo matching ImageBuilder: `%s`\n\nAutomatic full builds are disabled. Run this workflow manually to build it.\n' "$TAG" >> "$GITHUB_STEP_SUMMARY"
+              fi
+              exit 0
+            fi
             echo "needs_core=true" >> "$GITHUB_OUTPUT"
             echo "needs_image=true" >> "$GITHUB_OUTPUT"
-            echo "Core ImageBuilder missing/changed; full source build required."
+            echo "Manual workflow dispatch: building the missing or forced ImageBuilder."
             exit 0
           fi
           echo "needs_core=false" >> "$GITHUB_OUTPUT"
