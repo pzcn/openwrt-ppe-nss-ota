@@ -1,0 +1,8 @@
+.build-cache/
+out/
+out-immortal/
+__pycache__/
+*.pyc
+*.pyo
+node_modules/
+.DS_Store
