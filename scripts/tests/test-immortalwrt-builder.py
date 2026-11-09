@@ -40,7 +40,9 @@ with tempfile.TemporaryDirectory() as d:
     assert mod.fingerprint(tmp) == one, "Plugin selections must not alter the core ABI"
     assert mod.package_fingerprint(tmp) != package_before
     assert mod.tag(imm, ppe, base, tmp) != mod.release_tag(
-        imm, ppe, base, one, package_before)
+        imm, ppe, base, one, package_before, "0" * 64)
+    assert mod.tag(imm, ppe, base, tmp, feeds="f" * 64) != mod.tag(
+        imm, ppe, base, tmp, feeds="0" * 64)
     path = tmp / mod.CORE_FILES[-1]
     path.write_text("changed core configuration\n")
     assert mod.fingerprint(tmp) != one
@@ -61,6 +63,7 @@ with tempfile.TemporaryDirectory() as d:
     assert doc["archive"] == archive.name
     assert doc["packages"] == packages.name
     assert doc["channel"] == mod.CHANNEL
+    assert doc["feeds_fingerprint"] == "0" * 64
     kwargs = dict(metadata=metadata, archive=archive,
                   overlay=overlay, packages=packages)
     mod.verify(argparse.Namespace(**kwargs))
@@ -134,6 +137,9 @@ assert "run: bash scripts/build-immortalwrt.sh" not in firmware_workflow
 assert "19 4 * * *" in firmware_workflow
 assert "43 5 * * *" in builder_workflow
 assert "UTC_DAY % 2" in builder_workflow
+assert "immortalwrt/packages.git|HEAD" in builder_workflow
+assert "EXPECTED_FEEDS_FINGERPRINT" in builder_workflow
+assert 'git -C "$IMM/feeds/$feed" rev-parse HEAD' in full_build
 assert "scripts/apply-immortalwrt-compat.sh" in mod.CORE_FILES
 assert "config/add.txt" not in mod.CORE_FILES
 assert "config/add.txt" in mod.PACKAGE_FILES
