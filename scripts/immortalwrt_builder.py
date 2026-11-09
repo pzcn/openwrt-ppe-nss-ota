@@ -9,15 +9,14 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
+# Only source-build inputs belong here; overlay, plugin selections and
+# metadata scripts can change without invalidating a compiled ImageBuilder.
 CORE_FILES = (
     "scripts/build-immortalwrt.sh",
     "scripts/reuse-official-toolchain.sh",
     "scripts/port-ppe-nss-to-immortalwrt.sh",
     "scripts/apply-immortalwrt-compat.sh",
-    "scripts/immortalwrt_builder.py",
     "config/immortalwrt-re-ss-01.config",
-    "config/add.txt",
-    "config/remove.txt",
 )
 SHA = re.compile(r"^[a-f0-9]{40}$")
 PROFILE = "jdcloud_re-ss-01"
