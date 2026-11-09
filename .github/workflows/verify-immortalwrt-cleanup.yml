@@ -1,0 +1,28 @@
+name: Temporary consolidation verification
+on:
+  push:
+    branches: [chore/immortalwrt-only-consolidation]
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check shell and Python syntax
+        run: |
+          for f in scripts/build-immortalwrt.sh scripts/repack-immortalwrt.sh scripts/reuse-official-toolchain.sh scripts/apply-immortalwrt-compat.sh; do bash -n "$f"; done
+          python3 -m compileall -q scripts
+      - name: Validate all customizations and both eMMC fixes
+        run: |
+          python3 scripts/tests/test-luci-i18n.py
+          python3 scripts/tests/test-luci-native.py
+          node scripts/tests/test-luci-autocheckboxes.js
+          node scripts/tests/test-ppe-nss-monitor.js
+          node scripts/tests/test-drcom-rpc.js
+          python3 scripts/tests/test-drcom.py
+          python3 scripts/tests/test-extra-apps.py
+          python3 scripts/tests/test-immortalwrt-ota.py
+          python3 scripts/tests/test-immortalwrt-builder.py
+          python3 scripts/tests/test-immortalwrt-compat.py
