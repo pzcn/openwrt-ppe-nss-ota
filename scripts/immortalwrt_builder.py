@@ -22,6 +22,7 @@ CORE_FILES = (
 # package repository after a change requires a distinct immutable Release.
 PACKAGE_FILES = ("config/add.txt", "config/remove.txt")
 SHA = re.compile(r"^[a-f0-9]{40}$")
+FP_SHA = re.compile(r"^[a-f0-9]{64}$")
 PROFILE = "jdcloud_re-ss-01"
 CHANNEL = "re-ss-01-immortal-imagebuilder"
 
@@ -48,7 +49,7 @@ def package_fingerprint(root: Path = ROOT) -> str:
 def release_tag(immortal: str, ppe: str, base: str, core: str, packages: str) -> str:
     for value in (immortal, ppe, base):
         check_sha(value)
-    if not SHA.fullmatch(core) or not SHA.fullmatch(packages):
+    if not FP_SHA.fullmatch(core) or not FP_SHA.fullmatch(packages):
         raise ValueError("Expected SHA256 fingerprints")
     return f"imm-builder-{immortal[:8]}-{ppe[:8]}-{base[:8]}-g{core[:12]}-p{packages[:8]}"
 
@@ -107,7 +108,7 @@ def verify(args: argparse.Namespace) -> None:
     for key in ("immortalwrt_commit", "ppe_nss_commit", "base_overlay_commit"):
         check_sha(doc.get(key, ""))
     packages = doc.get("package_fingerprint", "")
-    if not isinstance(packages, str) or not SHA.fullmatch(packages):
+    if not isinstance(packages, str) or not FP_SHA.fullmatch(packages):
         raise ValueError("Missing package fingerprint in Builder metadata")
     expected = release_tag(doc["immortalwrt_commit"], doc["ppe_nss_commit"],
                            doc["base_overlay_commit"], fingerprint(), packages)

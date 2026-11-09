@@ -34,7 +34,7 @@
 | [固件打包 Firmware](../../actions/workflows/firmware-immortalwrt.yml) | `main` 的代码、LuCI、OTA、插件配置变化；每天检查一次 | 从已发布 Builder 重打包 `imm-ppe-nss-...` 固件 |
 | [源码 Builder](../../actions/workflows/builder-immortalwrt.yml) | 每两天检查 ImmortalWrt/PPE/NSS 与编译配置（也可手动运行） | 完整编译并发布 `imm-builder-...` ImageBuilder |
 
-Builder 发布成功后会自动触发固件工作流。没有新版本时，两条工作流都跳过实际构建；固件工作流**不会触发内核源码编译**。
+Builder 发布成功后会自动触发固件工作流。没有新版本时，两条工作流都跳过实际构建；固件工作流**只进行固件打包，不涉及内核编译**。
 
 - 修改 `files/`、LuCI、OTA、翻译或 `config/add.txt`：优先使用现有 Builder 打包。
 - 添加已编译的插件 APK：无需重新编译；若 Builder 不包含所需 APK，打包会明确报错，等待下一次 Builder 重新编译或手动运行。
