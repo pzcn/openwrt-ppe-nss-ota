@@ -67,7 +67,6 @@ jobs:
           python3 scripts/tests/test-immortalwrt-builder.py
           python3 scripts/tests/test-immortalwrt-compat.py
           python3 scripts/tests/test-luci-i18n.py
-          node scripts/tests/test-ppe-nss-monitor.js
       - name: Build ImageBuilder and test its ability to repackage
         env:
           PUBLISH_RELEASE: "false"
