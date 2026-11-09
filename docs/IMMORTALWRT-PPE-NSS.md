@@ -61,7 +61,20 @@ python3 scripts/immortalwrt_sdk.py verify \
 
 解压 SDK 后可按上游惯例添加 feed 或本地 package、运行 `make defconfig`、再运行 `make package/<包路径>/compile V=s`。**必须将所需 feed 锁定为 `sdk-feeds.lock.json` 内对应的提交**，不能直接拿其当前 HEAD 的新软件包冒充同一 Builder 版本。补编结果需要加入 **对应 Builder** 的离线 APK 仓库，才能由 ImageBuilder 正确处理依赖；尤其不能从别的固件混用 kmod、libc、libgcc。
 
-这次仅实现 **SDK 的构建、校验和发布**。尚未实现“通过 SDK 自动补编缺失包并上传到 Builder APK 仓库”，该功能需要单独的工作流及严格的版本匹配。发布 SDK 会增加一定磁盘、压缩和上传时间，但**不会重编第二套内核/NSS**。
+
+**SDK 缺包补编已经接入现有固件工作流，不需要第三条 Actions。**
+
+- **已有 APK**：直接从当前 Builder 的本地 APK 仓库打包，不下载 SDK。
+- **缺少 APK**：下载**同一 Builder Release** 中的 SDK 和 feeds SHA 锁，验证归档完整性，按锁定提交检出源码；只在 SDK 中调用 `make package/compile` 编译缺少的软件包及其依赖，不执行新的固件内核/NSS 构建。
+- **缓存命中**：通过 GitHub Actions cache 按 Builder 标签及 add/remove 清单哈希命中既有 APK，重新验证 SDK 与每个 APK 的 SHA256，直接注入已解包的 ImageBuilder；SDK tarball 也缓存以避免重复下载。
+- **同 ABI 导入**：不可替换 Builder 中任何已有 APK、kernel、libc 或其他 ABI 包；SDK APK 放入 ImageBuilder `packages/` 之后，`make image` 内部重新生成 `packages.adb` 和执行依赖解析。
+- **旧版 Builder**：如果没有配套 SDK，而新增包已在离线仓库内，仍可正常打包；确实缺包时提示先手动编译一次新版 Builder。
+- **失败原则**：锁定源码拉取失败、SDK 编译失败、缺少包或依赖不兼容时，拒绝发布缺包固件。
+
+此流程仅修改固件流水线，不更改每周/手动完整 Builder 策略。Go、Rust 或复杂依赖的新增包可能仍需要较长时间的 SDK 编译，不保证几分钟内完成。GitHub Actions 缓存不是永久 APK 仓库。
+
+**尚需实机验证**：等第一个配套 SDK Release 真正发布后，才能完整验证“缺包 → SDK 编译 → ImageBuilder 打包”的在线链路。
+
 
 ## Builder 与固件的职责边界
 
