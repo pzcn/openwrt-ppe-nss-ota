@@ -179,6 +179,7 @@ jobs:
           bash scripts/tests/test-custom-ota.sh
           python3 scripts/tests/test-immortalwrt-ota.py
           python3 scripts/tests/test-immortalwrt-builder.py
+          bash -n scripts/reuse-official-toolchain.sh
 
       - name: Compile new kernel/NSS and standalone ImageBuilder
         if: steps.resolve.outputs.needs_core == 'true'
@@ -197,6 +198,6 @@ jobs:
         with:
           name: immortalwrt-imagebuilder-and-firmware
           path: out-immortal/
-          if-no-files-found: ignore
+          if-no-files-found: error
           compression-level: 0
           retention-days: 14

@@ -173,6 +173,11 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 done < "$ROOT/config/add.txt"
 
 # Kconfig can report recursive-dependency errors yet return status 0.
+# Prefer matching official compiled GCC/musl when available. This does not
+# import official kernel modules, DTB or NSS packages.
+bash "$ROOT/scripts/reuse-official-toolchain.sh" "$IMM" "$CACHE_DL" \
+  "$OUT/official-toolchain-status.txt"
+
 # Keep the diagnostic and fail instead of continuing with partial .config.
 make defconfig 2>&1 | tee "$WORK/defconfig.log"
 if grep -Fq 'error: recursive dependency detected!' "$WORK/defconfig.log"; then
@@ -183,6 +188,10 @@ fi
 grep -Fqx 'CONFIG_IB=y' "$IMM/.config"
 grep -Fqx 'CONFIG_IB_STANDALONE=y' "$IMM/.config"
 grep -Fqx 'CONFIG_CCACHE=y' "$IMM/.config"
+if grep -Fqx 'toolchain=official-immortalwrt' "$OUT/official-toolchain-status.txt"; then
+  grep -Fqx 'CONFIG_EXTERNAL_TOOLCHAIN=y' "$IMM/.config"
+  grep -Fqx 'CONFIG_EXTERNAL_TOOLCHAIN_IB=y' "$IMM/.config"
+fi
 
 # Kconfig silently omits unavailable packages. Refuse a deceptively
 # successful image if a user-requested package or NSS option was dropped.
@@ -222,6 +231,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo "## ImmortalWrt PPE/NSS full-source build"
     echo "- Source downloads: ${DOWNLOAD_SECONDS}s"
     echo "- Build and ImageBuilder: ${COMPILE_SECONDS}s"
+    echo "- Compiler source: $(head -n1 "$OUT/official-toolchain-status.txt")"
     printf -- '- Source cache directory: `%s`\n' "$CACHE_DL"
     printf -- '- Compiler cache directory: `%s`\n' "$CACHE_CCACHE"
   } >> "$GITHUB_STEP_SUMMARY"
@@ -310,6 +320,8 @@ if [[ "$PUBLISH_RELEASE" == true ]]; then
       "$IB_ARCHIVE" "$OUT/base-overlay.tar.gz" \
       "$OUT/imagebuilder-packages.txt" "$OUT/builder-metadata.json" \
       "$OUT/source-commits.txt"
+  fi
+  cat > "$OUT/release-notes.md""$OUT/official-toolchain-status.txt"
   fi
   cat > "$OUT/release-notes.md" <<EOF
 # ImmortalWrt + PPE/NSS + RE-SS-01 customizations

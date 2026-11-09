@@ -52,6 +52,13 @@
 
 ### 一、生成专用 NSS ImageBuilder
 
+#### 官方预编译工具链（第二轮优化）
+
+完整源码构建优先尝试 ImmortalWrt 官方 `qualcommax/ipq60xx` GCC 14.4.0 / musl 1.2.6 工具链（固定 SHA256）。先验证源代码工具链版本、官方包校验和、架构及编译器可用性，再通过上游 `scripts/ext-toolchain.sh` 配置外部工具链和 `EXTERNAL_TOOLCHAIN_IB`。若不兼容或获取失败，`auto` 模式退回源码编译，保持固件完整性；`required` 模式直接失败，`off` 模式完全跳过官方工具链。设定 `IMM_USE_OFFICIAL_TOOLCHAIN=auto|required|off` 控制。
+
+`official-toolchain-status.txt` 保存本轮实际采用的工具链及 SHA256；内核、DTB、NSS Wi-Fi 和全部 kmod 始终由当前源码独立编译。官方快照用户态 APK 还没有接入；只有完成 ABI/依赖锁定后才能安全混用，不能声称这一轮已复用官方 APK。
+
+
 GitHub Actions 工作流：`.github/workflows/immortalwrt-reusable.yml`。
 
 - 自动查询 ImmortalWrt `master`、Julius `ppe-nss` 和上游 Builder `main` 的完整 SHA。

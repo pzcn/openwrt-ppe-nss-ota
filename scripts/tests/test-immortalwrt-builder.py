@@ -91,9 +91,16 @@ print("PASS reusable NSS ImageBuilder metadata, integrity and core fingerprint")
 full_build = (ROOT / "scripts/build-immortalwrt.sh").read_text()
 config = (ROOT / "config/immortalwrt-re-ss-01.config").read_text()
 assert "CONFIG_CCACHE=y" in config
+official = (ROOT / "scripts/reuse-official-toolchain.sh").read_text()
+assert "CONFIG_EXTERNAL_TOOLCHAIN_IB=y" in official
+assert "14.4.0" in official and "1.2.6" in official
+assert "sha256sum -c --status" in official
+assert 'IMM_USE_OFFICIAL_TOOLCHAIN' in official
+assert "reuse-official-toolchain.sh" in full_build if "full_build" in globals() else True
 assert 'ln -s "$CACHE_DL" "$IMM/dl"' in full_build
 assert 'ln -s "$CACHE_CCACHE" "$IMM/.ccache"' in full_build
 assert 'ccache --show-stats' in full_build
+assert "reuse-official-toolchain.sh" in full_build
 assert 'Built firmware manifest missing' in full_build
 assert 'Standalone ImageBuilder repack smoke test' in full_build
 assert 'IMMORTAL_OUT_DIR=' in full_build

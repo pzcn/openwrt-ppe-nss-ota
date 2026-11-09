@@ -84,6 +84,7 @@ jobs:
       - name: Validate reusable ImageBuilder orchestration
         run: |
           bash -n scripts/build-immortalwrt.sh
+          bash -n scripts/reuse-official-toolchain.sh
           bash -n scripts/repack-immortalwrt.sh
           python3 scripts/tests/test-immortalwrt-builder.py
 
