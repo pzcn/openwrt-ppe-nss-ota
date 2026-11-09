@@ -84,6 +84,30 @@ node --check "$WORK/overlay/www/luci-static/resources/view/network/drcom-native.
 # No official snapshot kmods: only packages compiled for the identical ABI.
 PACKAGES="$(tr '\n' ' ' < "$PACKAGES_FILE")"
 test -n "$PACKAGES"
+# Explicitly exclude F2FS userspace and kernel packages from this ImageBuilder
+# repack. The verified Builder and kernel ABI remain unchanged.
+if [[ "${EXCLUDE_F2FS_PACKAGES:-false}" == "true" ]]; then
+  PACKAGES=""
+  F2FS_EXCLUDED=()
+  while IFS= read -r pkg || [[ -n "$pkg" ]]; do
+    [[ -z "$pkg" ]] && continue
+    [[ "$pkg" =~ ^[a-z0-9][a-z0-9+._-]*$ ]] || {
+      echo "::error::Invalid Builder package: $pkg" >&2
+      exit 1
+    }
+    if [[ "$pkg" == *f2fs* ]]; then
+      F2FS_EXCLUDED+=("$pkg")
+    else
+      PACKAGES+=" $pkg"
+    fi
+  done < "$PACKAGES_FILE"
+  for pkg in "${F2FS_EXCLUDED[@]}"; do
+    PACKAGES+=" -$pkg"
+  done
+  # Exclude these even if they were included in the Builder profile defaults.
+  PACKAGES+=" -kmod-fs-f2fs -f2fs-tools -mkf2fs -f2fsck"
+  echo "Excluding F2FS packages: ${F2FS_EXCLUDED[*]:-none in manifest}"
+fi
 # Preserve the source firmware's package exclusions, including ip-tiny.
 while IFS= read -r entry || [[ -n "$entry" ]]; do
   entry="${entry%%#*}"
