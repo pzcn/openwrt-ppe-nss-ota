@@ -49,7 +49,8 @@ with tempfile.TemporaryDirectory() as d:
     output = root / "ota.json"
     commit1 = "a" * 40
     commit2 = "b" * 40
-    mod.metadata(tag, 71, commit1, commit2, image, manifest, output)
+    mod.metadata(tag, 71, commit1, commit2, image, manifest, output,
+                 "imm-builder-test", "c" * 40)
     data = json.loads(output.read_text())
     assert data["channel"] == "re-ss-01-immortal-ppe-nss"
     assert data["board"] == "jdcloud,re-ss-01"
@@ -57,6 +58,8 @@ with tempfile.TemporaryDirectory() as d:
     assert data["image_sha256"] == mod.sha256(image)
     assert data["upstream_tag"] == "immortal-" + "a" * 12
     assert data["ppe_nss_commit"] == commit2
+    assert data["builder_tag"] == "imm-builder-test"
+    assert data["source_commit"] == "c" * 40
 
     # Cross-channel tags and wrong image names must be rejected.
     try:

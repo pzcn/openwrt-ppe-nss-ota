@@ -50,6 +50,17 @@ CCACHE_DIR="$CACHE_CCACHE" ccache --zero-stats
 IMM_SHA="$(git -C "$IMM" rev-parse HEAD)"
 PPE_SHA="$(git -C "$PPE" rev-parse HEAD)"
 BASE_SHA="$(git -C "$BUILDER" rev-parse HEAD)"
+# Fail before compiling if remote branch heads changed since workflow resolution.
+for pair in "IMM_SHA:EXPECTED_IMM_SHA" "PPE_SHA:EXPECTED_PPE_SHA" "BASE_SHA:EXPECTED_BASE_SHA"; do
+  actual_var="${pair%%:*}"
+  expected_var="${pair#*:}"
+  expected="${!expected_var:-}"
+  actual="${!actual_var}"
+  if [[ -n "$expected" && "$actual" != "$expected" ]]; then
+    echo "::error::Upstream moved during Builder resolution: $actual_var $actual != $expected" >&2
+    exit 1
+  fi
+done
 TAG="imm-ppe-nss-${IMM_SHA:0:8}-${PPE_SHA:0:8}-g$SOURCE_REV-b$BUILD_NUMBER"
 printf 'ImmortalWrt=%s\nPPE/NSS=%s\nPPE builder=%s\nCustom=%s\n' "$IMM_SHA" "$PPE_SHA" "$BASE_SHA" "$SOURCE_REV" | tee "$OUT/source-commits.txt"
 
