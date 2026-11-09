@@ -60,7 +60,7 @@ use_official() {
   # External toolchains require explicit permission to package ImageBuilder.
   # ext-toolchain.sh appends the exact compiler paths and libraries, then
   # invokes defconfig. Reassert the required IB flags before the final pass.
-  printf 'CONFIG_DEVEL=y\nCONFIG_EXTERNAL_TOOLCHAIN_IB=y\n' >> "$IMM/.config"
+  printf 'CONFIG_DEVEL=y\nCONFIG_EXTERNAL_TOOLCHAIN_IB=y\nCONFIG_EXTERNAL_TOOLCHAIN_SDK=y\n' >> "$IMM/.config"
   # The official script derives the buildroot from its argv[0], using
   # "${0%/scripts/*}". A relative "scripts/ext-toolchain.sh" invocation
   # silently writes to "scripts/ext-toolchain.sh/.config" instead of .config.
@@ -78,13 +78,17 @@ use_official() {
   cat >> "$IMM/.config" <<'CONFIG'
 CONFIG_EXTERNAL_TOOLCHAIN=y
 CONFIG_EXTERNAL_TOOLCHAIN_IB=y
+CONFIG_EXTERNAL_TOOLCHAIN_SDK=y
 CONFIG_IB=y
 CONFIG_IB_STANDALONE=y
+CONFIG_SDK=y
 CONFIG_CCACHE=y
 CONFIG
   for required in \
     'CONFIG_EXTERNAL_TOOLCHAIN=y' \
     'CONFIG_EXTERNAL_TOOLCHAIN_IB=y' \
+    'CONFIG_EXTERNAL_TOOLCHAIN_SDK=y' \
+    'CONFIG_SDK=y' \
     "CONFIG_TOOLCHAIN_ROOT=\"$toolchain\""; do
     if ! grep -Fqx "$required" "$IMM/.config"; then
       echo "::warning::Official toolchain setup missing $required; falling back to source compilation" >&2
