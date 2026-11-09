@@ -113,6 +113,11 @@ else
   } > "$SDK/feeds.conf"
   (
     cd "$SDK"
+    # SDK make/prepare initializes an embedded git repo and needs an identity.
+    export GIT_AUTHOR_NAME="ImmortalWrt SDK CI"
+    export GIT_AUTHOR_EMAIL="ci@example.invalid"
+    export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
+    export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
     ./scripts/feeds update -a
     ./scripts/feeds install -a
     for pkg in "${MISSING[@]}"; do

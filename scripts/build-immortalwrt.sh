@@ -396,6 +396,9 @@ python3 "$ROOT/scripts/immortalwrt_sdk.py" verify \
   --metadata "$OUT/sdk-metadata.json" \
   --builder-metadata "$OUT/builder-metadata.json" \
   --archive "$SDK_ARCHIVE" --feed-lock "$OUT/sdk-feeds.lock.json"
+# Exercise the packaged SDK's actual AArch64 cross compiler before publishing.
+# This is a tiny SDK-only package; it never enters the router firmware.
+bash "$ROOT/scripts/test-sdk-smoke.sh" "$SDK_ARCHIVE" "$WORK/sdk-smoke"
 cp "$TARGET/$IMAGE" "$OUT/"
 cp "$SOURCE_MANIFEST" "$OUT/$MANIFEST"
 cp "$IMM/.config" "$OUT/immortalwrt.config"
