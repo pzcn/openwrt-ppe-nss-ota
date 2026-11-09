@@ -10,11 +10,12 @@ APKS="$ROOT/scripts/immortalwrt_sdk_apks.py"
 SDK_CHECK="$ROOT/scripts/immortalwrt_sdk.py"
 ADD="$ROOT/config/add.txt"
 REMOVE="$ROOT/config/remove.txt"
-mapfile -t MISSING < <(python3 "$APKS" plan --imagebuilder "$IB" --add "$ADD")
-if (( ${#MISSING[@]} == 0 )); then
+MISSING_RAW="$(python3 "$APKS" plan --imagebuilder "$IB" --add "$ADD")"
+if [[ -z "$MISSING_RAW" ]]; then
   echo "All requested packages already exist in this Builder; SDK is not needed."
   exit 0
 fi
+mapfile -t MISSING <<< "$MISSING_RAW"
 BUILDER_TAG="$(jq -er '.tag' "$BUILDER_META")"
 [[ "$BUILDER_TAG" =~ ^imm-builder-[a-z0-9._-]+$ ]] || exit 1
 printf 'Missing %s APK(s): %s\n' "${#MISSING[@]}" "${MISSING[*]}"
@@ -62,6 +63,12 @@ if python3 "$APKS" verify-cache "${common[@]}"; then
   echo "Reusing matching SDK-built APK cache for $BUILDER_TAG"
 else
   echo "Compiling only missing APKs against $BUILDER_TAG"
+  # The standard fast ImageBuilder path does not install SDK build dependencies.
+  # Install them here only if a real package compilation is necessary.
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+    sudo apt-get update -qq
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends       build-essential autoconf automake binutils bison clang cmake file flex gawk       gettext git libelf-dev libncurses-dev libssl-dev libtool ninja-build       patch pkgconf python3 python3-pyelftools python3-ply rsync swig       unzip wget zlib1g-dev zstd
+  fi
   mkdir -p "$WORK/sdk" "$WORK/git"
   tar -I zstd -xf "$SDK_ARCHIVE" -C "$WORK/sdk"
   mapfile -t sdks < <(find "$WORK/sdk" -mindepth 1 -maxdepth 1 -type d -name '*sdk*')
