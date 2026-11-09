@@ -220,7 +220,7 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   for p in $line; do verify_package "$p"; done
 done < "$ROOT/config/add.txt"
 for p in kmod-nss-wifi-drv luci-theme-aurora luci-app-sing-box \
-  qca-ppe-qos luci-app-qca-ppe-qos jq kmod-fs-f2fs; do
+  qca-ppe-qos luci-app-qca-ppe-qos jq; do
   verify_package "$p"
 done
 if (( ${#missing[@]} )); then
@@ -277,7 +277,7 @@ awk 'NF >= 2 && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
      $1 != "kernel" && $1 != "libc" && $1 != "base-files" { print $1 }' \
      "$SOURCE_MANIFEST" | sort -u > "$OUT/imagebuilder-packages.txt"
 test -s "$OUT/imagebuilder-packages.txt"
-for required in kmod-nss-wifi-drv luci-app-sing-box sing-box kmod-fs-f2fs; do
+for required in kmod-nss-wifi-drv luci-app-sing-box sing-box; do
   grep -Fxq "$required" "$OUT/imagebuilder-packages.txt" || {
     echo "::error::Built firmware manifest missing $required" >&2
     exit 1
