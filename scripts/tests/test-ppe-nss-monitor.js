@@ -112,7 +112,7 @@ assert.equal(value('hw'), '35');
 assert.equal(value('sw'), '12');
 assert.equal(value('ct'), '190');
 assert(value('ppe-debug').includes('rx 1234'));
-assert(value('nss-debug').includes('驱动'));
+assert(value('nss-debug').includes('NSS Wi-Fi 虚拟接口'));
 clock += 8000;
 page.apply({
 	...sample,
