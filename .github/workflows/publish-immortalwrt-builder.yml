@@ -86,7 +86,7 @@ jobs:
             echo "Builder Release already exists; uploading only any missing assets."
             for asset in "${assets[@]}"; do
               if ! gh release view "$EXPECTED_TAG" --repo "$GITHUB_REPOSITORY" \
-                --json assets --jq '.[].assets[].name' | grep -Fxq "$asset"; then
+                --json assets --jq '.assets[].name' | grep -Fxq "$asset"; then
                 gh release upload "$EXPECTED_TAG" "$asset" --repo "$GITHUB_REPOSITORY"
               fi
             done
@@ -98,9 +98,9 @@ jobs:
               "${assets[@]}"
           fi
           gh release view "$EXPECTED_TAG" --repo "$GITHUB_REPOSITORY" \
-            --json url,assets,isLatest --jq '{url: .url, isLatest: .isLatest, assets: [.assets[].name]}'
+            --json url,assets --jq '{url: .url, assets: [.assets[].name]}'
           for asset in "${assets[@]}"; do
             gh release view "$EXPECTED_TAG" --repo "$GITHUB_REPOSITORY" \
-              --json assets --jq '.[].assets[].name' | grep -Fxq "$asset"
+              --json assets --jq '.assets[].name' | grep -Fxq "$asset"
           done
           echo "Verified all 5 Builder Release assets."
