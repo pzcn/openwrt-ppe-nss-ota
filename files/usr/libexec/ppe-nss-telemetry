@@ -36,9 +36,10 @@ if ppe_file=$(first_readable ppe offload); then
 		}
 	' "$ppe_file" 2>/dev/null) || ppe=null
 
-	# Egress bytes include ordinary switch traffic, NOT only offloaded flows.
-	egress_file="$(dirname "$ppe_file")/egress"
-	if [ -r "$egress_file" ]; then
+fi
+
+# Egress counters are useful even when per-flow offload is unavailable.
+if egress_file=$(first_readable ppe egress); then
 		ppe_ports=$(awk '
 			$1=="port" && $2=="packets" && $3=="bytes" { ports=1; next }
 			$1=="vsi" || $1=="vport" { ports=0 }
@@ -51,7 +52,6 @@ if ppe_file=$(first_readable ppe offload); then
 				printf "{\"ports\":%d,\"packets\":%.0f,\"bytes\":%.0f,\"drop_packets\":%.0f}", n, packets, bytes, drops
 			}
 		' "$egress_file" 2>/dev/null) || ppe_ports=null
-	fi
 fi
 
 if nss_file=$(first_readable nss flows); then
@@ -81,8 +81,10 @@ if nss_file=$(first_readable nss flows); then
 		}
 	' "$nss_file" 2>/dev/null) || nss=null
 
-	wifi_file="$(dirname "$nss_file")/wifili_rx"
-	if [ -r "$wifi_file" ]; then
+fi
+
+# Wi-Fi firmware counters do not require the separate flowtable stats file.
+if wifi_file=$(first_readable nss wifili_rx); then
 		# Firmware sends per-vdev DELTAS; host accumulates 32-bit counters.
 		wifi=$(awk '
 			$1=="vdev" && $2=="if" && $3 ~ /^[0-9]+$/ && $4=="reports" {
@@ -107,7 +109,6 @@ if nss_file=$(first_readable nss flows); then
 				printf "{\"vdevs\":%d,\"reports\":%.0f,\"rx_packets\":%.0f,\"rx_bytes\":%.0f,\"rx_enqueue_fail\":%.0f,\"tx_packets\":%.0f,\"tx_dropped\":%.0f,\"tx_ring_full\":%.0f}", vdevs, reports, rx_packets, rx_bytes, rx_fail, tx_packets, tx_dropped, tx_ring_full
 			}
 		' "$wifi_file" 2>/dev/null) || wifi=null
-	fi
 fi
 
 printf '{"ppe":%s,"ppe_ports":%s,"nss":%s,"wifi":%s}\n' \
