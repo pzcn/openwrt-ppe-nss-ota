@@ -35,6 +35,14 @@
 - `builder-metadata.json` 中的核心指纹决定是否 ABI 兼容；软件包指纹决定新 Builder 是否需要重新编译。
 - `ota.json` 记录 `builder_tag` 和 `source_commit`，用于每天的无变动跳过判断。
 
+## Builder 与固件的职责边界
+
+Dr.COM 等自定义 LuCI 页面、认证脚本和启停逻辑属于**固件覆盖层**，不属于 Builder 的内核、NSS 或 APK 编译依赖。完整源码构建中仅在生成测试固件时调用通用的 `scripts/stage-firmware-overlay.sh`；正式的 ImageBuilder 重打包也调用此脚本。Dr.COM 源码完整保留，但不会打包到新固件。
+
+Builder 的 `scripts/build-immortalwrt.sh` 指纹会忽略明确标记的 **firmware-only overlay** 区块，核心源码构建命令仍参与指纹。以后改动 App 开关、LuCI 页面或者认证脚本，**不需要因此重新编译 Builder**。Builder 流水线也不再执行 Dr.COM 专项测试；其测试保留在固件流水线。
+
+注意：旧 Release 中如果 Builder 指纹本来就不匹配或缺少已必需的内核模块，此次调整不会凭空使它兼容。
+
 ## 插件更新范围
 
 `config/add.txt`、`config/remove.txt` 不再使已有 Builder 的**核心兼容性**失效。打包会按最新插件清单尝试选用匹配 Builder 内的软件包：APK 已存在可直接重打包；不存在则明确失败，不能强行混用普通 Snapshot kmod。两个清单变化也会产生新的 Builder 发行版指纹，使两天一次的完整构建能够补编缺少的软件包。
