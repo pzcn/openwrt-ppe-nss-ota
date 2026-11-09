@@ -18,7 +18,7 @@
 - 每天 04:19 UTC 检查最新 Builder 与当前源码；如果最新版固件已经包含同一 Builder 和同一源码提交，则跳过。
 - 支持手动选择 `builder_tag`、强制重新打包及是否发布 Release。
 - `pull_request` 只执行离线验证，不编译固件。
-- 只执行 `scripts/repack-immortalwrt.sh`。Builder 无法兼容当前核心配置时跳过并报告原因，绝不改为完整编译。
+- 只执行 `scripts/repack-immortalwrt.sh`，默认选择最新发布的 Builder，手动指定标签时使用指定版本。当前仓库的 Builder 编译指纹与既有 Release 不同时，仍然可以重打包；不会调用完整内核编译。
 
 **Builder 工作流：** `.github/workflows/builder-immortalwrt.yml`
 
@@ -32,7 +32,7 @@
 
 - Builder Release：`imm-builder-...`，包含 ImageBuilder 压缩包、`builder-metadata.json`、`base-overlay.tar.gz`、`imagebuilder-packages.txt`。
 - 固件 Release：`imm-ppe-nss-...`，包含 sysupgrade、manifest、`ota.json` 和 Builder 元数据。
-- `builder-metadata.json` 中的核心指纹决定是否 ABI 兼容；软件包指纹决定新 Builder 是否需要重新编译。
+- `builder-metadata.json` 中的指纹用于记录该 Builder 的编译来源，而不是要求它与当前 Git 代码一致。固件侧校验 Builder 自身的 Release 标签、设备型号、渠道，以及压缩包、覆盖层和软件包列表的 SHA256；软件包只能来自该 Builder 的仓库。
 - `ota.json` 记录 `builder_tag` 和 `source_commit`，用于每天的无变动跳过判断。
 
 ## Builder 与固件的职责边界
@@ -41,11 +41,11 @@ Dr.COM 等自定义 LuCI 页面、认证脚本和启停逻辑属于**固件覆�
 
 Builder 的 `scripts/build-immortalwrt.sh` 指纹会忽略明确标记的 **firmware-only overlay** 区块，核心源码构建命令仍参与指纹。以后改动 App 开关、LuCI 页面或者认证脚本，**不需要因此重新编译 Builder**。Builder 流水线也不再执行 Dr.COM 专项测试；其测试保留在固件流水线。
 
-注意：旧 Release 中如果 Builder 指纹本来就不匹配或缺少已必需的内核模块，此次调整不会凭空使它兼容。
+注意：源码指纹变化不会使已编译 Builder 失效。新固件使用 Builder 编译时对应的内核与软件包仓库；新添加的插件若缺少匹配 APK，打包会报错，需等待下次 Builder 源码编译。
 
 ## 插件更新范围
 
-`config/add.txt`、`config/remove.txt` 不再使已有 Builder 的**核心兼容性**失效。打包会按最新插件清单尝试选用匹配 Builder 内的软件包：APK 已存在可直接重打包；不存在则明确失败，不能强行混用普通 Snapshot kmod。两个清单变化也会产生新的 Builder 发行版指纹，使两天一次的完整构建能够补编缺少的软件包。
+`config/add.txt`、`config/remove.txt` 不再使已有 Builder 的**核心兼容性**失效。打包会按最新插件清单尝试选用匹配 Builder 内的软件包：APK 已存在可直接重打包；不存在则明确失败，不能强行混用普通 Snapshot kmod。两个清单变化也会产生新的 Builder 发行版指纹，使下一次每周或手动完整构建能够补编缺少的软件包。
 
 官方 packages、LuCI、routing、telephony 与 NSS/QoS feed 使用单独的源码提交指纹，能识别主系统 SHA 未变化时的上游插件版本更新。只有 Builder 重新编译后，新 APK 才能用于后续固件打包。
 
@@ -65,7 +65,7 @@ Dr.COM 校园网认证 App 的菜单、后端、启动脚本和定时认证任�
 
 ## 缓存现状
 
-`dl/`、ccache 和官方 GCC/musl 工具链复用已接入。2026-11-09 的一次完整编译日志显示下载缓存命中、ccache 命中率 25.45%、官方工具链通过验证，但完整编译仍约 97 分钟。这些机制不能代替已有 Builder 的分支判定；下一轮单独研究加速方案。
+`dl/`、ccache 和官方 GCC/musl 工具链复用已接入。2026-11-09 的一次完整编译日志显示下载缓存命中、ccache 命中率 25.45%、官方工具链通过验证，但完整编译仍约 97 分钟。这些机制不影响固件工作流复用最新已发布 Builder；下一轮单独研究加速方案。
 
 ImageBuilder 已作为 Release 资产发布，没有第二套 Builder 缓存。
 
