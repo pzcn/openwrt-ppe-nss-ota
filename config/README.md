@@ -17,7 +17,7 @@ Aurora 固定为 v1.4.0、sing-box LuCI 固定为 v0.4.7；均从固定源码标
 
 ## 插件选择和 Builder 复用
 
-调整 `add.txt`、`remove.txt` 会立即触发固件工作流，优先复用现成 Builder 的 ABI 兼容 APK。若新增插件还未编译，固件打包会失败并明确提示，Builder 将在下一次两天周期或手动执行时编译新版本。核心内核配置变化只能通过新的 Builder 生效。
+调整 `add.txt`、`remove.txt` 会立即触发固件工作流，优先复用现成 Builder 的 ABI 兼容 APK。若新增插件还未编译，固件打包会失败并明确提示，Builder 将在下一次每周自动构建或手动执行时编译新版本。核心内核配置变化只能通过新的 Builder 生效。
 
 ## 测试
 
