@@ -1,0 +1,35 @@
+name: One-time clean up Go Builder acceleration branch
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/cleanup-go-boost-branch.yml']
+permissions:
+  contents: write
+jobs:
+  cleanup:
+    if: github.repository == 'pzcn/openwrt-ppe-nss-ota'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+      - name: Delete merged performance branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          branch="perf/cache-go-and-use-binary-bootstrap"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" >/dev/null 2>&1; then
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch" >/dev/null
+          fi
+      - name: Remove this temporary workflow
+        run: |
+          set -Eeuo pipefail
+          git config user.name "Peizhe Zhang"
+          git config user.email "sdustpedro@gmail.com"
+          git fetch origin main
+          git checkout -B main origin/main
+          git rm .github/workflows/cleanup-go-boost-branch.yml
+          git commit -s -m "chore: remove temporary Go Builder optimization cleanup workflow"
+          git push origin HEAD:main
