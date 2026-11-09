@@ -15,6 +15,10 @@ Aurora 固定为 v1.4.0、sing-box LuCI 固定为 v0.4.7；均从固定源码标
 
 `kmod-fs-f2fs`、`f2fs-tools` 同时声明在软件包清单与编译配置；构建期间按需要补齐京东云设备级 `DEVICE_PACKAGES`。p18 上使用 SquashFS + F2FS 可写层。p27 保留独立 ext4 分区，由 ImmortalWrt 上游挂载机制管理。
 
+## 插件选择和 Builder 复用
+
+调整 `add.txt`、`remove.txt` 会立即触发固件工作流，优先复用现成 Builder 的 ABI 兼容 APK。若新增插件还未编译，固件打包会失败并明确提示，Builder 将在下一次两天周期或手动执行时编译新版本。核心内核配置变化只能通过新的 Builder 生效。
+
 ## 测试
 
 `scripts/tests/test-extra-apps.py` 负责防止用户插件与中文包遗漏；`scripts/tests/test-immortalwrt-compat.py` 测试两个临时修复。LuCI、Dr.COM、OTA、Builder 元数据都有独立离线测试。缺少必需 Kconfig 选项或编译产物时直接报错。

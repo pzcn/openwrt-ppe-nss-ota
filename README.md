@@ -27,15 +27,21 @@
 
 完整插件清单在 [config/add.txt](config/add.txt)，核心构建选项在 [config/immortalwrt-re-ss-01.config](config/immortalwrt-re-ss-01.config)，自动测试会检查必需插件是否齐全。
 
-## 构建与下载
+## 两套独立 Actions
 
-1. 进入 [Actions → ImmortalWrt NSS reusable ImageBuilder and firmware](../../actions/workflows/immortalwrt-reusable.yml)。
-2. 选择 **Run workflow**；按需决定是否强制重新编译和是否发布 Release。
-3. 从 [Releases](../../releases) 下载 `imm-ppe-nss-...` 标签的 sysupgrade 镜像及校验文件。
+| 工作流 | 自动触发 | 产物 |
+| --- | --- | --- |
+| [固件打包 Firmware](../../actions/workflows/firmware-immortalwrt.yml) | `main` 的代码、LuCI、OTA、插件配置变化；每天检查一次 | 从已发布 Builder 重打包 `imm-ppe-nss-...` 固件 |
+| [源码 Builder](../../actions/workflows/builder-immortalwrt.yml) | 每两天检查 ImmortalWrt/PPE/NSS 与编译配置（也可手动运行） | 完整编译并发布 `imm-builder-...` ImageBuilder |
 
-正常流程会先识别匹配的 `imm-builder-...` ImageBuilder Release：源代码或核心配置发生变化时构建并发布新的 Builder，其他情况使用已发布的 Builder 打包固件。Builder 与固件都保存在 Releases 中。
+Builder 发布成功后会自动触发固件工作流。没有新版本时，两条工作流都跳过实际构建；固件工作流**不会触发内核源码编译**。
 
-构建流程说明：[ImmortalWrt 与专用 ImageBuilder](docs/IMMORTALWRT-PPE-NSS.md)。进一步的 ImageBuilder 复用加速留待单独优化。
+- 修改 `files/`、LuCI、OTA、翻译或 `config/add.txt`：优先使用现有 Builder 打包。
+- 添加已编译的插件 APK：无需重新编译；若 Builder 不包含所需 APK，打包会明确报错，等待下一次 Builder 重新编译或手动运行。
+- 修改编译配置、内核或 PPE/NSS 代码：新 Builder 由隔两天的源码任务检查并生成。
+- [Releases](../../releases) 分别保存 Builder 和固件，且带 SHA 与完整性校验。
+
+详细说明：[构建与版本判定](docs/IMMORTALWRT-PPE-NSS.md)。
 
 ## 两个临时兼容补丁
 
