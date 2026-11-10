@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from immortalwrt_sdk_apks import (
     APK, cache_manifest, collect, install, missing_packages,
     package_in_directory, request_names, safe_apk_files, selection_sha,
+    sdk_compile_targets,
 )
 
 with tempfile.TemporaryDirectory() as dirname:
@@ -103,13 +104,51 @@ with tempfile.TemporaryDirectory() as dirname:
     else:
         raise AssertionError("Allowed invalid requested APK name")
 
+    # OpenWrt metadata maps binary names to their installed source directories.
+    # One source can produce multiple binary APKs; build it only once.
+    sdk_src = root / "sdk-src"
+    (sdk_src / "tmp").mkdir(parents=True)
+    sing = sdk_src / "package/feeds/sing_box/luci-app-sing-box"
+    lib = sdk_src / "package/feeds/packages/libnew-dep"
+    sing.mkdir(parents=True)
+    lib.mkdir(parents=True)
+    (sing / "Makefile").write_text("include $(TOPDIR)/rules.mk\\n")
+    (lib / "Makefile").write_text("include $(TOPDIR)/rules.mk\\n")
+    (sdk_src / "tmp/.packageinfo").write_text(
+        "Source-Makefile: feeds/sing_box/luci-app-sing-box/Makefile\\n"
+        "Package: luci-app-sing-box\\n"
+        "Source-Makefile: feeds/packages/libs/libnew-dep/Makefile\\n"
+        "Package: libnew-dep\\n"
+        "Package: libnew-dep-extra\\n"
+        "Source-Makefile: feeds/packages/libs/nonexistent/Makefile\\n"
+        "Package: missing-source\\n"
+    )
+    assert sdk_compile_targets(sdk_src, ["luci-app-sing-box"]) == [
+        "package/feeds/sing_box/luci-app-sing-box/compile"
+    ]
+    assert sdk_compile_targets(sdk_src, [
+        "luci-app-sing-box", "libnew-dep", "libnew-dep-extra"
+    ]) == [
+        "package/feeds/packages/libnew-dep/compile",
+        "package/feeds/sing_box/luci-app-sing-box/compile",
+    ]
+    for bad in ("missing-source", "unknown-package", "../escape"):
+        try:
+            sdk_compile_targets(sdk_src, [bad])
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"Unsafe or missing SDK package accepted: {bad}")
+
 repack = (ROOT / "scripts/repack-immortalwrt.sh").read_text()
 sdk = (ROOT / "scripts/rebuild-missing-apks.sh").read_text()
 fw = (ROOT / ".github/workflows/firmware-immortalwrt.yml").read_text()
 assert 'bash "$ROOT/scripts/rebuild-missing-apks.sh" "$IB" "$META"' in repack
 assert 'python3 "$SDK_CHECK" verify' in sdk
 assert 'scripts/feeds install -a' in sdk or './scripts/feeds install -a' in sdk
-assert 'make -j"$(nproc)" package/compile V=s' in sdk
+assert 'make -j"$(nproc)" "${MAKE_TARGETS[@]}" V=s' in sdk
+assert 'package/compile V=s' not in sdk
+assert 'targets --sdk "$SDK" --packages "${MISSING[@]}"' in sdk
 assert 'git -C "$dest" rev-parse HEAD' in sdk
 assert 'SDK_APK_CACHE_DIR' in sdk
 assert "test-immortalwrt-sdk-apks.py" in fw

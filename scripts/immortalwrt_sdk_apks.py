@@ -62,6 +62,59 @@ def missing_packages(imagebuilder: Path, add: Path) -> list[str]:
             if not package_in_directory(repo, name)]
 
 
+
+def sdk_compile_targets(sdk: Path, packages: list[str]) -> list[str]:
+    """Resolve binary APK names to individual OpenWrt source-package targets.
+
+    OpenWrt's package/compile target builds every selected package; a reused
+    SDK may select unrelated packages (including a Rust host toolchain).
+    tmp/.packageinfo records the Source-Makefile for each binary package, so
+    compile only the source directory needed for each missing APK.
+    """
+    info = sdk / "tmp/.packageinfo"
+    if not info.is_file():
+        raise ValueError("SDK package metadata is missing; run make defconfig first")
+    source = ""
+    sources: dict[str, set[str]] = {}
+    for line in info.read_text().splitlines():
+        if line.startswith("Source-Makefile: "):
+            source = line.partition(":")[2].strip()
+        elif line.startswith("Package: "):
+            name = line.partition(":")[2].strip()
+            if source and PKG.fullmatch(name):
+                sources.setdefault(name, set()).add(source)
+
+    targets: set[str] = set()
+    for name in packages:
+        if not PKG.fullmatch(name):
+            raise ValueError(f"Invalid missing package: {name!r}")
+        candidates: set[str] = set()
+        for makefile in sources.get(name, ()):
+            parts = makefile.split("/")
+            # Reject malformed metadata, including paths escaping the SDK.
+            if (not parts or parts[-1] != "Makefile" or
+                    any(not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._+-]*", p)
+                        or p in (".", "..") for p in parts)):
+                continue
+            if parts[0] == "feeds" and len(parts) >= 4:
+                # feeds/<feed>/<category>/.../<source>/Makefile gets linked
+                # into package/feeds/<feed>/<source>/Makefile by feeds install.
+                directory = Path("package/feeds") / parts[1] / parts[-2]
+            elif parts[0] == "package" and len(parts) >= 3:
+                directory = Path(*parts[:-1])
+            else:
+                continue
+            if (sdk / directory / "Makefile").is_file():
+                candidates.add(directory.as_posix() + "/compile")
+        if len(candidates) != 1:
+            raise ValueError(
+                f"Cannot uniquely map SDK package {name} to an installed "
+                f"source: {sorted(candidates)} (metadata: {sorted(sources.get(name, ()))})")
+        targets.update(candidates)
+    if not targets:
+        raise ValueError("No SDK package build targets were resolved")
+    return sorted(targets)
+
 def selection_sha(add: Path, remove: Path) -> str:
     digest = hashlib.sha256()
     for path in (add, remove):
@@ -191,6 +244,9 @@ def main() -> None:
     plan = commands.add_parser("plan")
     plan.add_argument("--imagebuilder", type=Path, required=True)
     plan.add_argument("--add", type=Path, required=True)
+    targets = commands.add_parser("targets")
+    targets.add_argument("--sdk", type=Path, required=True)
+    targets.add_argument("--packages", nargs="+", required=True)
     for verb in ("collect", "install", "verify-cache"):
         command = commands.add_parser(verb)
         command.add_argument("--imagebuilder", type=Path, required=True)
@@ -206,6 +262,9 @@ def main() -> None:
     args = parser.parse_args()
     if args.action == "plan":
         print("\n".join(missing_packages(args.imagebuilder, args.add)))
+        return
+    if args.action == "targets":
+        print("\n".join(sdk_compile_targets(args.sdk, args.packages)))
         return
     expected = missing_packages(args.imagebuilder, args.add)
     if not expected:

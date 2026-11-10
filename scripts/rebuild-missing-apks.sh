@@ -143,8 +143,13 @@ else
         exit 1
       fi
     done
-    # The SDK makefile compiles packages and dependencies, not the kernel.
-    make -j"$(nproc)" package/compile V=s
+    # Target only the missing package sources and their build dependencies.
+    # A plain package/compile builds unrelated SDK packages, including Rust,
+    # whose host toolchain can fail even for a no-arch LuCI-only change.
+    TARGETS_RAW="$(python3 "$APKS" targets --sdk "$SDK" --packages "${MISSING[@]}")"
+    mapfile -t MAKE_TARGETS <<< "$TARGETS_RAW"
+    printf 'SDK build targets (%s): %s\n' "${#MAKE_TARGETS[@]}" "${MAKE_TARGETS[*]}"
+    make -j"$(nproc)" "${MAKE_TARGETS[@]}" V=s
   )
   python3 "$APKS" collect "${common[@]}" --sdk-bin "$SDK/bin"
 fi
