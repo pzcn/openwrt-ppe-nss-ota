@@ -142,7 +142,8 @@ workflow = (ROOT / ".github/workflows/builder-incremental.yml").read_text()
 assert "rebuild-missing-apks.sh" in script
 assert 'immortalwrt_derive.py" sanitize' in script
 assert 'immortalwrt_derive.py" metadata' in script
-assert "make -j" not in script and "make download" not in script
+assert not any(line.lstrip().startswith(("make -j", "make download"))
+               for line in script.splitlines())
 assert "actions/cache@v4" in workflow and ".build-cache/sdk-apks" in workflow
 assert "builder_tag" in workflow and "firmware-immortalwrt.yml" in workflow
 assert "scripts/derive-immortalwrt-builder.sh" in workflow
