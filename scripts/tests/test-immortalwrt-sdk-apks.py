@@ -147,7 +147,10 @@ assert 'bash "$ROOT/scripts/rebuild-missing-apks.sh" "$IB" "$META"' in repack
 assert 'python3 "$SDK_CHECK" verify' in sdk
 assert 'scripts/feeds install -a' in sdk or './scripts/feeds install -a' in sdk
 assert 'make -j"$(nproc)" "${MAKE_TARGETS[@]}" V=s' in sdk
-assert 'make -j"$(nproc)" NO_DEPS=1 "${MAKE_TARGETS[@]}" V=s' in sdk
+assert 'make -j"$(nproc)" NO_DEPS=1 CONFIG_LUCI_JSMIN= CONFIG_LUCI_CSSTIDY= "${MAKE_TARGETS[@]}" V=s' in sdk
+assert "CONFIG_SIGN_EACH_PACKAGE=y" in sdk
+assert "openssl ecparam -name prime256v1 -genkey -noout -out private-key.pem" in sdk
+assert "untrusted comment: Local SDK package key" in sdk
 assert '"${MISSING[0]}" == luci-app-sing-box' in sdk
 assert '"${#MISSING[@]}" -eq 1' in sdk
 assert 'package/compile V=s' not in sdk

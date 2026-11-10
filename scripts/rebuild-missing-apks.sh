@@ -143,6 +143,21 @@ else
         exit 1
       fi
     done
+    # The released SDK intentionally excludes the private APK signing key.
+    # Buildroot normally creates this through package//compile, but targeted
+    # package compilation skips that aggregate prerequisite.
+    if grep -Fxq 'CONFIG_SIGN_EACH_PACKAGE=y' .config; then
+      if [[ ! -s private-key.pem ]]; then
+        ( umask 077
+          openssl ecparam -name prime256v1 -genkey -noout -out private-key.pem
+        )
+        sed -i '1s/^/untrusted comment: Local SDK package key\n/' private-key.pem
+      fi
+      [[ -s private-key.pem ]] || {
+        echo "::error::SDK APK signing key was not generated" >&2
+        exit 1
+      }
+    fi
     # Target only the missing package sources and their build dependencies.
     # A plain package/compile builds unrelated SDK packages, including Rust,
     # whose host toolchain can fail even for a no-arch LuCI-only change.
@@ -155,11 +170,13 @@ else
     # cannot recompile unrelated C/Go dependencies such as libjson-c.
     # NO_DEPS is safe only for this exact no-arch package and only when it
     # is the sole missing APK; keep normal dependency builds otherwise.
+    # Its pinned Zashboard assets are already built. Skip optional LuCI
+    # jsmin/csstidy host steps absent from the published external-toolchain SDK.
     if [[ "${#MISSING[@]}" -eq 1 &&
           "${MISSING[0]}" == luci-app-sing-box &&
           "${#MAKE_TARGETS[@]}" -eq 1 &&
           "${MAKE_TARGETS[0]}" == package/feeds/sing_box/luci-app-sing-box/compile ]]; then
-      make -j"$(nproc)" NO_DEPS=1 "${MAKE_TARGETS[@]}" V=s
+      make -j"$(nproc)" NO_DEPS=1 CONFIG_LUCI_JSMIN= CONFIG_LUCI_CSSTIDY= "${MAKE_TARGETS[@]}" V=s
     else
       make -j"$(nproc)" "${MAKE_TARGETS[@]}" V=s
     fi
