@@ -9,7 +9,7 @@
 - `remove.txt`：需要移除的基础软件包，以及旧 Builder 中不再需要的 LuCI 应用。
 - `translations/`：PPE QoS 与固件更新页面的自定义翻译，构建时生成 `.lmo`。
 
-Aurora 固定为 v1.4.0，从固定源码标签编译。HomeProxy、定时重启、CPU 调频、DDNS-Go、autocore、default-settings-chn 和中文翻译均来自 ImmortalWrt 官方 feeds。PPE QoS 来自 Julius 的 LuCI 分支。
+Aurora 固定为 v1.4.0、sing-box LuCI 固定为 v0.4.7，均从固定源码标签编译。定时重启、CPU 调频、DDNS-Go、autocore、default-settings-chn 和中文翻译均来自 ImmortalWrt 官方 feeds。PPE QoS 来自 Julius 的 LuCI 分支。
 
 ## 中国区默认设置与 APK 软件源
 

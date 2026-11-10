@@ -101,6 +101,11 @@ else
     sha="$(jq -er --arg k "$feed" '.feeds[$k]' "$LOCK")"
     fetch_locked "$feed" "$url" "$sha"
   done
+  # Build the original pinned LuCI from source when absent in the Builder.
+  if printf '%s\n' "${MISSING[@]}" | grep -Fxq luci-app-sing-box; then
+    mkdir -p "$WORK/git/sing_box"
+    bash "$ROOT/scripts/prepare-sing-box-luci.sh" "$WORK/git/sing_box/luci-app-sing-box"
+  fi
   # Mirror the full Builder's known unrelated circular-Kconfig exclusions.
   rm -rf "$WORK/git/packages/net/fwknop" \
          "$WORK/git/packages/sound/squeezelite" \
@@ -110,6 +115,9 @@ else
     for feed in packages luci routing telephony nss ppe_qos_luci; do
       echo "src-link $feed $WORK/git/$feed"
     done
+    if [[ -d "$WORK/git/sing_box/luci-app-sing-box" ]]; then
+      echo "src-link sing_box $WORK/git/sing_box"
+    fi
   } > "$SDK/feeds.conf"
   (
     cd "$SDK"
@@ -120,6 +128,11 @@ else
     export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
     ./scripts/feeds update -a
     ./scripts/feeds install -a
+    if [[ -d "$WORK/git/sing_box/luci-app-sing-box" ]]; then
+      test -e package/feeds/sing_box/luci-app-sing-box || {
+        echo "::error::Missing pinned sing-box LuCI from SDK feed" >&2; exit 1;
+      }
+    fi
     for pkg in "${MISSING[@]}"; do
       printf 'CONFIG_PACKAGE_%s=y\n' "$pkg" >> .config
     done

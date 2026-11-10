@@ -11,7 +11,7 @@
 | 网络工具 | WireGuard、PBR、LLDP、IRQ Balance、tcpdump、conntrack |
 | 管理插件 | filemanager、ttyd、nlbwmon、wifihistory、autoreboot、cpufreq、ddns-go、autocore |
 | 远程访问 | Tailscale、中文 LuCI 管理页面 |
-| 代理 | ImmortalWrt 官方 HomeProxy 管理界面、sing-box 内核 |
+| 代理 | sing-box 内核、v0.4.7 中文 LuCI JSON 管理界面，默认关闭 |
 | 网络唤醒 | luci-app-wol、Etherwake、简体中文 |
 | 更新 | 在线检查、SHA256 与 `sysupgrade -T` 验证、自动更新与软件包恢复 |
 
@@ -20,7 +20,7 @@
 - **状态 → PPE / NSS 硬件加速**：硬件加速状态、连接统计、折叠诊断。
 - **系统 → 备份 / 升级**：手动升级、在线检查、自动更新设置。
 - **VPN → Tailscale**：远程组网和服务管理。
-- **服务 → HomeProxy**：基于 sing-box 的代理规则、节点与服务管理。
+- **服务 → sing-box**：JSON 配置、校验及服务控制。
 - **服务 → 网络唤醒**：通过 LAN 接口向指定 MAC 发送唤醒包。
 
 **校园网登录（Dr.COM）已从固件构建中排除。** LuCI 页面、RPC、认证脚本和自动登录的源码仍保存在仓库。参见 [Dr.COM 源码说明](docs/DRCOM-CAMPUS.md)。
@@ -74,7 +74,7 @@ ubus call luci.ppe-nss-monitor get_status
 - [在线更新](docs/CUSTOM-OTA.md)
 - [PPE / NSS 监控](docs/PPE-NSS-MONITOR.md)
 - [Tailscale 与 WOL](docs/TAILSCALE-WOL.md)
-- [HomeProxy 与 sing-box](docs/SINGBOX.md)
+- [sing-box 配置管理](docs/SINGBOX.md)
 - [中文本地化](docs/CHINESE-LOCALIZATION.md)
 
 源码布局：`config/` 保存设备、插件与翻译配置；`files/` 为固件覆盖层；`scripts/` 保存源码构建、固件打包、补丁与测试代码。

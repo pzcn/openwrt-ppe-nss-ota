@@ -98,9 +98,9 @@ Builder 的 `scripts/build-immortalwrt.sh` 指纹会忽略明确标记的 **firm
 
 ## 软件包与 LuCI
 
-当前固件保留：Aurora、PPE QoS、OTA、Tailscale、HomeProxy/sing-box、WireGuard、WOL、文件管理、ttyd、nlbwmon、wifihistory、irqbalance、lldpd、PBR、autoreboot、cpufreq、default-settings-chn、autocore、ddns-go、tcpdump、conntrack、F2FS 工具、简体中文包。
+当前固件保留：Aurora、PPE QoS、OTA、Tailscale、sing-box v0.4.7 LuCI、WireGuard、WOL、文件管理、ttyd、nlbwmon、wifihistory、irqbalance、lldpd、PBR、autoreboot、cpufreq、default-settings-chn、autocore、ddns-go、tcpdump、conntrack、F2FS 工具、简体中文包。
 
-Dr.COM 校园网认证 App 的菜单、后端、启动脚本和定时认证任务在两条固件构建路径中排除，源码和离线测试保留在仓库。旧版 `luci-app-sing-box` 从预装列表删除，改用 ImmortalWrt 官方 `luci-app-homeproxy`；sing-box 内核保留。`default-settings-chn` 的镜像源切换由固件 UCI 默认脚本阻止，以保留匹配的 NSS 软件源。
+Dr.COM 校园网认证 App 的菜单、后端、启动脚本和定时认证任务在两条固件构建路径中排除，源码和离线测试保留在仓库。恢复原来的 `luci-app-sing-box` v0.4.7 中文 JSON 管理界面与 sing-box 内核，从新固件排除 HomeProxy 和其翻译包。旧 Builder 缺少 LuCI APK 时使用匹配 SDK 从固定源码补编；没有对应 SDK 时需先构建新版 Builder。`default-settings-chn` 的镜像源切换由固件 UCI 默认脚本阻止，以保留匹配的 NSS 软件源。
 
 为精简界面，已从新固件移除 DiskMan 与 Statistics 及中文包，保留系统原生挂载点管理、实时统计和 nlbwmon 设备流量统计。即使复用旧 Builder，`config/remove.txt` 也会明确排除这四个软件包。
 

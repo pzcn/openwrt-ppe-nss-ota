@@ -4,8 +4,9 @@ libopenssl-oqsprovider
 liboqs
 
 
-# The previous Builder may still default to the legacy sing-box LuCI UI.
-luci-app-sing-box
+# Remove HomeProxy from existing Builder manifests.
+luci-app-homeproxy
+luci-i18n-homeproxy-zh-cn
 
 # Omit duplicate disk management and long-term graph LuCI apps, including when
 # repacking a previous Builder whose manifest still includes these packages.

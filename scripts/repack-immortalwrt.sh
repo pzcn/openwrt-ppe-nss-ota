@@ -109,9 +109,15 @@ if [[ -z "$MANIFEST_PATH" ]]; then
   MANIFEST_PATH="$(find "$WORK/images" -type f -name '*ipq60xx.manifest' -print -quit)"
 fi
 test -n "$MANIFEST_PATH" && test -s "$MANIFEST_PATH"
+for required in luci-app-sing-box sing-box; do
+  awk -v pkg="$required" '$1 == pkg { found = 1 } END { exit !found }' "$MANIFEST_PATH" || {
+    echo "::error::Repacked firmware missing: $required" >&2; exit 1;
+  }
+done
 
 # Exclusions must also take effect when reusing an older Builder manifest.
-for excluded in luci-app-diskman luci-i18n-diskman-zh-cn \
+for excluded in luci-app-homeproxy luci-i18n-homeproxy-zh-cn \
+  luci-app-diskman luci-i18n-diskman-zh-cn \
   luci-app-statistics luci-i18n-statistics-zh-cn; do
   if awk -v pkg="$excluded" '$1 == pkg { found = 1 } END { exit !found }' "$MANIFEST_PATH"; then
     echo "::error::Repacked firmware still includes excluded package: $excluded" >&2
