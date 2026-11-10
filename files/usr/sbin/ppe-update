@@ -30,8 +30,26 @@ EXPECTED_MANIFEST='openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest'
 log() { logger -t ppe-update "$*"; echo "$*" >&2; }
 die() { log "$*"; exit 2; }
 
+# Release assets redirect through a different host than api.github.com.
+# If uclient-fetch cannot follow that HTTPS chain, retry with curl. Do not
+# conflate failed download with a missing/mismatched device or OTA channel.
 fetch() {
-	uclient-fetch -q -T 30 -O "$2" "$1" 2>/dev/null
+	url="$1"
+	dest="$2"
+	rm -f "$dest"
+	if uclient-fetch -q -T 30 -O "$dest" "$url" 2>>"$WORK/fetch-error.log" &&
+		[ -s "$dest" ]; then
+		return 0
+	fi
+	rm -f "$dest"
+	if command -v curl >/dev/null 2>&1 &&
+		curl -fLsS --retry 2 --connect-timeout 10 --max-time 60 \
+			-o "$dest" "$url" 2>>"$WORK/fetch-error.log" &&
+		[ -s "$dest" ]; then
+		return 0
+	fi
+	rm -f "$dest"
+	return 1
 }
 
 valid_integer() {
@@ -56,6 +74,7 @@ index() {
 		[ "$GROUP" = "$EXPECTED_GROUP" ] ||
 		die "board or PPE group mismatch: refusing OTA"
 	mkdir -p "$WORK"
+	: >"$WORK/fetch-error.log"
 	fetch "$RELEASE_API" "$WORK/github.json" || die "cannot reach custom GitHub Releases API"
 	LATEST=$(jsonfilter -i "$WORK/github.json" -e '@.tag_name')
 	case "$LATEST" in
@@ -65,7 +84,9 @@ index() {
 	case "$LATEST" in *[!a-zA-Z0-9._-]*) die "unsafe release tag" ;; esac
 	# We do not trust arbitrary names or paths from a release.
 	fetch "$RELEASE_ASSETS/$LATEST/ota.json" "$WORK/ota.json" ||
-		die "latest release has no trusted OTA metadata"
+		die "failed to fetch latest OTA metadata asset from GitHub"
+	jq -e 'type == "object"' "$WORK/ota.json" >/dev/null 2>&1 ||
+		die "invalid OTA metadata JSON"
 	meta() { jsonfilter -i "$WORK/ota.json" -e "@.$1"; }
 	[ "$(meta schema)" = 1 ] &&
 		[ "$(meta channel)" = "$RELEASE_CHANNEL" ] &&
@@ -166,6 +187,10 @@ cmd_status() {
 		reason='无法访问 GitHub Releases API，请检查路由器网络或 DNS'
 	elif grep -Eq 'invalid GitHub Releases API response|failed to parse GitHub firmware release index' "$WORK/status-error.log"; then
 		reason='GitHub Releases API 返回数据异常（可能是访问限制）'
+	elif grep -Fq 'failed to fetch latest OTA metadata asset from GitHub' "$WORK/status-error.log"; then
+		reason='GitHub Release 附件 ota.json 下载失败（网络、TLS 或重定向）'
+	elif grep -Fq 'custom release package manifest is missing' "$WORK/status-error.log"; then
+		reason='GitHub Release 附件 manifest 下载失败（网络或资源不可用）'
 	elif grep -Eq 'metadata|checksum|not on the expected channel|unexpected firmware|missing local firmware|board or PPE group mismatch' "$WORK/status-error.log"; then
 		reason='更新渠道、设备或固件元数据不匹配'
 	else

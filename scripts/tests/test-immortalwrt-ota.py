@@ -29,7 +29,13 @@ with tempfile.TemporaryDirectory() as d:
     result = path.read_text()
     assert "releases?per_page=100" in result
     assert 'startswith("imm-ppe-nss-")' in result
+    assert "sort_by(.published_at" in result
+    assert 'select(any(.assets[]?; .name == "ota.json"))' in result
+    assert 'select(any(.assets[]?; .name == $image))' in result
     assert "no ImmortalWrt firmware release" in result
+    assert "failed to fetch latest OTA metadata asset from GitHub" in result
+    assert "curl -fLsS --retry 2" in result
+    assert "invalid OTA metadata JSON" in result
     assert 'type == "array"' in result
     assert "invalid GitHub Releases API response" in result
     assert "re-ss-01-immortal-ppe-nss" in result
@@ -96,6 +102,10 @@ with tempfile.TemporaryDirectory() as d:
             "GitHub Releases API 返回数据异常",
         "custom OTA metadata does not match this device":
             "更新渠道、设备或固件元数据不匹配",
+        "failed to fetch latest OTA metadata asset from GitHub":
+            "GitHub Release 附件 ota.json 下载失败",
+        "custom release package manifest is missing":
+            "GitHub Release 附件 manifest 下载失败",
     }
     for simulated, expected in cases.items():
         env = dict(os.environ)

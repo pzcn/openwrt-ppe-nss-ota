@@ -58,7 +58,14 @@ def prepare(overlay: Path, tag: str, build: int) -> None:
          """if ! jq -e 'type == "array"' "$WORK/github.json" >/dev/null 2>&1; then
     die "invalid GitHub Releases API response"
 fi
-LATEST=$(jq -r 'map(select(.draft == false and (.tag_name | startswith("imm-ppe-nss-")))) | .[0].tag_name // empty' "$WORK/github.json") ||
+LATEST=$(jq -r --arg image "$EXPECTED_IMAGE" --arg manifest "$EXPECTED_MANIFEST" '
+    [.[] | select(.draft == false and .prerelease == false and
+                  (.tag_name | startswith("imm-ppe-nss-")))
+         | select(any(.assets[]?; .name == "ota.json"))
+         | select(any(.assets[]?; .name == $image))
+         | select(any(.assets[]?; .name == $manifest))]
+    | sort_by(.published_at // "") | last | .tag_name // empty
+' "$WORK/github.json") ||
     die "failed to parse GitHub firmware release index"
 [ -n "$LATEST" ] || die "no ImmortalWrt firmware release is published on this channel" """),
         ('\tota-ppe-nss-*) ;;', '\timm-ppe-nss-*) ;;'),
