@@ -1,0 +1,159 @@
+name: Incremental Builder + SDK (reuse compiled ABI)
+
+on:
+  # Fast package selection changes rebuild the APK repository, not the kernel.
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/builder-incremental.yml"
+      - "scripts/immortalwrt_derive.py"
+      - "scripts/derive-immortalwrt-builder.sh"
+      - "scripts/tests/test-immortalwrt-derive.py"
+      - "config/add.txt"
+      - "config/remove.txt"
+  workflow_dispatch:
+    inputs:
+      parent_builder_tag:
+        description: "Existing Builder tag with SDK (blank: newest)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: re-ss-01-builder
+  cancel-in-progress: false
+
+jobs:
+  reissue:
+    name: Reuse the Builder/SDK ABI and publish updated APK repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate incremental Builder and core package contracts
+        run: |
+          bash -n scripts/derive-immortalwrt-builder.sh
+          python3 scripts/tests/test-immortalwrt-derive.py
+          python3 scripts/tests/test-extra-apps.py
+          python3 scripts/tests/test-immortalwrt-builder.py
+          python3 scripts/tests/test-immortalwrt-sdk.py
+      - name: Resolve latest published ABI-matched parent Builder and SDK
+        id: resolve
+        env:
+          REQUESTED: ${{ inputs.parent_builder_tag || '' }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -n "$REQUESTED" ]]; then
+            [[ "$REQUESTED" =~ ^imm-builder-[a-zA-Z0-9._-]+$ ]] || exit 1
+            PARENT="$REQUESTED"
+          else
+            PARENT="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+              --jq '[.[] | select(.draft == false and .prerelease == false and (.tag_name | startswith("imm-builder-"))) | select(any(.assets[]?; .name == "sdk-metadata.json"))] | sort_by(.published_at) | last | .tag_name // empty')"
+          fi
+          [[ -n "$PARENT" ]] || { echo "::error::No published Builder with SDK. Run full Builder first."; exit 1; }
+          mkdir -p "$RUNNER_TEMP/parent-builder"
+          gh release download "$PARENT" -R "$GITHUB_REPOSITORY" \
+            -D "$RUNNER_TEMP/parent-builder" -p builder-metadata.json
+          META="$RUNNER_TEMP/parent-builder/builder-metadata.json"
+          [[ "$(jq -er '.tag' "$META")" == "$PARENT" ]] || exit 1
+          python3 scripts/immortalwrt_builder.py check --metadata "$META"
+          DESIRED="$(python3 scripts/immortalwrt_builder.py tag \
+            --immortal "$(jq -er '.immortalwrt_commit' "$META")" \
+            --ppe "$(jq -er '.ppe_nss_commit' "$META")" \
+            --base "$(jq -er '.base_overlay_commit' "$META")" \
+            --feeds "$(jq -er '.feeds_fingerprint' "$META")")"
+          echo "parent_tag=$PARENT" >> "$GITHUB_OUTPUT"
+          echo "new_tag=$DESIRED" >> "$GITHUB_OUTPUT"
+          if [[ "$PARENT" == "$DESIRED" ]] ||
+             gh release view "$DESIRED" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "rebuild=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Matching incremental Builder $DESIRED already published."
+          else
+            echo "rebuild=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Parent Builder: $PARENT" >> "$GITHUB_STEP_SUMMARY"
+          echo "Derived Builder: $DESIRED" >> "$GITHUB_STEP_SUMMARY"
+      - name: Restore APKs built against the exact parent SDK
+        if: steps.resolve.outputs.rebuild == 'true'
+        uses: actions/cache@v4
+        with:
+          path: .build-cache/sdk-apks
+          key: sdk-apks-v1-${{ steps.resolve.outputs.parent_tag }}-${{ hashFiles('config/add.txt', 'config/remove.txt') }}
+      - name: Install extraction and ImageBuilder tools (no compiler toolchain)
+        if: steps.resolve.outputs.rebuild == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends zstd jq rsync make python3
+      - name: Download existing paired Builder/SDK assets
+        if: steps.resolve.outputs.rebuild == 'true'
+        env:
+          PARENT: ${{ steps.resolve.outputs.parent_tag }}
+        run: |
+          set -Eeuo pipefail
+          gh release download "$PARENT" -R "$GITHUB_REPOSITORY" \
+            -D "$RUNNER_TEMP/parent-builder" --clobber \
+            -p '*imagebuilder*.tar.zst' -p '*sdk*.tar.zst' \
+            -p base-overlay.tar.gz -p imagebuilder-packages.txt \
+            -p sdk-metadata.json -p sdk-feeds.lock.json \
+            -p source-commits.txt -p official-toolchain-status.txt
+      - name: Repackage new Builder and cleaned SDK without a kernel build
+        if: steps.resolve.outputs.rebuild == 'true'
+        run: |
+          bash scripts/derive-immortalwrt-builder.sh \
+            "$RUNNER_TEMP/parent-builder" "$GITHUB_WORKSPACE/out-incremental-builder"
+      - name: Publish immutable Builder + SDK and trigger its firmware
+        if: steps.resolve.outputs.rebuild == 'true'
+        env:
+          EXPECTED_TAG: ${{ steps.resolve.outputs.new_tag }}
+        run: |
+          set -Eeuo pipefail
+          DIR="$GITHUB_WORKSPACE/out-incremental-builder"
+          TAG="$(jq -er '.tag' "$DIR/builder-metadata.json")"
+          [[ "$TAG" == "$EXPECTED_TAG" ]] || {
+            echo "::error::Derived Builder has unexpected tag $TAG" >&2; exit 1;
+          }
+          SDK_ARCHIVE="$DIR/$(jq -er '.archive' "$DIR/sdk-metadata.json")"
+          IB_ARCHIVE="$DIR/$(jq -er '.archive' "$DIR/builder-metadata.json")"
+          test -s "$SDK_ARCHIVE" && test -s "$IB_ARCHIVE"
+          python3 scripts/immortalwrt_builder.py verify \
+            --metadata "$DIR/builder-metadata.json" --archive "$IB_ARCHIVE" \
+            --overlay "$DIR/base-overlay.tar.gz" \
+            --packages "$DIR/imagebuilder-packages.txt"
+          python3 scripts/immortalwrt_sdk.py verify \
+            --metadata "$DIR/sdk-metadata.json" \
+            --builder-metadata "$DIR/builder-metadata.json" \
+            --archive "$SDK_ARCHIVE" --feed-lock "$DIR/sdk-feeds.lock.json"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Refusing to mutate existing immutable Builder: $TAG" >&2
+            exit 1
+          fi
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" --latest=false \
+            --title "Package-only ImmortalWrt PPE+NSS Builder/SDK ($TAG)" \
+            --notes "Derived from a verified existing matched Builder/SDK. Removed HomeProxy from package repository and SDK without rebuilding kernel, NSS, DTB or toolchain. New archive hashes are bound to this release." \
+            "$IB_ARCHIVE" "$SDK_ARCHIVE" \
+            "$DIR/base-overlay.tar.gz" "$DIR/imagebuilder-packages.txt" \
+            "$DIR/builder-metadata.json" "$DIR/sdk-metadata.json" \
+            "$DIR/sdk-feeds.lock.json" \
+            "$DIR/source-commits.txt" "$DIR/official-toolchain-status.txt"
+          echo "New Builder + SDK Release: $TAG" >> "$GITHUB_STEP_SUMMARY"
+          # Do not report the Builder build as failed if only dispatch is
+          # denied. The daily firmware workflow will also select it.
+          if ! gh workflow run firmware-immortalwrt.yml -R "$GITHUB_REPOSITORY" \
+             --ref main -f "builder_tag=$TAG"; then
+            echo "::warning::Builder published; firmware dispatch failed, run firmware workflow manually."
+          fi
+      - name: Upload immutable Builder/SDK for inspection
+        if: steps.resolve.outputs.rebuild == 'true' && success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-package-only-builder
+          path: out-incremental-builder/
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: error
