@@ -83,9 +83,13 @@ printf '\nsrc-git nss https://github.com/JuliusBairaktaris/nss-packages.git;ppe-
 # before re-indexing feeds, retaining official sources for all required packages.
 # fwknopd <-> luci-app-fwknopd / FWKNOPD_GPG
 # squeezelite-custom <-> SQUEEZELITE_WMA_ALAC
+# HomeProxy must be absent from the compiled package repository AND the
+# published SDK's LuCI source tree, not merely deselected in config/remove.txt.
+# Retain the official git commit/feeds lock; change only its working tree.
 rm -rf "$IMM/feeds/packages/net/fwknop" \
        "$IMM/feeds/packages/sound/squeezelite" \
-       "$IMM/feeds/luci/applications/luci-app-fwknopd"
+       "$IMM/feeds/luci/applications/luci-app-fwknopd" \
+       "$IMM/feeds/luci/applications/luci-app-homeproxy"
 ./scripts/feeds update -i packages
 
 # Use the same pinned hardware SQM backend as the existing PPE release.
@@ -120,11 +124,20 @@ grep -Fq 'luci-app-qca-ppe-qos' "$IMM/feeds/luci.index" || {
   echo "::error::PPE QoS LuCI application missing from feed index" >&2
   exit 1
 }
+if grep -Fq 'Package: luci-app-homeproxy' "$IMM/feeds/luci.index"; then
+  echo "::error::HomeProxy is still indexed in the Builder LuCI feed" >&2
+  exit 1
+fi
 ./scripts/feeds install -a
 test -e "$IMM/package/feeds/luci/luci-app-qca-ppe-qos" || {
   echo "::error::PPE QoS LuCI application was not installed from its feed" >&2
   exit 1
 }
+if [[ -e "$IMM/package/feeds/luci/luci-app-homeproxy" ||
+      -e "$IMM/feeds/luci/applications/luci-app-homeproxy" ]]; then
+  echo "::error::HomeProxy source remains in the Builder/SDK package tree" >&2
+  exit 1
+fi
 
 # Build pinned sources, not foreign-ABI release APKs.
 clone https://github.com/eamonxg/luci-theme-aurora.git v1.4.0 "$IMM/package/luci-theme-aurora"
@@ -325,6 +338,12 @@ test -n "$SDK_ARCHIVE" && test -s "$SDK_ARCHIVE" || {
 # An SDK must contain a buildroot, compiler and kernel module symbols.
 SDK_CONTENTS="$WORK/sdk-contents.txt"
 tar -I zstd -tf "$SDK_ARCHIVE" > "$SDK_CONTENTS"
+# SDK export must not reintroduce either HomeProxy's source or its LuCI APK.
+# Checking the archive itself also catches upstream SDK packaging changes.
+if grep -Eiq '(^|/)(luci-app-homeproxy|luci-i18n-homeproxy-zh-cn)(/|$)' "$SDK_CONTENTS"; then
+  echo "::error::Published SDK archive still contains HomeProxy" >&2
+  exit 1
+fi
 for required in \
   '^[^/]+/rules[.]mk$' \
   '^[^/]+/include/kernel[.]mk$' \

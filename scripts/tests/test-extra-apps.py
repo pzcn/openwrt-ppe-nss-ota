@@ -48,6 +48,12 @@ assert not excluded_luci & set(added)
 assert "luci-app-sing-box" in added
 assert "luci-app-homeproxy" not in added
 assert {"luci-app-homeproxy", "luci-i18n-homeproxy-zh-cn"} <= set(removed)
+# A rootfs exclusion alone is insufficient; remove the actual source feed
+# package from both the full SDK export and later locked-SDK rehydration.
+assert '"$IMM/feeds/luci/applications/luci-app-homeproxy"' in (
+    root / "scripts/build-immortalwrt.sh").read_text()
+assert '"$WORK/git/luci/applications/luci-app-homeproxy"' in (
+    root / "scripts/rebuild-missing-apks.sh").read_text()
 
 build = (root / "scripts/build-immortalwrt.sh").read_text()
 config = (root / "config/immortalwrt-re-ss-01.config").read_text()

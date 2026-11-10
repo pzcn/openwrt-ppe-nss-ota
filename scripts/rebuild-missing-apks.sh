@@ -106,10 +106,14 @@ else
     mkdir -p "$WORK/git/sing_box"
     bash "$ROOT/scripts/prepare-sing-box-luci.sh" "$WORK/git/sing_box/luci-app-sing-box"
   fi
-  # Mirror the full Builder's known unrelated circular-Kconfig exclusions.
+  # Match the published Builder/SDK recipe: strip HomeProxy from official
+  # LuCI sources before regenerating the SDK feed index. This intentionally
+  # does not alter the pinned upstream Git commit or feed-lock fingerprint.
+  # Keep the existing circular-Kconfig source exclusions as well.
   rm -rf "$WORK/git/packages/net/fwknop" \
          "$WORK/git/packages/sound/squeezelite" \
-         "$WORK/git/luci/applications/luci-app-fwknopd"
+         "$WORK/git/luci/applications/luci-app-fwknopd" \
+         "$WORK/git/luci/applications/luci-app-homeproxy"
   {
     echo "src-link --root=package base $WORK/git/base"
     for feed in packages luci routing telephony nss ppe_qos_luci; do
@@ -127,7 +131,15 @@ else
     export GIT_COMMITTER_NAME="$GIT_AUTHOR_NAME"
     export GIT_COMMITTER_EMAIL="$GIT_AUTHOR_EMAIL"
     ./scripts/feeds update -a
+    if grep -Fq 'Package: luci-app-homeproxy' feeds/luci.index; then
+      echo "::error::HomeProxy reappeared in the SDK LuCI feed" >&2
+      exit 1
+    fi
     ./scripts/feeds install -a
+    if [[ -e package/feeds/luci/luci-app-homeproxy ]]; then
+      echo "::error::HomeProxy source installed into the matching SDK" >&2
+      exit 1
+    fi
     if [[ -d "$WORK/git/sing_box/luci-app-sing-box" ]]; then
       test -e package/feeds/sing_box/luci-app-sing-box || {
         echo "::error::Missing pinned sing-box LuCI from SDK feed" >&2; exit 1;

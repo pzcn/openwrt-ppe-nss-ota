@@ -137,6 +137,12 @@ build_script = (ROOT / "scripts/build-immortalwrt.sh").read_text()
 builder_workflow = (ROOT / ".github/workflows/builder-immortalwrt.yml").read_text()
 assert "CONFIG_SDK=y" in config
 assert 'bash "$ROOT/scripts/test-sdk-smoke.sh" "$SDK_ARCHIVE" "$WORK/sdk-smoke"' in build_script
+assert '"$IMM/feeds/luci/applications/luci-app-homeproxy"' in build_script
+assert "Published SDK archive still contains HomeProxy" in build_script
+assert "Package: luci-app-homeproxy" in build_script
+rebuild_script = (ROOT / "scripts/rebuild-missing-apks.sh").read_text()
+assert '"$WORK/git/luci/applications/luci-app-homeproxy"' in rebuild_script
+assert "HomeProxy source installed into the matching SDK" in rebuild_script
 assert (ROOT / "scripts/test-sdk-smoke.sh").is_file()
 subprocess.run(["bash", "-n", str(ROOT / "scripts/test-sdk-smoke.sh")],
                check=True, capture_output=True)

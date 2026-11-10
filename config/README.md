@@ -11,6 +11,8 @@
 
 Aurora 固定为 v1.4.0、sing-box LuCI 固定为 v0.4.7，均从固定源码标签编译。定时重启、CPU 调频、DDNS-Go、autocore、default-settings-chn 和中文翻译均来自 ImmortalWrt 官方 feeds。PPE QoS 来自 Julius 的 LuCI 分支。
 
+**HomeProxy 不仅从固件清单排除，也从新版 Builder 的 LuCI feed 源码目录、软件包索引和配套 SDK 导出中移除。** 旧 Builder 的固件重打包仍保留 `remove.txt` 里的排除规则。SDK 按锁定 feeds SHA 补编新包时，也会在生成索引前排除 HomeProxy；不会修改上游 Git 提交和 ABI 锁。
+
 ## 中国区默认设置与 APK 软件源
 
 `default-settings-chn` 首次启动会配置中文环境、上海时区和 NTP，并可能切换 APK 镜像。此固件使用自编译 NSS 内核，`files/etc/uci-defaults/98-keep-immortalwrt-apk-feed` 在它之前设置官方 ImmortalWrt 源，避免被改到第三方普通软件源；已有自定义镜像设置不覆盖。
