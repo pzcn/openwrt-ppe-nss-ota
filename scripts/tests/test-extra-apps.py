@@ -18,13 +18,13 @@ required = {
     "curl", "jsonfilter", "luci-proto-wireguard", "wireguard-tools",
     "tcpdump", "ip-full", "conntrack", "kmod-nf-conntrack-netlink",
     "luci-app-filemanager", "luci-app-ttyd", "luci-app-nlbwmon",
-    "luci-app-statistics", "luci-app-wifihistory", "luci-app-irqbalance",
+    "luci-app-wifihistory", "luci-app-irqbalance",
     "luci-app-lldpd", "luci-app-pbr",
     "luci-i18n-base-zh-cn", "luci-i18n-firewall-zh-cn",
     "luci-i18n-package-manager-zh-cn", "luci-i18n-sqm-zh-cn",
     "luci-i18n-bcp38-zh-cn", "luci-i18n-filemanager-zh-cn",
     "luci-i18n-ttyd-zh-cn", "luci-i18n-nlbwmon-zh-cn",
-    "luci-i18n-statistics-zh-cn", "luci-i18n-wifihistory-zh-cn",
+    "luci-i18n-wifihistory-zh-cn",
     "luci-i18n-irqbalance-zh-cn", "luci-i18n-lldpd-zh-cn",
     "luci-i18n-pbr-zh-cn",
     "tailscale", "luci-app-tailscale-community",
@@ -34,13 +34,18 @@ required = {
     "luci-app-autoreboot", "luci-i18n-autoreboot-zh-cn",
     "luci-app-cpufreq", "luci-i18n-cpufreq-zh-cn", "cpufreq",
     "default-settings-chn", "autocore",
-    "luci-app-diskman", "luci-i18n-diskman-zh-cn",
     "luci-app-ddns-go", "luci-i18n-ddns-go-zh-cn",
     "luci-app-wol", "etherwake", "luci-i18n-wol-zh-cn",
 }
 assert required <= set(added), sorted(required - set(added))
 assert not set(added) & set(removed)
 assert len(added) == len(set(added))
+excluded_luci = {
+    "luci-app-diskman", "luci-i18n-diskman-zh-cn",
+    "luci-app-statistics", "luci-i18n-statistics-zh-cn",
+}
+assert excluded_luci <= set(removed), sorted(excluded_luci - set(removed))
+assert not excluded_luci & set(added)
 assert "luci-app-sing-box" not in added
 assert "luci-app-sing-box" in removed  # remove from old Builder manifest
 
@@ -48,7 +53,8 @@ build = (root / "scripts/build-immortalwrt.sh").read_text()
 config = (root / "config/immortalwrt-re-ss-01.config").read_text()
 assert "luci-app-sing-box.git" not in build
 assert "luci-app-homeproxy" in build
-assert "luci-app-diskman" in build
+assert "for excluded in luci-app-diskman" in build
+assert "for excluded in luci-app-diskman" in (root / "scripts/repack-immortalwrt.sh").read_text()
 assert "luci-app-ddns-go" in build
 assert "luci-theme-aurora.git v1.4.0" in build
 for name in ("luci-app-homeproxy", "luci-theme-aurora",
