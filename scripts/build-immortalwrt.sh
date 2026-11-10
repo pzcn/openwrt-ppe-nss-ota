@@ -360,11 +360,20 @@ awk 'NF >= 2 && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
 test -s "$OUT/imagebuilder-packages.txt"
 for required in kmod-nss-wifi-drv luci-app-homeproxy sing-box \
   luci-app-autoreboot luci-app-cpufreq default-settings-chn autocore \
-  luci-app-diskman luci-app-ddns-go kmod-fs-f2fs; do
+  luci-app-ddns-go kmod-fs-f2fs; do
   grep -Fxq "$required" "$OUT/imagebuilder-packages.txt" || {
     echo "::error::Built firmware manifest missing $required" >&2
     exit 1
   }
+done
+# These LuCI apps were intentionally removed; fail rather than publishing
+# an image with unexpected upstream/default copies.
+for excluded in luci-app-diskman luci-i18n-diskman-zh-cn \
+  luci-app-statistics luci-i18n-statistics-zh-cn; do
+  if grep -Fxq "$excluded" "$OUT/imagebuilder-packages.txt"; then
+    echo "::error::Built firmware manifest still includes excluded package: $excluded" >&2
+    exit 1
+  fi
 done
 # The standalone Builder carries the exact platform.sh used in the full image.
 BASE_STAGE="$WORK/base-overlay-for-imagebuilder"
