@@ -110,6 +110,15 @@ if [[ -z "$MANIFEST_PATH" ]]; then
 fi
 test -n "$MANIFEST_PATH" && test -s "$MANIFEST_PATH"
 
+# Exclusions must also take effect when reusing an older Builder manifest.
+for excluded in luci-app-diskman luci-i18n-diskman-zh-cn \
+  luci-app-statistics luci-i18n-statistics-zh-cn; do
+  if awk -v pkg="$excluded" '$1 == pkg { found = 1 } END { exit !found }' "$MANIFEST_PATH"; then
+    echo "::error::Repacked firmware still includes excluded package: $excluded" >&2
+    exit 1
+  fi
+done
+
 cp "$IMAGE_PATH" "$OUT/$IMAGE"
 cp "$MANIFEST_PATH" "$OUT/$MANIFEST"
 sha256sum "$OUT/$IMAGE" "$OUT/$MANIFEST" > "$OUT/sha256sums"
