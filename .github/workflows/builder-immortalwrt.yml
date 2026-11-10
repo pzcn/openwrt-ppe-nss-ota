@@ -1,7 +1,13 @@
 name: Build ImmortalWrt PPE/NSS Builder and matching SDK
 
 on:
-  # Always compile on either trigger. No upstream version preflight.
+  # One-time requested rebuild on a temporary branch. Main remains
+  # weekly/manual only; this branch uses the existing default-branch caches.
+  push:
+    branches: [rebuild-homeproxy-free-sdk-20261110]
+    paths:
+      - ".github/workflows/builder-immortalwrt.yml"
+  # Always compile on either standard trigger. No upstream version preflight.
   workflow_dispatch:
   schedule:
     # Every Sunday at 05:43 UTC (13:43 China Standard Time).
