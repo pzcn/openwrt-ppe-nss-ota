@@ -6,3 +6,10 @@ liboqs
 
 # The previous Builder may still default to the legacy sing-box LuCI UI.
 luci-app-sing-box
+
+# Omit duplicate disk management and long-term graph LuCI apps, including when
+# repacking a previous Builder whose manifest still includes these packages.
+luci-app-diskman
+luci-i18n-diskman-zh-cn
+luci-app-statistics
+luci-i18n-statistics-zh-cn
