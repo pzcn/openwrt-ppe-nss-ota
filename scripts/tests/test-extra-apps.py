@@ -52,8 +52,8 @@ assert {"luci-app-homeproxy", "luci-i18n-homeproxy-zh-cn"} <= set(removed)
 build = (root / "scripts/build-immortalwrt.sh").read_text()
 config = (root / "config/immortalwrt-re-ss-01.config").read_text()
 assert 'scripts/prepare-sing-box-luci.sh" "$IMM/package/luci-app-sing-box"' in build
-assert "for excluded in luci-app-diskman" in build
-assert "for excluded in luci-app-diskman" in (root / "scripts/repack-immortalwrt.sh").read_text()
+assert "for excluded in luci-app-homeproxy" in build
+assert "for excluded in luci-app-homeproxy" in (root / "scripts/repack-immortalwrt.sh").read_text()
 assert "luci-app-ddns-go" in build
 assert "luci-theme-aurora.git v1.4.0" in build
 for name in ("luci-app-sing-box", "luci-theme-aurora",
