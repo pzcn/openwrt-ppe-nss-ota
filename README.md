@@ -9,7 +9,7 @@
 | 网络加速 | PPE 有线硬件卸载、NSS Wi-Fi、PPE QoS、SQM |
 | LuCI 与中文 | Aurora 主题、原生管理页、简体中文语言包 |
 | 网络工具 | WireGuard、PBR、LLDP、IRQ Balance、tcpdump、conntrack |
-| 管理插件 | filemanager、ttyd、nlbwmon、statistics、wifihistory、autoreboot、cpufreq、diskman、ddns-go、autocore |
+| 管理插件 | filemanager、ttyd、nlbwmon、wifihistory、autoreboot、cpufreq、ddns-go、autocore |
 | 远程访问 | Tailscale、中文 LuCI 管理页面 |
 | 代理 | ImmortalWrt 官方 HomeProxy 管理界面、sing-box 内核 |
 | 网络唤醒 | luci-app-wol、Etherwake、简体中文 |
