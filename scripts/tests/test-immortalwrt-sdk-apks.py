@@ -112,16 +112,16 @@ with tempfile.TemporaryDirectory() as dirname:
     lib = sdk_src / "package/feeds/packages/libnew-dep"
     sing.mkdir(parents=True)
     lib.mkdir(parents=True)
-    (sing / "Makefile").write_text("include $(TOPDIR)/rules.mk\\n")
-    (lib / "Makefile").write_text("include $(TOPDIR)/rules.mk\\n")
+    (sing / "Makefile").write_text("include $(TOPDIR)/rules.mk\n")
+    (lib / "Makefile").write_text("include $(TOPDIR)/rules.mk\n")
     (sdk_src / "tmp/.packageinfo").write_text(
-        "Source-Makefile: feeds/sing_box/luci-app-sing-box/Makefile\\n"
-        "Package: luci-app-sing-box\\n"
-        "Source-Makefile: feeds/packages/libs/libnew-dep/Makefile\\n"
-        "Package: libnew-dep\\n"
-        "Package: libnew-dep-extra\\n"
-        "Source-Makefile: feeds/packages/libs/nonexistent/Makefile\\n"
-        "Package: missing-source\\n"
+        "Source-Makefile: feeds/sing_box/luci-app-sing-box/Makefile\n"
+        "Package: luci-app-sing-box\n"
+        "Source-Makefile: feeds/packages/libs/libnew-dep/Makefile\n"
+        "Package: libnew-dep\n"
+        "Package: libnew-dep-extra\n"
+        "Source-Makefile: feeds/packages/libs/nonexistent/Makefile\n"
+        "Package: missing-source\n"
     )
     assert sdk_compile_targets(sdk_src, ["luci-app-sing-box"]) == [
         "package/feeds/sing_box/luci-app-sing-box/compile"
