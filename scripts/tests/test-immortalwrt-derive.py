@@ -36,7 +36,7 @@ with TemporaryDirectory() as temp:
     (ib / ".config").write_text("CONFIG_PACKAGE_luci-app-homeproxy=y\n")
     old_packages = root / "old-packages.txt"
     old_packages.write_text(
-        "sing-box\nluci-app-homeproxy\nluci-i18n-homeproxy-zh-cn\n"
+        ("sing-box\nluci-app-homeproxy\nluci-i18n-homeproxy-zh-cn\n") * 3
     )
     add = root / "add.txt"
     add.write_text("sing-box\nluci-app-sing-box\n")
@@ -64,6 +64,11 @@ with TemporaryDirectory() as temp:
     else:
         raise AssertionError("Derived Builder accepted forbidden HomeProxy")
     add.write_text("sing-box\nluci-app-sing-box\n")
+    # The real Builder package manifest is much larger than 100 bytes.
+    output_packages.write_text(
+        output_packages.read_text() +
+        "".join(f"original-package-{i}\n" for i in range(12))
+    )
 
     # Verify inherited exact feed commits and source ABI, with new archive
     # checksums and immutable, different Builder and SDK provenance.
@@ -77,7 +82,7 @@ with TemporaryDirectory() as temp:
         file.write_bytes((file.name + " checksum test ").encode() * 30)
     old_meta = root / "builder-metadata.json"
     imm, ppe, base = "a" * 40, "b" * 40, "c" * 40
-    feeds = {name: chr(ord("d") + i) * 40 for i, name in enumerate(FEEDS)}
+    feeds = {name: str(i + 4) * 40 for i, name in enumerate(FEEDS)}
     fingerprint = feed_fingerprint(feeds)
     make_builder(argparse.Namespace(
         immortal=imm, ppe=ppe, base=base, feeds=fingerprint,

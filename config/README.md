@@ -21,9 +21,15 @@ Aurora 固定为 v1.4.0、sing-box LuCI 固定为 v0.4.7，均从固定源码标
 
 `kmod-fs-f2fs`、`f2fs-tools` 同时声明在软件包清单与编译配置；构建期间按需要补齐京东云设备级 `DEVICE_PACKAGES`。p18 上使用 SquashFS + F2FS 可写层。p27 保留独立 ext4 分区，由 ImmortalWrt 上游挂载机制管理。
 
-## 插件选择和 Builder 复用
+## 三阶段构建与复用
 
-调整 `add.txt`、`remove.txt` 会立即触发固件工作流，优先复用现成 Builder 的 ABI 兼容 APK。若新增插件还未编译，固件打包会失败并明确提示，Builder 将在下一次每周自动构建或手动执行时编译新版本。核心内核配置变化只能通过新的 Builder 生效。
+1. **完整 Builder（`builder-immortalwrt.yml`）**：每周一次或手动触发。编译内核、NSS、内核模块、软件包、ImageBuilder 和同 ABI 的 SDK；沿用下载缓存、ccache 和 Go 构建缓存。仅适用于内核/NSS/工具链或底层补丁更新。
+2. **增量 Builder（`builder-incremental.yml`）**：软件包清单变化时自动触发，也可手动指定现有 Builder 标签。下载同一 Release 内完整验证过的 ImageBuilder/SDK，使用已有 SDK APK 缓存按需补包，移除 HomeProxy 源码和 APK，重新封装两份归档并签发独立版本、SHA256 和来源信息。**不重新编译内核或 NSS**。
+3. **固件（`firmware-immortalwrt.yml`）**：代码修改后复用现有 Builder；在增量 Builder 发布后会指定新 Builder 再生成固件。ImageBuilder 负责完整固件组装和最终 manifest 校验。
+
+增量 Builder 是 *基于旧 ABI 的新发布包*，不是新的内核构建。当目标内核、NSS、编译工具链等真正发生变化时，仍需选择完整 Builder。旧版 SDK 的运行时 ABI 和 immutable feeds SHA 不会被增量 Builder 擅自改写；新版 Builder/SDK 通过 `derived_from_builder` 可回溯来源。
+
+HomeProxy 从新版 SDK 实际源码入口、软件包 APK、生成索引和默认勾选中排除；`luci-app-sing-box` 则继续保留。
 
 ## 测试
 
