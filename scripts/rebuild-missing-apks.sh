@@ -149,7 +149,20 @@ else
     TARGETS_RAW="$(python3 "$APKS" targets --sdk "$SDK" --packages "${MISSING[@]}")"
     mapfile -t MAKE_TARGETS <<< "$TARGETS_RAW"
     printf 'SDK build targets (%s): %s\n' "${#MAKE_TARGETS[@]}" "${MAKE_TARGETS[*]}"
-    make -j"$(nproc)" "${MAKE_TARGETS[@]}" V=s
+    # This pinned LuCI package only installs Lua, shell and web assets.
+    # The Builder already contains its runtime dependencies (sing-box, rpcd,
+    # luci-base, etc.). The external-toolchain SDK does not bundle GCC and
+    # cannot recompile unrelated C/Go dependencies such as libjson-c.
+    # NO_DEPS is safe only for this exact no-arch package and only when it
+    # is the sole missing APK; keep normal dependency builds otherwise.
+    if [[ "${#MISSING[@]}" -eq 1 &&
+          "${MISSING[0]}" == luci-app-sing-box &&
+          "${#MAKE_TARGETS[@]}" -eq 1 &&
+          "${MAKE_TARGETS[0]}" == package/feeds/sing_box/luci-app-sing-box/compile ]]; then
+      make -j"$(nproc)" NO_DEPS=1 "${MAKE_TARGETS[@]}" V=s
+    else
+      make -j"$(nproc)" "${MAKE_TARGETS[@]}" V=s
+    fi
   )
   python3 "$APKS" collect "${common[@]}" --sdk-bin "$SDK/bin"
 fi
