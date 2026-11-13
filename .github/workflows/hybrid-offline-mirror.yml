@@ -11,6 +11,7 @@ on:
       - "scripts/hybrid-official-apk-plan.py"
       - "scripts/plan-hybrid-local-apks.py"
       - "config/immortalwrt-re-ss-01.config"
+      - "config/hybrid-kernel-re-ss-01.config"
       - "config/add.txt"
       - "config/remove.txt"
 
