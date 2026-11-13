@@ -55,3 +55,12 @@
 - [ ] [实际负载解包测试](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/workflows/experiment-julius-kernel-swap.yml) 正在以一次性临时根目录、不执行软件包脚本的方式安装 169 个版本锁定包，验证文件覆盖/拆包而不是仅求解依赖；**不输出刷机镜像**。
 
 **仍未完成**：整套 APK 二进制散列与签名根信任证据、运行时 SONAME/ABI 和文件冲突校验、全部功能（尤其 Fullcone NAT）的保留、F2FS 启动早期加载、NSS Wi-Fi、系统升级及配置保留、实机启动与回滚。发布/OTA 永久留在现有生产路径，除非以上全部通过。
+
+## 2026-11-14：受限来源的 169 包实际解包测试
+
+- [x] [#43470065489](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43470065489) 再次验证 169 精确版本要求在**仅开放 Julius 的 kernel/kmods/NSS 固件/firewall4**的受限仓库下能够由 APK3 原生求解，不再允许 Jules 的随机基础用户态库进入。这是让 ImmortalWrt 保持官方用户态的关键证据。
+- [x] [#43471131738](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43471131738) 在 GitHub Actions 临时目录中真实执行 `apk add --usermode --no-scripts`，完整解出依赖集合，安装脚本没有执行。实际包集约 **180 包**，操作返回成功，APK 没有报告包间文件覆盖冲突；只存在本机临时根目录，产物未上传。此步骤不等于在亚瑟上实际启动。
+- [x] APK scratch-root 初始化还需与官方 `base-files` 目录结构相符：原版 `/var -> tmp` 是相对软链接，不能由测试工具提前创建 `/var` 目录，否则 `base-files` 无法提交 `var`，属于测试环境搭建问题而不是两个发行版的文件冲突。已读取实际官方 SquashFS 的 `var` 软链接并预建到测试根目录后验证解包成功。
+- [ ] 将真实安装后的 `lib/apk/db/installed` 与 169 个精确版本要求重新比较，确认所有最终文件都来自 6.18.60 模块树，检查 F2FS 模块及 `/etc/modules-boot.d` 的早期启动加载记录；见 [实验工作流](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/workflows/experiment-julius-kernel-swap.yml)。
+
+**不作为正式固件的原因不变**：Fullcone NAT 仍缺独立驱动；必须进一步完成 F2FS 持久化启动、NSS Wi-Fi、真实内核模块 ABI、sysupgrade 保留配置和实机验证。目前既没有发布签名的 ImageBuilder，也没有更新正式 OTA。
