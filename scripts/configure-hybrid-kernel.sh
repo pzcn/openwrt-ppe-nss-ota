@@ -54,59 +54,38 @@ for required in \
   'CONFIG_ATH11K_NSS_WIFI=y' \
   'CONFIG_PACKAGE_kmod-nss-wifi-drv=y' \
   'CONFIG_PACKAGE_kmod-fs-f2fs=y' \
-  'CONFIG_PACKAGE_kmod-tun=y' 'CONFIG_PACKAGE_kmod-wireguard=y'; do
+  'CONFIG_PACKAGE_kmod-tun=y' \
+  'CONFIG_PACKAGE_kmod-wireguard=y'; do
   grep -Fqx "$required" "$IMM/.config" || {
     echo "::error::Kconfig dropped required selection: $required" >&2
-    grep -E '^(CONFIG_(TARGET_DEVICE|ATH11K|PACKAGE_kmod-nss|IB|SDK))' "$IMM/.config" | head -n 70 || true
     exit 1
   }
 done
-# Required by audited official APK userspace dependencies; never import official kmods.
+
+# Required by audited official APK userland dependencies.
 for module in kmod-ifb kmod-inet-diag kmod-netlink-diag \
   kmod-nf-conntrack-netlink kmod-nft-core kmod-nft-nat kmod-sched-cake; do
-  grep -Fqx "CONFIG_PACKAGE_${module}=y" "$IMM/.config" || {
+  grep -Fqx "CONFIG_PACKAGE_$module=y" "$IMM/.config" || {
     echo "::error::Missing closure-required local kernel module: $module" >&2
     exit 1
   }
 done
-# P2 must never enable the optional SDK/ImageBuilder host tool superset.
-if grep -Eq '^CONFIG_(IB|IB_STANDALONE|SDK|BUILD_ALL_HOST_TOOLS)=y
-  echo "::error::Heavy userland packages or ALL_KMODS forced into kernel selection" >&2
+
+# The P2 source tree must not build the SDK/IB host tool superset.
+if grep -Eq '^CONFIG_(IB|IB_STANDALONE|SDK|BUILD_ALL_HOST_TOOLS)=y$' "$IMM/.config"; then
+  echo "::error::P2 kernel-only profile enabled SDK/IB or ALL_HOST_TOOLS" >&2
   exit 1
 fi
+if grep -Eq '^CONFIG_(ALL_KMODS|ALL_NONSHARED|PACKAGE_(sing-box|tailscale|ddns-go))=y$' "$IMM/.config"; then
+  echo "::error::Unexpected heavyweight packages or ALL_KMODS in P2" >&2
+  exit 1
+fi
+
 printf '%s\n' "$NSS_BRANCH_SHA" > "$OUT/nss-feed-sha.txt"
 cp "$IMM/feeds.conf" "$OUT/pinned-feeds.conf"
 sha256sum "$IMM/.config" > "$OUT/kernel-config.sha256"
-grep -E '^(CONFIG_(TARGET|ATH11K|NSS_|PACKAGE_kmod-|IB|SDK|CCACHE)=)' "$IMM/.config" \
-  > "$OUT/kernel-config-selected.txt" || true
-echo "Pinned official feeds + NSS feed, Kconfig accepted kernel-only selection."
+grep -E '^CONFIG_(TARGET[^=]*|ATH11K[^=]*|NSS_[^=]*|PACKAGE_kmod-[^=]*|IB|SDK|CCACHE)=' \
+  "$IMM/.config" > "$OUT/kernel-config-selected.txt" || true
+echo "Pinned official feeds + NSS, Kconfig accepted P2 kernel-only selection."
 echo "NSS feed revision: $NSS_BRANCH_SHA"
-echo "Heavy Go packages and ALL_KMODS are not selected."
- "$IMM/.config"; then
-  echo "::error::P2 kernel-only profile unexpectedly enabled SDK/IB/ALL_HOST_TOOLS" >&2
-  exit 1
-fi
-if grep -Eq '^CONFIG_(ALL_KMODS|ALL_NONSHARED|PACKAGE_(sing-box|tailscale|ddns-go))=y
-  echo "::error::Heavy userland packages or ALL_KMODS forced into kernel selection" >&2
-  exit 1
-fi
-printf '%s\n' "$NSS_BRANCH_SHA" > "$OUT/nss-feed-sha.txt"
-cp "$IMM/feeds.conf" "$OUT/pinned-feeds.conf"
-sha256sum "$IMM/.config" > "$OUT/kernel-config.sha256"
-grep -E '^(CONFIG_(TARGET|ATH11K|NSS_|PACKAGE_kmod-|IB|SDK|CCACHE)=)' "$IMM/.config" \
-  > "$OUT/kernel-config-selected.txt" || true
-echo "Pinned official feeds + NSS feed, Kconfig accepted kernel-only selection."
-echo "NSS feed revision: $NSS_BRANCH_SHA"
-echo "Heavy Go packages and ALL_KMODS are not selected."
- "$IMM/.config"; then
-  echo "::error::Heavy userland packages or ALL_KMODS forced into kernel selection" >&2
-  exit 1
-fi
-printf '%s\n' "$NSS_BRANCH_SHA" > "$OUT/nss-feed-sha.txt"
-cp "$IMM/feeds.conf" "$OUT/pinned-feeds.conf"
-sha256sum "$IMM/.config" > "$OUT/kernel-config.sha256"
-grep -E '^(CONFIG_(TARGET|ATH11K|NSS_|PACKAGE_kmod-|IB|SDK|CCACHE)=)' "$IMM/.config" \
-  > "$OUT/kernel-config-selected.txt" || true
-echo "Pinned official feeds + NSS feed, Kconfig accepted kernel-only selection."
-echo "NSS feed revision: $NSS_BRANCH_SHA"
-echo "Heavy Go packages and ALL_KMODS are not selected."
+echo "SDK/IB, ALL_KMODS and Go-heavy userland are not enabled in P2."
