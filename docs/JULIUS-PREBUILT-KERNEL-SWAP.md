@@ -64,3 +64,12 @@
 - [ ] 将真实安装后的 `lib/apk/db/installed` 与 169 个精确版本要求重新比较，确认所有最终文件都来自 6.18.60 模块树，检查 F2FS 模块及 `/etc/modules-boot.d` 的早期启动加载记录；见 [实验工作流](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/workflows/experiment-julius-kernel-swap.yml)。
 
 **不作为正式固件的原因不变**：Fullcone NAT 仍缺独立驱动；必须进一步完成 F2FS 持久化启动、NSS Wi-Fi、真实内核模块 ABI、sysupgrade 保留配置和实机验证。目前既没有发布签名的 ImageBuilder，也没有更新正式 OTA。
+
+## 2026-11-14：完整 180 包落盘与模块启动配置验证
+
+- [x] [#43471656302](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43471656302)：按 169 个精确版本要求、通过受限 Julius 内核/模块软件源及官方 ImmortalWrt 用户态仓库，真正安装约 **180 个 APK** 到一次性根文件系统（禁止运行安装脚本）。APK 完整解包无包间文件覆盖冲突；重新读取实际 `lib/apk/db/installed` 发现全部 169 个要求**精确版本匹配**。
+- [x] 临时根文件系统中的 `/lib/modules` 只有 **6.18.60**，无旧版 6.18.55 模块目录；已找到 `lib/modules/6.18.60/f2fs.ko`、`nss-wifi-drv.ko`、`wireguard.ko`。
+- [x] `etc/modules-boot.d/30-fs-f2fs` 已存在。这表明作为根系统必需品的 F2FS 有**早期模块加载配置**，不仅仅是存在一个压缩包。但尚未在硬件上验证其启动时刻/overlay 挂载。
+- [ ] 进一步要验证的不是基本 APK 依赖，而是完整固件生成、`sysupgrade -T`、新内核的内置驱动/模块 ABI、原版 `procd`/网络/无线运行、F2FS 持久化 overlay、升级配置保留，以及缺失的 Fullcone NAT 功能如何处理。
+
+**以上只证明 Linux 6.18.60 预编译内核及模块配合官方 ImmortalWrt 用户态的文件级兼容性，没有发布刷机固件；正式 Builder/OTA 不变。**
