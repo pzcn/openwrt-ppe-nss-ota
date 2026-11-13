@@ -42,7 +42,7 @@ mkdir -p "$OUT/apks"
 echo "::group::Native APK 3 recursive dependency fetch"
 if ! "$APK" --arch aarch64_cortex-a53 \
    --keys-dir "$IB/keys" --repositories-file /dev/null \
-   --timeout 75 --no-progress "${repos[@]}" \
+   --timeout 75 --no-progress --update-cache "${repos[@]}" \
    fetch --recursive --output "$OUT/apks" "$@" \
    > "$OUT/apk-fetch.log" 2>&1; then
   tail -n 140 "$OUT/apk-fetch.log" >&2
