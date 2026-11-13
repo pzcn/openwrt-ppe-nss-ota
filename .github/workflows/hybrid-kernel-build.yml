@@ -12,6 +12,7 @@ on:
       - "scripts/configure-hybrid-kernel.sh"
       - "scripts/prepare-hybrid-kernel.sh"
       - "scripts/port-ppe-nss-to-immortalwrt.sh"
+      - "scripts/tests/test-hybrid-ppe-source-sync.py"
       - "scripts/reuse-official-toolchain.sh"
       - "config/hybrid-kernel-re-ss-01.config"
 
