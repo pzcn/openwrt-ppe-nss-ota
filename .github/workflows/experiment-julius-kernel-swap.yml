@@ -14,6 +14,7 @@ on:
       - scripts/tests/test-research-prebuilt-kernel-swap.py
       - scripts/compare-swap-userspace-packages.py
       - scripts/tests/test-swap-userspace-packages.py
+      - scripts/inspect-julius-apk-repository.sh
 
 permissions:
   contents: read
@@ -34,6 +35,7 @@ jobs:
       - name: Validate swap parser and shell
         run: |
           bash -n scripts/inspect-prebuilt-kernel-swap.sh
+          bash -n scripts/inspect-julius-apk-repository.sh
           python3 -m py_compile scripts/probe-prebuilt-kernel-swap.py
           python3 scripts/tests/test-prebuilt-kernel-swap-probe.py
           python3 scripts/tests/test-research-prebuilt-kernel-swap.py
@@ -51,6 +53,9 @@ jobs:
         run: |
           bash scripts/inspect-prebuilt-kernel-swap.sh \
             out-snapshot/snapshot-lock.json out-julius-swap
+      - name: Decode native Julius ImageBuilder package repository and ABI metadata
+        run: |
+          bash scripts/inspect-julius-apk-repository.sh out-julius-swap
       - name: Prove kernel member substitution with untouched official rootfs (never publish)
         run: |
           set -Eeuo pipefail
