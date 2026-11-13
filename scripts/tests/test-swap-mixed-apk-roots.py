@@ -33,12 +33,6 @@ assert "kmod-fs-f2fs=6.18.60-r1" in result["version_pins"]
 assert not result["publishable"]
 assert not result["kernel_abi_verified"]
 
-official["base"].append(mk("procd", "2.0-r1", "base"))
-bad = mod.plan(donor, official)
-assert "procd:multiple-versions" in bad["blockers"]
-assert not any(x["name"] == "procd" for x in bad["roots"])
-assert not mod.plan(donor[1:], official)["publishable"]
-assert "missing-julius-kernel-root" in mod.plan(donor[1:], official)["blockers"]
 donor.append(mk("firewall4", "2026.10.29~julius-r1", "target"))
 alternative = mod.plan(donor, official, donor_exceptions=("firewall4",))
 assert "firewall4=2026.10.29~julius-r1" in alternative["version_pins"]
@@ -54,5 +48,12 @@ except ValueError:
     pass
 else:
     raise AssertionError("Accepted an unreviewed donor base-files substitution")
+
+official["base"].append(mk("procd", "2.0-r1", "base"))
+bad = mod.plan(donor, official)
+assert "procd:multiple-versions" in bad["blockers"]
+assert not any(x["name"] == "procd" for x in bad["roots"])
+assert not mod.plan(donor[1:], official)["publishable"]
+assert "missing-julius-kernel-root" in mod.plan(donor[1:], official)["blockers"]
 
 print("PASS mixed APK version pins, official userspace ownership and fail-closed ambiguity")
