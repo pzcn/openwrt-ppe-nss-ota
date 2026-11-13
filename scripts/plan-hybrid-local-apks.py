@@ -16,7 +16,8 @@ from pathlib import Path
 PKG = re.compile(r"^[a-z0-9][a-z0-9+._-]*$")
 MANDATORY = frozenset(("kmod-nss-wifi-drv", "kmod-fs-f2fs",
                        "base-files", "libc", "libgcc",
-                       "qca-ppe-qos", "ppe-help", "sqm-scripts"))
+                       "qca-ppe-qos", "ppe-help", "sqm-scripts",
+                       "luci-app-qca-ppe-qos", "luci-theme-aurora"))
 KERNEL_ABI = frozenset(("base-files", "libc", "libgcc", "libstdcpp", "kernel"))
 
 
