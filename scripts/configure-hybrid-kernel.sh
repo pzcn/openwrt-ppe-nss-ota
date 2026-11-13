@@ -61,28 +61,15 @@ for required in \
     exit 1
   }
 done
-# A real binary-index audit identified these additional target-owned modules.
-# No official kmod APK is ever eligible for the Hybrid Builder.
+# Required by audited official APK userspace dependencies; never import official kmods.
 for module in kmod-ifb kmod-inet-diag kmod-netlink-diag \
   kmod-nf-conntrack-netlink kmod-nft-core kmod-nft-nat kmod-sched-cake; do
   grep -Fqx "CONFIG_PACKAGE_${module}=y" "$IMM/.config" || {
-    echo "::error::Kconfig omitted closure-required local module: $module" >&2
+    echo "::error::Missing closure-required local kernel module: $module" >&2
     exit 1
   }
 done
-if grep -Eq '^CONFIG_(ALL_KMODS|ALL_NONSHARED|PACKAGE_(sing-box|tailscale|ddns-go))=y
-  echo "::error::Heavy userland packages or ALL_KMODS forced into kernel selection" >&2
-  exit 1
-fi
-printf '%s\n' "$NSS_BRANCH_SHA" > "$OUT/nss-feed-sha.txt"
-cp "$IMM/feeds.conf" "$OUT/pinned-feeds.conf"
-sha256sum "$IMM/.config" > "$OUT/kernel-config.sha256"
-grep -E '^(CONFIG_(TARGET|ATH11K|NSS_|PACKAGE_kmod-|IB|SDK|CCACHE)=)' "$IMM/.config" \
-  > "$OUT/kernel-config-selected.txt" || true
-echo "Pinned official feeds + NSS feed, Kconfig accepted kernel-only selection."
-echo "NSS feed revision: $NSS_BRANCH_SHA"
-echo "Heavy Go packages and ALL_KMODS are not selected."
- "$IMM/.config"; then
+if grep -Eq '^CONFIG_(ALL_KMODS|ALL_NONSHARED|PACKAGE_(sing-box|tailscale|ddns-go))=y$' "$IMM/.config"; then
   echo "::error::Heavy userland packages or ALL_KMODS forced into kernel selection" >&2
   exit 1
 fi
