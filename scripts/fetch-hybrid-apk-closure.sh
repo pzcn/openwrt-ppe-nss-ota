@@ -38,11 +38,27 @@ for pkg in "$@"; do
       echo "::error::Must build local patched package"; exit 1 ;;
   esac
 done
-mkdir -p "$OUT/apks"
+# apk fetch does not initialize package indexes by itself. Stage a
+# scratch-root cache with the official ImageBuilder public keys, run an
+# explicit apk update, then fetch the complete dependency closure.
+APKROOT="$OUT/apkroot"
+mkdir -p "$OUT/apks" "$APKROOT/etc/apk/keys" "$APKROOT/var/cache/apk" "$APKROOT/lib/apk/db"
+cp "$IB/keys/"*.pem "$APKROOT/etc/apk/keys/"
+common=(
+  --root "$APKROOT" --arch aarch64_cortex-a53
+  --keys-dir /etc/apk/keys --cache-dir /var/cache/apk
+  --repositories-file /dev/null --timeout 75 --no-progress
+  "${repos[@]}"
+)
+echo "::group::Native APK 3 update of pinned official repositories"
+if ! "$APK" "${common[@]}" update > "$OUT/apk-update.log" 2>&1; then
+  tail -n 140 "$OUT/apk-update.log" >&2
+  echo "::error::Official index update failed"; exit 1
+fi
+tail -n 40 "$OUT/apk-update.log"
+echo "::endgroup::"
 echo "::group::Native APK 3 recursive dependency fetch"
-if ! "$APK" --arch aarch64_cortex-a53 \
-   --keys-dir "$IB/keys" --repositories-file /dev/null \
-   --timeout 75 --no-progress --update-cache "${repos[@]}" \
+if ! "$APK" "${common[@]}" \
    fetch --recursive --output "$OUT/apks" "$@" \
    > "$OUT/apk-fetch.log" 2>&1; then
   tail -n 140 "$OUT/apk-fetch.log" >&2
