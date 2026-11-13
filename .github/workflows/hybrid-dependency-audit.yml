@@ -8,6 +8,8 @@ on:
       - ".github/workflows/hybrid-dependency-audit.yml"
       - "scripts/hybrid-dependency-audit.py"
       - "scripts/tests/test-hybrid-dependency-audit.py"
+      - "scripts/mirror-hybrid-official-apks.py"
+      - "scripts/tests/test-hybrid-mirror.py"
 
 permissions:
   contents: read
@@ -26,6 +28,7 @@ jobs:
           python3 -m py_compile scripts/hybrid-dependency-audit.py
           python3 scripts/tests/test-hybrid-dependency-audit.py
           python3 scripts/tests/test-hybrid-apk-plan.py
+          python3 scripts/tests/test-hybrid-mirror.py
       - name: Install required extraction tools
         run: |
           sudo apt-get update -qq
@@ -72,6 +75,13 @@ jobs:
             --index-dir out-hybrid-deps/indexes \
             --lock out-snapshot/snapshot-lock.json \
             --output out-hybrid-deps/dependency-audit.json
+      - name: Download two content-pinned userland APKs as offline mirror smoke test
+        run: |
+          python3 scripts/mirror-hybrid-official-apks.py \
+            --lock out-snapshot/snapshot-lock.json \
+            --audit out-hybrid-deps/dependency-audit.json \
+            --output-dir out-hybrid-mirror \
+            --sample etherwake jsonfilter
       - name: Report remaining ABI and solver blockers
         if: success()
         run: |
@@ -94,5 +104,6 @@ jobs:
             out-snapshot/snapshot-lock.json
             out-hybrid-deps/package-inventory.json
             out-hybrid-deps/dependency-audit.json
+            out-hybrid-mirror/offline-mirror-manifest.json
           if-no-files-found: warn
           retention-days: 14
