@@ -32,7 +32,7 @@ PROTECTED = frozenset((
     "kernel", "libc", "libgcc", "libstdcpp", "base-files",
 ))
 PKG = re.compile(r"^[a-z0-9][a-z0-9+._-]*$")
-APK = re.compile(r"^([a-z0-9][a-z0-9+._-]*)-([0-9][A-Za-z0-9._+~:-]*)\.apk$")
+APK = re.compile(r"^([A-Za-z0-9][A-Za-z0-9+._-]*)-([0-9][A-Za-z0-9._+~:-]*)\.apk$")
 ALLOWED_ARCH_FEEDS = frozenset(snapshot.ARCH_REPOS)
 
 
@@ -187,7 +187,8 @@ def copy_verified_package(entry: dict, dest: Path, *,
                     if total > 128 * 1024 * 1024:
                         raise ValueError("Official APK exceeded download size limit")
                     output.write(chunk)
-        actual = hashlib.file_digest(part.open("rb"), "sha256").hexdigest()
+        with part.open("rb") as downloaded:
+            actual = hashlib.file_digest(downloaded, "sha256").hexdigest()
         if actual != entry["sha256"]:
             raise ValueError("Downloaded APK does not match pinned official sha256sums")
         part.replace(final)
