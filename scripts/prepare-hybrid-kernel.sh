@@ -52,7 +52,14 @@ for filename in \
   "$IMM/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe_main.c" \
   "$IMM/target/linux/qualcommax/files/include/linux/qca_edma.h" \
   "$IMM/target/linux/qualcommax/files/include/linux/soc/qcom/qca_edma.h" \
-  "$IMM/target/linux/qualcommax/files/include/linux/soc/qcom/qca_ppe.h"; do
+  "$IMM/target/linux/qualcommax/files/include/linux/soc/qcom/qca_ppe.h" \
+  "$IMM/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe_vlan.c" \
+  "$IMM/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe_acl.c" \
+  "$IMM/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe_debugfs.c" \
+  "$IMM/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe_flow.c" \
+  "$IMM/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe_flow_offload.c" \
+  "$IMM/target/linux/qualcommax/patches-6.18/0952-net-ethernet-qca-add-ppe.patch" \
+  "$IMM/target/linux/qualcommax/patches-6.18/0953-net-ethernet-qca-add-EDMA.patch"; do
   test -s "$filename" || {
     echo "::error::PPE/NSS integration file missing: $filename" >&2; exit 1;
   }
@@ -63,6 +70,14 @@ grep -Fq 'struct qca_edma_switch_ops' \
   "$IMM/target/linux/qualcommax/files/include/linux/qca_edma.h"
 grep -Fq 'qca_edma_switch_register(' \
   "$IMM/target/linux/qualcommax/files/include/linux/qca_edma.h"
+# Prevent stale ImmortalWrt VLAN/ACL sources from being combined with
+# newer PPE declarations and offload objects.
+grep -Eq '^int ppe_xlt_idx_alloc\(' \
+  "$IMM/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe_vlan.c"
+grep -Eq '^void ppe_xlt_idx_free\(' \
+  "$IMM/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe_vlan.c"
+grep -Fq 'qca_ppe_flow.o qca_ppe_flow_offload.o' \
+  "$IMM/target/linux/qualcommax/patches-6.18/0952-net-ethernet-qca-add-ppe.patch"
 grep -Fq 'qca_edma_cpu_queues_to_host(' \
   "$IMM/target/linux/qualcommax/files/include/linux/soc/qcom/qca_edma.h"
 grep -Fq '#include <linux/qca_edma.h>' \
