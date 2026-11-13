@@ -130,4 +130,10 @@ with tempfile.TemporaryDirectory() as tempdir:
         else:
             raise AssertionError(f"Unsafe package selection accepted: {illegal}")
 
+assert planner.config_package_names(
+    "# comment\nCONFIG_PACKAGE_wpad-openssl=y\n"
+    "CONFIG_PACKAGE_luci-theme-aurora=y\n"
+    "# CONFIG_PACKAGE_unused is not set\n"
+) == ["luci-theme-aurora", "wpad-openssl"]
+
 print("PASS hybrid official APK inventory and content-pinned safe download")
