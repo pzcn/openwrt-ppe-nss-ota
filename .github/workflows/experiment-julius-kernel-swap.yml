@@ -36,7 +36,7 @@ jobs:
       - name: Install FIT and squashfs inspection tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq jq squashfs-tools u-boot-tools
+          sudo apt-get install -y -qq jq squashfs-tools u-boot-tools zstd
       - name: Pin official ImmortalWrt Snapshot
         run: |
           python3 scripts/resolve-immortalwrt-snapshot.py \
@@ -60,7 +60,10 @@ jobs:
                 "\nJulius kernel module release(s): " + .donor_kernel_module_directories +
                 "\nJulius compiled module files: " + (.donor_module_file_count|tostring) +
                 "\nHas Julius f2fs module: " + (.donor_f2fs_module_found|tostring) +
-                "\nHas Julius NSS Wi-Fi module: " + (.donor_nss_wifi_module_found|tostring)' \
+                "\nHas Julius NSS Wi-Fi module: " + (.donor_nss_wifi_module_found|tostring) +
+                "\nJulius IB has F2FS APK: " + (.donor_imagebuilder_f2fs_apk_found|tostring) +
+                "\nJulius IB has NSS APK: " + (.donor_imagebuilder_nss_wifi_apk_found|tostring) +
+                "\nJulius IB has WireGuard APK: " + (.donor_imagebuilder_wireguard_apk_found|tostring)' \
                 out-julius-swap/swap-compatibility-report.json
             else
               echo "Image boundary or provenance validation failed; inspect logs."
