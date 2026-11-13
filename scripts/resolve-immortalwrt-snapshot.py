@@ -15,7 +15,7 @@ ROOT = "https://downloads.immortalwrt.org/snapshots"
 SHA = re.compile(r"[0-9a-f]{64}")
 GIT_SHA = re.compile(r"[0-9a-f]{40}")
 VERSION = re.compile(r"r[0-9]+-([0-9a-f]{7,40})")
-SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*")
+SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+~:@%=-]*")
 CHECKSUM_LINE = re.compile(r"^([0-9a-f]{64})\s+\*?(.+)$")
 FEED_LINE = re.compile(r"^src-git(?:-full)?\s+([a-zA-Z0-9_-]+)\s+(https://[^\s^;]+)\^([0-9a-f]{40})$")
 
