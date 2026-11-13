@@ -211,6 +211,8 @@ def main() -> None:
     for name in ("requires_local_provision", "unresolved", "ambiguous",
                  "version_constraints_for_apk_solver", "virtual_provides_for_apk_solver"):
         print(f"  {name}: {len(data[name])}")
+        if name in ("unresolved", "ambiguous", "requires_local_provision"):
+            print("    " + (", ".join(data[name]) if data[name] else "(none)"))
     print("NOT a publishable Builder: real apk solver, local ABI, and signed origins are pending.")
 
 
