@@ -29,6 +29,8 @@ on:
       - scripts/audit-swap-extracted-root.py
       - scripts/tests/test-swap-extracted-root.py
       - scripts/solve-swap-mixed-apks.sh
+      - scripts/pack-swap-research-rootfs.py
+      - scripts/tests/test-swap-rootfs-packaging.py
 
 permissions:
   contents: read
@@ -55,6 +57,7 @@ jobs:
           bash -n scripts/solve-swap-full-stock-world.sh
           bash -n scripts/install-swap-disposable-apk-root.sh
           python3 scripts/tests/test-swap-extracted-root.py
+          python3 scripts/tests/test-swap-rootfs-packaging.py
           python3 scripts/tests/test-swap-mixed-apk-roots.py
           python3 scripts/tests/test-swap-resolved-apks.py
           python3 scripts/tests/test-swap-official-world.py
@@ -108,6 +111,23 @@ jobs:
                   .secure_sysupgrade_produced == false and
                   .ephemeral_root_only == true' \
             out-julius-swap/disposable-apk-payload-install-result.json >/dev/null
+      - name: Repack disposable APK root into SquashFS, reextract and check research-only TAR
+        run: |
+          set -Eeuo pipefail
+          WORK="$RUNNER_TEMP/immortal-julius-swap"
+          python3 scripts/pack-swap-research-rootfs.py \
+            --rootfs "$WORK/disposable-apk-root" \
+            --julius-fit "$WORK/extracted/julius.fit" \
+            --plan out-julius-swap/full-installed-world-swap-plan.json \
+            --report out-julius-swap/nonflashable-packaging-smoke.json
+          jq -e '.disposable_rootfs_file_roundtrip_passed == true and
+                  .exact_plan_versions_survived_roundtrip == true and
+                  .tar_has_intentionally_invalid_board_identity == true and
+                  .fwtool_metadata_added == false and
+                  .firmware_artifacts_retained == false and
+                  .publishable == false' \
+            out-julius-swap/nonflashable-packaging-smoke.json >/dev/null
+          echo "Research-only image was deleted; no flashable artifact produced."
       - name: Prove kernel member substitution with untouched official rootfs (never publish)
         run: |
           set -Eeuo pipefail
@@ -196,6 +216,11 @@ jobs:
                      "\nF2FS early boot autoload entries: " + (.f2fs_boot_autoload_files|length|tostring) +
                      "\nActual device boot verified: NO"' \
                 out-julius-swap/disposable-root-file-audit.json
+            fi
+            if [ -s out-julius-swap/nonflashable-packaging-smoke.json ]; then
+              jq -r '"Ephemeral SquashFS rootfs round-trip: " + (.disposable_rootfs_file_roundtrip_passed|tostring) +
+                     "\nResearch TAR was intentionally nonflashable and deleted: " + (.tar_has_intentionally_invalid_board_identity|tostring)' \
+                out-julius-swap/nonflashable-packaging-smoke.json
             fi
             echo "Official kernel modules cannot be retained after Julius FIT substitution."
             echo "Matching Julius module/firmware migration, F2FS and boot testing are still required."
