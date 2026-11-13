@@ -49,11 +49,24 @@ for filename in \
   "$IMM/package/kernel/nss-wifi-drv/Makefile" \
   "$IMM/package/kernel/mac80211/Makefile" \
   "$IMM/target/linux/qualcommax/dts/ipq6000-re-ss-01.dts" \
-  "$IMM/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe_main.c"; do
+  "$IMM/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe_main.c" \
+  "$IMM/target/linux/qualcommax/files/include/linux/qca_edma.h" \
+  "$IMM/target/linux/qualcommax/files/include/linux/soc/qcom/qca_edma.h" \
+  "$IMM/target/linux/qualcommax/files/include/linux/soc/qcom/qca_ppe.h"; do
   test -s "$filename" || {
     echo "::error::PPE/NSS integration file missing: $filename" >&2; exit 1;
   }
 done
+# Catch missing exported EDMA switch API headers *before* a 15-minute
+# host-tools build. These headers have different paths and responsibilities.
+grep -Fq 'struct qca_edma_switch_ops' \
+  "$IMM/target/linux/qualcommax/files/include/linux/qca_edma.h"
+grep -Fq 'qca_edma_switch_register(' \
+  "$IMM/target/linux/qualcommax/files/include/linux/qca_edma.h"
+grep -Fq 'qca_edma_cpu_queues_to_host(' \
+  "$IMM/target/linux/qualcommax/files/include/linux/soc/qcom/qca_edma.h"
+grep -Fq '#include <linux/qca_edma.h>' \
+  "$IMM/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe_main.c"
 grep -Fq 'KERNEL_PATCHVER:=6.18' "$IMM/target/linux/qualcommax/Makefile"
 # No ALL_KMODS and no selected Go-heavy apps on the kernel-only path.
 PROFILE="$ROOT/config/hybrid-kernel-re-ss-01.config"
