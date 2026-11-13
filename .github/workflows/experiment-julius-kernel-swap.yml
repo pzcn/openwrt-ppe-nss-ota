@@ -26,6 +26,8 @@ on:
       - scripts/tests/test-swap-full-installed-world.py
       - scripts/solve-swap-full-stock-world.sh
       - scripts/install-swap-disposable-apk-root.sh
+      - scripts/audit-swap-extracted-root.py
+      - scripts/tests/test-swap-extracted-root.py
       - scripts/solve-swap-mixed-apks.sh
 
 permissions:
@@ -52,6 +54,7 @@ jobs:
           bash -n scripts/inspect-swap-official-world.sh
           bash -n scripts/solve-swap-full-stock-world.sh
           bash -n scripts/install-swap-disposable-apk-root.sh
+          python3 scripts/tests/test-swap-extracted-root.py
           python3 scripts/tests/test-swap-mixed-apk-roots.py
           python3 scripts/tests/test-swap-resolved-apks.py
           python3 scripts/tests/test-swap-official-world.py
@@ -186,6 +189,13 @@ jobs:
                      (.scratch_payload_install_succeeded|tostring) +
                      "\nFlashable firmware created: NO"' \
                 out-julius-swap/disposable-apk-payload-install-result.json
+            fi
+            if [ -s out-julius-swap/disposable-root-file-audit.json ]; then
+              jq -r '"Actual package version pins verified: " + (.exact_plan_pins_verified|tostring) +
+                     "\nKernel modules from single 6.18.60 tree: " + (.module_tree_structure_verified|tostring) +
+                     "\nF2FS early boot autoload entries: " + (.f2fs_boot_autoload_files|length|tostring) +
+                     "\nActual device boot verified: NO"' \
+                out-julius-swap/disposable-root-file-audit.json
             fi
             echo "Official kernel modules cannot be retained after Julius FIT substitution."
             echo "Matching Julius module/firmware migration, F2FS and boot testing are still required."
