@@ -120,3 +120,11 @@
 - **P2 构建拆分修正**：原有名为 kernel-only 的配置仍启用 `CONFIG_SDK=y` 和 `CONFIG_IB=y`，ImmortalWrt 官方 `tools/Makefile` 会因此额外选择 liblzo/lzop 等 SDK 宿主工具。这是误把 P3 打包负担提前交给 P2。现 P2 显式关闭 SDK/IB/ALL_HOST_TOOLS，复用官方工具链时保留关闭状态；**P3 必须重新启用并独立构建匹配 SDK/IB，绝不允许最终缺失这些产物**。
 - **liblzo 源码镜像**：[#43436845004](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43436845004) 证明 OpenWrt 公共镜像可下载 SHA256 固定的 `lzo-2.10.tar.gz`。但诊断显示 liblzo 的宿主构建还会触发数百步 CMake 编译，预下载并不能消除全部耗时。
 - **当前 Gate**：Snapshot/索引解析、APK 镜像、单包原生求解已通过；P2 的新内核与 NSS kmods 仍需真实编译；P3 离线完整依赖求解、签名根信任、来自同一内核的模块 ABI、ImageBuilder + SDK 重打包和实机验证均未通过。**不切换 main 默认 Builder，不更新 OTA**。
+
+## 2026-11-13 最新验收：151 个用户态 APK 与本地责任清单
+
+- [x] **完整基础配置 + add.txt 的官方用户态镜像**：Actions [#43439533151](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43439533151) 成功，53 个直接官方候选，151 个传递候选全部 SHA256 核验，缓存总字节 50,808,996（约 50.8 MB），上传为仅用于测试的离线工件。
+- [x] **独立本地构建责任清单**：同一流程证明需另行提供 28 个本地包（19 个 kmod、3 个基础 ABI 包、6 个含 Aurora/PPE LuCI 的定制用户态包）。`kmod-sched-core` 从扩大后的实际依赖中发现并补入内核配置。
+- [x] **P2 纯内核 Kconfig 预检**：Actions [#43439485836](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43439485836) 成功，P2 禁止启用 SDK、IB、ALL_HOST_TOOLS 和额外 Go 大包。官方交叉工具链启用时会保留该设置；正式 Builder/SDK 仍必须在 P3 另行构建。
+- [ ] **仍缺真实自有内核+ABI及匹配 SDK**：[#43439538368](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43439538368) 是新的定向编译实验。其通过之前，不能使用 151 个 APK 宣称可刷机、不能切换 main 默认工作流，也不能让 OTA 消费实验产物。
+- [ ] **正式包集还需包含设备默认配置**：当前 151 个 APK 来自显式基础固件配置和 `add.txt`，最终必须同真正 `make defconfig` 产生的默认包及所有本地 kmod 一起交由 APK 求解器验证；当前镜像不是最终根文件系统的依赖解。
