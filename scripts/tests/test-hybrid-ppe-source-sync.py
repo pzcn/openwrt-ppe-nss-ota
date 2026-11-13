@@ -20,11 +20,8 @@ required_patches = (
 )
 for patch in required_patches:
     assert patch in script and patch in prepare, f"Missing synchronized patch: {patch}"
-for header in (
-    "target/linux/qualcommax/files/include/linux/qca_edma.h",
-    "target/linux/qualcommax/files/include/linux/soc/qcom/$file",
-):
-    assert "copy_file " + header in script, f"Missing EDMA API: {header}"
+assert "copy_file target/linux/qualcommax/files/include/linux/qca_edma.h" in script
+assert 'copy_file "target/linux/qualcommax/files/include/linux/soc/qcom/$file"' in script
 assert "ppe_xlt_idx_alloc" in script
 assert "ppe_xlt_idx_free" in script
 assert "qca_ppe_flow.o qca_ppe_flow_offload.o" in script
