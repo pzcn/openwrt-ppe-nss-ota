@@ -113,7 +113,13 @@ def review(inventory: dict, indexes: dict[str, list[dict]],
     official_roots = [r for r in rows if r["status"] == "official-candidate"]
     local_names = {r["name"] for r in rows
                    if r["status"] in ("local-kernel", "local-custom", "abi-review")}
-    local_names.update(("kernel", "base-files", "libc", "libgcc", "libstdcpp"))
+    # A patched package may enter transitively, even if it was absent from
+    # config/add.txt. Never import an official copy over a local PPE/OTA patch.
+    local_names.update((
+        "kernel", "base-files", "libc", "libgcc", "libstdcpp",
+        "qca-ppe-qos", "ppe-help", "sqm-scripts", "luci-app-qca-ppe-qos",
+        "luci-theme-aurora", "luci-app-sing-box",
+    ))
     candidates: dict[str, dict] = {}
     unknown: set[str] = set()
     ambiguous: set[str] = set()
