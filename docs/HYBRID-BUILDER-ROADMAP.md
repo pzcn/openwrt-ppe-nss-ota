@@ -24,20 +24,20 @@
 
 ### P1. Snapshot Resolver + 可重复锁文件（第一阶段实现）
 
-- [x] 新增 `scripts/resolve-immortalwrt-snapshot.py`：读取 target `version.buildinfo`、`feeds.buildinfo`、`config.buildinfo`、`sha256sums` 及 arch `feeds.conf`；target 元数据进行 SHA256 校验。arch 独立 APK 索引仍待后续阶段锁定。
-- [x] 严格解析校验文件名、目标/架构、提交格式、target SHA256；锁定官方 ImageBuilder、SDK、Toolchain 的文件名与 SHA256，单独记录 arch feeds 指纹。
-- [x] 输出确定性的 `snapshot-lock.json`，计算 `kernel_fingerprint` / `packages_fingerprint`，支持 `unchanged` / `packages-only` / `kernel-or-target`。注意 `packages_fingerprint` 目前仅代表 arch feeds，不涵盖 APK 索引。
-- [x] 第一批离线测试：变化分类、坏 checksum、路径污染、稳定性；还需覆盖 snapshot 发布切换期间的索引重读、arch APK 索引差异。
-- [x] 新增只读 CI（每日及手动）上传锁文件与摘要，不做大规模编译、不会发布固件；在开发分支运行验证。
+- [x] `scripts/resolve-immortalwrt-snapshot.py` 读取并锁定 target + arch 两套 `sha256sums`、各自的 feeds、完整源码提交及二进制 `packages.adb` 索引。
+- [x] 验证 target/arch 索引 SHA256，锁定 ImageBuilder、SDK、Toolchain 资产哈希，识别官方 kmod ABI；6.18 系列内核才允许进入现有 PPE/NSS 移植。
+- [x] 输出 schema 2 `snapshot-lock.json`，根据目标内核/工具链与 arch `sha256sums` 内容区分 `unchanged` / `packages-only` / `kernel-or-target`。
+- [x] 离线测试覆盖更换 APK 内容但 feed 不变、坏索引、目录穿越、短 SHA 解析、内核不匹配、读取期间 Snapshot 切换。
+- [x] 每日只读 CI 上传版本锁文件；已使用真实官方 Snapshot 验证，Github 提交解析使用 Actions Token 避免匿名 API 限额。
 
-**验收**：CI 可稳定取得最新版官方数据、解析出完整锁；不一致时明确失败或记录警告，**绝不自动发布**。
+**验收进展**：2026-11-13 真实 Snapshot `r42542-e695009c15`、内核 ABI `6.18.55`，SHA256 索引校验通过。**仍需完成**官方可信 usign 签名验证与 APK 依赖闭包；当前索引锁绝不等同于可直接发布混合 Builder。
 
 ### P2. 定制内核与必要 kmod 的增量编译
 
-- [ ] 以锁定的 target commit 检出源码，使用 target 的 `feeds.buildinfo`；`config.buildinfo` 作为官方目标配置基线，选择唯一设备 RE-SS-01。
-- [ ] 叠加现有 `port-ppe-nss-to-immortalwrt.sh`，构建 NSS Wi-Fi、PPE、DTS、临时 F2FS/sysupgrade 补丁。
-- [ ] 复用校验后的官方交叉工具链；仅编译所选目标和必要 kmod，记录非官方的 kernel ABI。
-- [ ] 保留完整源码后备，不允许 P2 的产物被旧 Firmware 自动当成可发布的 Builder。
+- [x] 用锁定的 target commit 检出官方源码；从 target `feeds.buildinfo` 固定官方 feeds，以独立的 `config/hybrid-kernel-re-ss-01.config` 只选 RE-SS-01 + NSS/kmod（不套用官方 `ALL_KMODS` 构建机器人配置）。
+- [x] 实际运行 `port-ppe-nss-to-immortalwrt.sh` 进行源码移植预检，并通过 `make defconfig` 确认保留 NSS、F2FS 等核心选项；F2FS/sysupgrade 补丁的最终固件集成仍待 P3 验证。
+- [ ] 新增测试专用的 `compile-hybrid-kernel.sh`，使用 snapshot 锁定的官方 toolchain SHA256，按阶段编译 host tools、Kernel、mac80211、NSS Wi-Fi、PPE 模块；**编译验证进行中，尚未有已通过的内核产物**。
+- [x] 旧 Builder 完整源码构建及 OTA 保持原样，Hybrid P2 只上传实验日志与产物清单，不发布 Builder/固件。
 
 **验收**：生成定制内核/DTB/kmods，所有 kmod 的 `kernel=` 依赖与新内核严格一致。
 
@@ -71,3 +71,14 @@
 ## 当前需特别留意
 
 截至 2026-11-13，官方 `snapshots/targets/qualcommax/ipq60xx` 目录所示目标构建时间是 10 月 21 日，`snapshots/packages/aarch64_cortex-a53` 是 10 月 26 日；二者不是同一轮 feed。**不能直接下载所有“最新” APK 拼接就宣称兼容。** 先有可靠的 Resolver 与依赖校验，再进入发布路径。
+
+## 2026-11-13 已跑通的预检
+
+- Snapshot 元数据与二进制 APK 索引：Actions #43428658957 通过，内核 6.18.55，版本 r42542-e695009c15。
+- 官方源码提交 + PPE/NSS 移植：Actions #43429037968 通过，官方 commit e695009c15c623f4f6a83376b505faaf7a4ae5b5。
+- 锁定 feeds + 最小内核配置的 Kconfig：Actions #43429262777 通过，NSS feed SHA 1f60d7e9409930bbd298eae1831c5b76d21eb1d2。
+- 编译实验：新增 `.github/workflows/hybrid-kernel-build.yml`，**不发布任何可刷机产物**；完成实际构建和 ABI 审核之前不能认为 P2 已通过。
+
+### 安全说明
+
+目前解析器只验证官方传输文件与其同源 `sha256sums` 的 SHA256，**还未使用预先可信的 ImmortalWrt usign 公钥验证 `sha256sums.sig`**；`checksum_signature_verified=false`。这不影响只读实验，但在默认构建发布前必须补足可信来源认证、arch/target 版本依赖校验，并确保正式固件中无来自官方的 kernel/kmod。
