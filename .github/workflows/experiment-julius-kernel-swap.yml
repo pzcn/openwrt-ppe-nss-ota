@@ -19,6 +19,7 @@ on:
       - scripts/tests/test-swap-mixed-apk-roots.py
       - scripts/audit-swap-resolved-apks.py
       - scripts/tests/test-swap-resolved-apks.py
+      - scripts/inspect-swap-official-world.sh
       - scripts/solve-swap-mixed-apks.sh
 
 permissions:
@@ -42,6 +43,7 @@ jobs:
           bash -n scripts/inspect-prebuilt-kernel-swap.sh
           bash -n scripts/inspect-julius-apk-repository.sh
           bash -n scripts/solve-swap-mixed-apks.sh
+          bash -n scripts/inspect-swap-official-world.sh
           python3 scripts/tests/test-swap-mixed-apk-roots.py
           python3 scripts/tests/test-swap-resolved-apks.py
           python3 -m py_compile scripts/probe-prebuilt-kernel-swap.py
@@ -75,6 +77,9 @@ jobs:
                   .imagebuilder_assembled == false and
                   .complete_world_solved == false' \
             out-julius-swap/mixed-apk-native-solver-report.json >/dev/null
+      - name: Inspect ALL APK world/installed packages in original ImmortalWrt rootfs
+        run: |
+          bash scripts/inspect-swap-official-world.sh out-julius-swap
       - name: Prove kernel member substitution with untouched official rootfs (never publish)
         run: |
           set -Eeuo pipefail
