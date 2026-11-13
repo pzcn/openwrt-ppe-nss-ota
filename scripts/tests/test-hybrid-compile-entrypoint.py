@@ -13,7 +13,7 @@ expected = [
     "download", "host-tools", "toolchain", "linux-target",
     "kernel-packages", "mac80211", "nss-wifi", "qca-ppe-qos", "ppe-help",
 ]
-actual = re.findall(r"^phase ([a-z-]+) ", source, flags=re.MULTILINE)
+actual = re.findall(r"^phase ([a-z0-9-]+) ", source, flags=re.MULTILINE)
 assert actual == expected, f"Unexpected compiler phases: {actual}"
 assert "if grep -Eq '^CONFIG_(IB|IB_STANDALONE|SDK|BUILD_ALL_HOST_TOOLS)=y$' \\" in source
 assert "if grep -Eq '^CONFIG_(ALL_KMODS|ALL_NONSHARED|PACKAGE_(sing-box|tailscale|ddns-go))=y$' \\" in source
