@@ -99,3 +99,15 @@
 - **P2 首轮完整定向编译失败**：[#43429939501](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43429939501)，官方工具链复用成功，`make download` 510 秒，但 `tools/install` 在 `tools/liblzo` 失败，尚未进入 kernel/kmod 生成。错误输出不够详细；已增设 `hybrid-host-liblzo-diagnostic.yml` 单项冗长日志重现。
 - **官方 ImageBuilder host tool 现状**：[#43434739222](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43434739222)，其中 472 个 host/bin 可执行文件，但无 `staging_dir/host` stamp，也无 `build_dir/host` 工作树。不能仅复制 host 二进制就伪造 OpenWrt 构建状态；需验证完整 staging 依赖或优先完成单项失败修复。
 - **发布约束保持不变**：上述结果只允许继续试验；无完整独立 Hybrid Builder+SDK，无本地 kernel ABI 以及全部包源依赖校验之前，不切换生产默认、不发布 OTA。
+
+## 2026-11-13：P3 固定 SHA256 离线镜像进度
+
+- [x] `hybrid-dependency-audit.py` 现在将所有实际依赖到的官方 APK 与官方 target/arch 两套锁定 `sha256sums` 逐个匹配，输出 `mirror_plan`，没有归档哈希的包不能参与镜像。
+- [x] 对传递依赖也坚持“本地补丁优先”，修正 `sqm-scripts` 错误地被纳入官方镜像的问题。修正后的真实测试 [Actions #43435788402](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43435788402)：**46 个直接请求的官方用户态包、138 个完整静态候选传递包、138 个 SHA256 固定镜像资产、0 个缺失归档、1 个待原生求解器处理的虚拟依赖歧义（`uci-firewall`）**。
+- [x] 新增 `mirror-hybrid-official-apks.py`，运行前检查来源锁文件与审计哈希，拒绝 kernel、所有官方 kmod、定制包和 ABI 保留包；逐包校验 SHA256，下载后重新确认官方 Snapshot 未轮换。支持 `--sample` 小样本和显式 `--all`，默认绝不触发整仓镜像。合成回归测试与真实样本测试均通过。
+- [x] [Actions #43435788402](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43435788402) 已实际下载并验证 `etherwake`、`jsonfilter` 两个 APK；`full_candidate_closure_mirrored=false`，如实标记尚未完成全仓镜像。
+- [x] 新增 7 个审计所需的显式 kernel modules，并通过 [Actions #43434941231](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43434941231) 的实际 `make defconfig` 保留校验。继续保持 `ALL_KMODS=n`。
+
+**P3 仍未完成**：138 个候选并非原生 APK 求解器验证过的全量闭包；`libc` 和定制 kernel/kmods 尚无匹配编译产物，尚未完成独立 ImageBuilder/SDK 的组合、源码真实性签名校验、升级/OTA 实机验收。上述脚本产物均禁止正式发布。
+
+**P2 阻塞**：官方 toolchain 复用已成功，首次定向编译在 host `tools/liblzo` 失败，尚未开始 kernel。单工具详细编译诊断在独立 CI 进行，不掩盖此失败。
