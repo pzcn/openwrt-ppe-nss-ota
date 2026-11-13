@@ -1,0 +1,121 @@
+name: Hybrid Builder - full pinned official APK mirror (test only)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/hybrid-official-snapshot]
+    paths:
+      - ".github/workflows/hybrid-offline-mirror.yml"
+      - "scripts/verify-hybrid-official-mirror.py"
+      - "scripts/tests/test-hybrid-mirror-verifier.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: re-ss-01-hybrid-offline-userland-mirror
+  cancel-in-progress: true
+
+jobs:
+  mirror:
+    name: Fetch all audited official userspace APKs with signed indexes and SHA256
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Offline tests for frozen and verified package mirrors
+        run: |
+          python3 -m py_compile scripts/verify-hybrid-official-mirror.py
+          python3 scripts/tests/test-hybrid-mirror.py
+          python3 scripts/tests/test-hybrid-mirror-verifier.py
+          python3 scripts/tests/test-hybrid-dependency-audit.py
+      - name: Install ImageBuilder unpack tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd jq
+      - name: Resolve one official Snapshot and root package set
+        run: |
+          python3 scripts/resolve-immortalwrt-snapshot.py --output out-snapshot/snapshot-lock.json
+          python3 scripts/hybrid-official-apk-plan.py \
+            --lock out-snapshot/snapshot-lock.json \
+            --output out-hybrid-full-mirror/package-inventory.json
+      - name: Obtain native apk3 index decoder from SHA256-verified official ImageBuilder
+        run: |
+          bash scripts/inspect-hybrid-official-ib.sh out-snapshot/snapshot-lock.json
+      - name: Download six locked signed package indexes
+        run: |
+          set -Eeuo pipefail
+          LOCK="$GITHUB_WORKSPACE/out-snapshot/snapshot-lock.json"
+          APK="$(find "$RUNNER_TEMP/hybrid-ib-inspect/extracted" -type f -path '*/staging_dir/host/bin/apk' -print -quit)"
+          test -x "$APK"
+          mkdir -p out-hybrid-full-mirror/indexes
+          for feed in target base packages luci routing telephony; do
+            if [[ "$feed" == target ]]; then
+              rel="$(jq -er '.package_indexes.target.filename' "$LOCK")"
+              sha="$(jq -er '.package_indexes.target.sha256' "$LOCK")"
+              base="$(jq -er '.target_url' "$LOCK")"
+            else
+              rel="$(jq -er --arg f "$feed" '.package_indexes.architecture[$f].filename' "$LOCK")"
+              sha="$(jq -er --arg f "$feed" '.package_indexes.architecture[$f].sha256' "$LOCK")"
+              base="$(jq -er '.architecture_url' "$LOCK")"
+            fi
+            [[ "$sha" =~ ^[a-f0-9]{64}$ ]] || exit 1
+            curl -fsSL --connect-timeout 15 --max-time 90 --retry 2 "$base/$rel" \
+              -o "$RUNNER_TEMP/mirror-$feed.adb"
+            printf '%s  %s\n' "$sha" "$RUNNER_TEMP/mirror-$feed.adb" | sha256sum -c --status
+            "$APK" adbdump "$RUNNER_TEMP/mirror-$feed.adb" > "out-hybrid-full-mirror/indexes/$feed.txt"
+          done
+      - name: Pin entire transitive candidate closure to official SHA256
+        run: |
+          python3 scripts/hybrid-dependency-audit.py \
+            --inventory out-hybrid-full-mirror/package-inventory.json \
+            --index-dir out-hybrid-full-mirror/indexes \
+            --lock out-snapshot/snapshot-lock.json \
+            --output out-hybrid-full-mirror/dependency-audit.json
+      - name: Download ALL content-pinned userland APKs
+        run: |
+          python3 scripts/mirror-hybrid-official-apks.py \
+            --lock out-snapshot/snapshot-lock.json \
+            --audit out-hybrid-full-mirror/dependency-audit.json \
+            --output-dir out-hybrid-full-mirror/offline-repo \
+            --all --jobs 6
+      - name: Independently verify every mirrored byte and package identity
+        run: |
+          python3 scripts/verify-hybrid-official-mirror.py \
+            --lock out-snapshot/snapshot-lock.json \
+            --audit out-hybrid-full-mirror/dependency-audit.json \
+            --manifest out-hybrid-full-mirror/offline-repo/offline-mirror-manifest.json \
+            --root out-hybrid-full-mirror/offline-repo/apks \
+            --output out-hybrid-full-mirror/verification.json
+          jq -e '.full_candidate_closure_mirrored and .publishable == false and .verified_apks > 100' \
+            out-hybrid-full-mirror/verification.json >/dev/null
+      - name: Report verified mirror dimensions and remaining blockers
+        if: always()
+        run: |
+          {
+            echo "## Hybrid P3 complete official userland mirror — TEST ONLY"
+            if [ -f out-hybrid-full-mirror/verification.json ]; then
+              jq -r '"Verified APKs: " + (.verified_apks|tostring) +
+                "\nTotal bytes: " + (.total_bytes|tostring) +
+                "\nReady for firmware: NO (custom kernel and kmod ABI not yet validated)."' \
+                out-hybrid-full-mirror/verification.json
+            else
+              echo "Full mirror verification did not complete; check job logs."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload content-addressed offline APK cache as TEST artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-hybrid-offline-APK-repository-TEST-ONLY
+          path: |
+            out-snapshot/snapshot-lock.json
+            out-hybrid-full-mirror/package-inventory.json
+            out-hybrid-full-mirror/dependency-audit.json
+            out-hybrid-full-mirror/offline-repo/
+            out-hybrid-full-mirror/verification.json
+          retention-days: 3
+          if-no-files-found: error
+          compression-level: 0
