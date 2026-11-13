@@ -6,6 +6,7 @@ trap 'echo "::error::Hybrid selective compilation failed at line '"$LINENO"'." >
 
 ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "$0")/.." && pwd)}"
 LOCK="${1:?Expected snapshot-lock.json}"
+LOCK="$(realpath "$LOCK")"
 WORK="${HYBRID_WORK_DIR:-${RUNNER_TEMP:-/tmp}/immortal-hybrid-kernel}"
 IMM="$WORK/immortalwrt"
 OUT="${2:-$ROOT/out-hybrid-kernel-test}"
