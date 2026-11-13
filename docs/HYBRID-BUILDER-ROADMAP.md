@@ -88,7 +88,14 @@
 - [x] `hybrid-official-apk-plan.py` 基于官方 target/arch 双份 sha256sums 建立候选清单。实际测试：**46 个官方用户态候选包、5 个明确的本地内核包、1 个定制包，无直接缺包或包名歧义**；`etherwake` 已验证可依照固定哈希下载。
 - [x] `hybrid-dependency-audit.py` 使用官方 ImageBuilder 自带的 **apk-tools 3.0.5** 对 6 个经过 SHA256 校验的 `packages.adb` 解码，追踪用户态包的静态传递依赖。测试 [Actions #43433599484](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43433599484) 成功：46 个根包对应 **139 个候选传递包**、0 个缺失、4 个需要 APK 求解器处理的歧义、10 个本地内核/基础 ABI 依赖。
 - [x] 内核精简配置已补充由上述审计发现的 7 个模块：`kmod-ifb`、`kmod-inet-diag`、`kmod-netlink-diag`、`kmod-nf-conntrack-netlink`、`kmod-nft-core`、`kmod-nft-nat`、`kmod-sched-cake`。保留 `ALL_KMODS=n`，并增加 Kconfig 强校验。**新增模块的 Kconfig 和实际编译仍须以 Actions 通过结果为准。**
-- [ ] APK 原生递归求解实验尚未成功，初次尝试因远程二进制索引缓存不可用而未取得包；需要先解决 `apk update` / `--no-cache` 的运行环境问题，然后检验 ABI。
+- [x] 实测原生 APK 3 求解器的 `update` + `fetch --recursive`：Actions [#43434153668](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43434153668) 使用官方 ImageBuilder 的签名密钥与六套索引，成功取得 `etherwake` 的 **3 个递归依赖 APK**，逐包与锁定 `sha256sums` 对照一致，拒绝官方 kmod/本地定制包。此为单包闭包验证，不代表全部插件 ABI 已通过。
 - [ ] 当前静态审计只记录 `provides`、`depends`、潜在缺失项；**不等同于**满足版本约束、SONAME、签名信任或可刷入内核的完整离线库。最终镜像必须由官方 apk-tools 求解，并只允许本地编译的 kernel/kmod 和匹配 ABI 基础包。
 
 **待解决歧义**：`ip`、`nftables`、`tc`、`uci-firewall`。它们是候选提供者冲突，不能通过简单选第一个包解决。实际依赖的本地模块还包括 `kmod-tun`、`kmod-wireguard`、`kmod-nf-conntrack-netlink` 等，共计 9 项内核模块；另需验证 `libc` 的来源和 ABI。
+
+## 2026-11-13 P2/P3 进一步实测
+
+- **P3 原生依赖解析已通过单包案例**：[#43434153668](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43434153668)，`apk-tools 3.0.5` 完成索引刷新、包递归下载及 SHA256 校验。要扩展到完整清单，必须把本地 kernel/kmods 与定制包作为求解源，不应混入官方内核模块。
+- **P2 首轮完整定向编译失败**：[#43429939501](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43429939501)，官方工具链复用成功，`make download` 510 秒，但 `tools/install` 在 `tools/liblzo` 失败，尚未进入 kernel/kmod 生成。错误输出不够详细；已增设 `hybrid-host-liblzo-diagnostic.yml` 单项冗长日志重现。
+- **官方 ImageBuilder host tool 现状**：[#43434739222](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43434739222)，其中 472 个 host/bin 可执行文件，但无 `staging_dir/host` stamp，也无 `build_dir/host` 工作树。不能仅复制 host 二进制就伪造 OpenWrt 构建状态；需验证完整 staging 依赖或优先完成单项失败修复。
+- **发布约束保持不变**：上述结果只允许继续试验；无完整独立 Hybrid Builder+SDK，无本地 kernel ABI 以及全部包源依赖校验之前，不切换生产默认、不发布 OTA。
