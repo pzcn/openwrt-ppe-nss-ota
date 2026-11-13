@@ -61,7 +61,7 @@ test -s "$PROFILE"
 for required in \
   'CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y' \
   'CONFIG_ATH11K_NSS_WIFI=y' 'CONFIG_PACKAGE_kmod-nss-wifi-drv=y' \
-  'CONFIG_PACKAGE_kmod-fs-f2fs=y' 'CONFIG_IB=y' 'CONFIG_SDK=y'; do
+  'CONFIG_PACKAGE_kmod-fs-f2fs=y' '# CONFIG_IB is not set' '# CONFIG_SDK is not set'; do
   grep -Fqx "$required" "$PROFILE" || {
     echo "::error::Hybrid kernel config missing: $required" >&2; exit 1;
   }
