@@ -20,6 +20,8 @@ on:
       - scripts/audit-swap-resolved-apks.py
       - scripts/tests/test-swap-resolved-apks.py
       - scripts/inspect-swap-official-world.sh
+      - scripts/audit-swap-official-world.py
+      - scripts/tests/test-swap-official-world.py
       - scripts/solve-swap-mixed-apks.sh
 
 permissions:
@@ -46,6 +48,7 @@ jobs:
           bash -n scripts/inspect-swap-official-world.sh
           python3 scripts/tests/test-swap-mixed-apk-roots.py
           python3 scripts/tests/test-swap-resolved-apks.py
+          python3 scripts/tests/test-swap-official-world.py
           python3 -m py_compile scripts/probe-prebuilt-kernel-swap.py
           python3 scripts/tests/test-prebuilt-kernel-swap-probe.py
           python3 scripts/tests/test-research-prebuilt-kernel-swap.py
@@ -132,6 +135,16 @@ jobs:
                      "\nResolved package provenance audit: " + (.resolved_package_provenance_audited|tostring) +
                      "\nComplete firmware solver: NOT DONE"' \
                 out-julius-swap/mixed-apk-native-solver-report.json
+            fi
+            if [ -s out-julius-swap/official-rootfs-world-availability.json ]; then
+              jq -r '"Official installed APKs: " + (.installed_package_count|tostring) +
+                     "\nOfficial userland APKs: " + (.installed_userland_count|tostring) +
+                     "\nExactly available in current signed indexes: " +
+                     (.counts["exact-official-snapshot-archive"]|tostring) +
+                     "\nOlder or missing official binary versions: " +
+                     ((.counts["official-name-version-rotated"] +
+                       .counts["absent-from-current-official-index"])|tostring)' \
+                out-julius-swap/official-rootfs-world-availability.json
             fi
             echo "Official kernel modules cannot be retained after Julius FIT substitution."
             echo "Matching Julius module/firmware migration, F2FS and boot testing are still required."
