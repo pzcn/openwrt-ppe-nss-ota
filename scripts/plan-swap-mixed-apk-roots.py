@@ -37,9 +37,12 @@ def unique_package(indexes: list[dict], name: str) -> tuple[dict | None, str | N
     return None, f"{name}:multiple-versions"
 
 
-def plan(donor: list[dict], official: dict[str, list[dict]]) -> dict:
+def plan(donor: list[dict], official: dict[str, list[dict]],
+         *, donor_exceptions: tuple[str, ...] = ()) -> dict:
     if any(feed not in official for feed in FEEDS):
         raise ValueError("Missing pinned official index")
+    if set(donor_exceptions) - {"firewall4"}:
+        raise ValueError("Only explicitly reviewed firewall4 donor exception is allowed")
     official_all = [x for feed in FEEDS for x in official[feed]]
     roots: list[dict] = []
     blockers: list[str] = []
@@ -48,7 +51,12 @@ def plan(donor: list[dict], official: dict[str, list[dict]]) -> dict:
         ("immortalwrt-userspace", OFFICIAL_ROOTS, official_all),
     ):
         for name in selected:
-            item, problem = unique_package(index, name)
+            source_index = index
+            effective_owner = owner
+            if owner == "immortalwrt-userspace" and name in donor_exceptions:
+                source_index = donor
+                effective_owner = "julius-userspace-exception"
+            item, problem = unique_package(source_index, name)
             if problem:
                 blockers.append(problem)
                 continue
@@ -64,7 +72,7 @@ def plan(donor: list[dict], official: dict[str, list[dict]]) -> dict:
                 "name": name,
                 "version": item["version"],
                 "arch": item["arch"],
-                "origin": owner,
+                "origin": effective_owner,
                 "source": item["feed"],
                 "pin": name + "=" + item["version"],
                 "depends": item.get("depends", []),
@@ -85,6 +93,7 @@ def plan(donor: list[dict], official: dict[str, list[dict]]) -> dict:
         "official_userspace_root_count": sum(
             x["origin"] == "immortalwrt-userspace" for x in roots),
         "roots": roots,
+        "donor_userspace_exceptions": list(donor_exceptions),
         "blockers": blockers,
         "version_pins": [x["pin"] for x in roots],
         "kernel_abi_verified": False,
@@ -99,6 +108,7 @@ def main() -> None:
     p.add_argument("--official-index-dir", type=Path, required=True)
     p.add_argument("--output", type=Path, required=True)
     p.add_argument("--pins", type=Path, required=True)
+    p.add_argument("--donor-exception", action="append", choices=("firewall4",), default=[])
     args = p.parse_args()
 
     donor = audit.parse_adbdump(args.donor_index.read_text(), "target")
@@ -106,7 +116,7 @@ def main() -> None:
         feed: audit.parse_adbdump((args.official_index_dir / (feed + ".txt")).read_text(), feed)
         for feed in FEEDS
     }
-    result = plan(donor, official)
+    result = plan(donor, official, donor_exceptions=tuple(args.donor_exception))
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     args.pins.parent.mkdir(parents=True, exist_ok=True)
