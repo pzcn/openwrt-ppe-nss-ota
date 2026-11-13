@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import re
 from collections import deque
@@ -239,8 +240,6 @@ def main() -> None:
     kwargs = {}
     if args.lock is not None:
         lock = json.loads(args.lock.read_text())
-        spec = __import__("importlib.util", fromlist=["spec_from_file_location"])
-        import importlib.util
         loader = importlib.util.spec_from_file_location(
             "hybrid_inventory_for_audit", Path(__file__).resolve().parent / "hybrid-official-apk-plan.py")
         helper = importlib.util.module_from_spec(loader)
