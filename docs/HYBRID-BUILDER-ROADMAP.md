@@ -82,3 +82,13 @@
 ### 安全说明
 
 目前解析器只验证官方传输文件与其同源 `sha256sums` 的 SHA256，**还未使用预先可信的 ImmortalWrt usign 公钥验证 `sha256sums.sig`**；`checksum_signature_verified=false`。这不影响只读实验，但在默认构建发布前必须补足可信来源认证、arch/target 版本依赖校验，并确保正式固件中无来自官方的 kernel/kmod。
+
+## 2026-11-13 P3 APK 复用进展
+
+- [x] `hybrid-official-apk-plan.py` 基于官方 target/arch 双份 sha256sums 建立候选清单。实际测试：**46 个官方用户态候选包、5 个明确的本地内核包、1 个定制包，无直接缺包或包名歧义**；`etherwake` 已验证可依照固定哈希下载。
+- [x] `hybrid-dependency-audit.py` 使用官方 ImageBuilder 自带的 **apk-tools 3.0.5** 对 6 个经过 SHA256 校验的 `packages.adb` 解码，追踪用户态包的静态传递依赖。测试 [Actions #43433599484](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43433599484) 成功：46 个根包对应 **139 个候选传递包**、0 个缺失、4 个需要 APK 求解器处理的歧义、10 个本地内核/基础 ABI 依赖。
+- [x] 内核精简配置已补充由上述审计发现的 7 个模块：`kmod-ifb`、`kmod-inet-diag`、`kmod-netlink-diag`、`kmod-nf-conntrack-netlink`、`kmod-nft-core`、`kmod-nft-nat`、`kmod-sched-cake`。保留 `ALL_KMODS=n`，并增加 Kconfig 强校验。**新增模块的 Kconfig 和实际编译仍须以 Actions 通过结果为准。**
+- [ ] APK 原生递归求解实验尚未成功，初次尝试因远程二进制索引缓存不可用而未取得包；需要先解决 `apk update` / `--no-cache` 的运行环境问题，然后检验 ABI。
+- [ ] 当前静态审计只记录 `provides`、`depends`、潜在缺失项；**不等同于**满足版本约束、SONAME、签名信任或可刷入内核的完整离线库。最终镜像必须由官方 apk-tools 求解，并只允许本地编译的 kernel/kmod 和匹配 ABI 基础包。
+
+**待解决歧义**：`ip`、`nftables`、`tc`、`uci-firewall`。它们是候选提供者冲突，不能通过简单选第一个包解决。实际依赖的本地模块还包括 `kmod-tun`、`kmod-wireguard`、`kmod-nf-conntrack-netlink` 等，共计 9 项内核模块；另需验证 `libc` 的来源和 ABI。
