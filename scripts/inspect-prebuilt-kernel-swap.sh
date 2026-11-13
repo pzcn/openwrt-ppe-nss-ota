@@ -95,7 +95,7 @@ for name in immortalwrt julius; do
   grep -Fq 'config@cp03-c2' "$OUT/$name-fit.txt" || {
     echo "::error::$name FIT missing RE-SS-01 config@cp03-c2 DTB"; exit 1;
   }
-  unsquashfs -no-progress -d "$WORK/$name-rootfs" \
+  unsquashfs -no-progress -no-devices -d "$WORK/$name-rootfs" \
     "$WORK/extracted/$name.squashfs" > "$OUT/$name-unpack.log"
   test -d "$WORK/$name-rootfs/lib/modules"
   find "$WORK/$name-rootfs/lib/modules" -mindepth 1 -maxdepth 1 -type d \
