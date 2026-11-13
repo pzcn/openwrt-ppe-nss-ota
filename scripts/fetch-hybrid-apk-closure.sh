@@ -44,6 +44,14 @@ done
 APKROOT="$OUT/apkroot"
 mkdir -p "$OUT/apks" "$APKROOT/etc/apk/keys" "$APKROOT/var/cache/apk" "$APKROOT/lib/apk/db"
 cp "$IB/keys/"*.pem "$APKROOT/etc/apk/keys/"
+# apk3 update/fetch require an initialized database; an empty directory
+# alone is insufficient. --usermode creates it as the unprivileged runner.
+if ! "$APK" --root "$APKROOT" --arch aarch64_cortex-a53 \
+  --repositories-file /dev/null add --initdb --usermode \
+  > "$OUT/apk-initdb.log" 2>&1; then
+  tail -n 100 "$OUT/apk-initdb.log" >&2
+  echo "::error::Could not initialize scratch APK database"; exit 1
+fi
 common=(
   --root "$APKROOT" --arch aarch64_cortex-a53
   --keys-dir /etc/apk/keys --cache-dir /var/cache/apk
