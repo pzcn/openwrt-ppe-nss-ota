@@ -18,6 +18,12 @@ assert actual == expected, f"Unexpected compiler phases: {actual}"
 assert "if grep -Eq '^CONFIG_(IB|IB_STANDALONE|SDK|BUILD_ALL_HOST_TOOLS)=y$' \\" in source
 assert "if grep -Eq '^CONFIG_(ALL_KMODS|ALL_NONSHARED|PACKAGE_(sing-box|tailscale|ddns-go))=y$' \\" in source
 assert "grep -Fxq 'toolchain=official-immortalwrt'" in source
+# Kernel failure output must contain the real compiler/patch failure, rather
+# than just the top-level OpenWrt 'target/linux failed to build' message.
+assert 'make_args+=("V=sc")' in source, "Kernel compile must enable verbose diagnostics"
+assert '"$OUT/$key.serial-verbose.log"' in source, "Missing -j1 fallback error log"
+assert 'make -j1 V=sc "$@"' in source, "Missing OpenWrt documented serial diagnosis"
+assert source.count('phase download download') == 1
 
 for command in (["bash", "-n", str(script)],
                 ["bash", str(script), "--self-test"]):
