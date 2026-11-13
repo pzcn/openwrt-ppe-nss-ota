@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/hybrid-kernel-build.yml"
       - "scripts/compile-hybrid-kernel.sh"
+      - "scripts/hybrid-prefetch-host-sources.sh"
 
 permissions:
   contents: read
@@ -27,17 +28,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate build scripts and offline lock tests
         run: |
-          bash -n scripts/prepare-hybrid-kernel.sh             scripts/configure-hybrid-kernel.sh             scripts/compile-hybrid-kernel.sh             scripts/reuse-official-toolchain.sh
+          bash -n scripts/prepare-hybrid-kernel.sh             scripts/configure-hybrid-kernel.sh             scripts/compile-hybrid-kernel.sh             scripts/reuse-official-toolchain.sh             scripts/hybrid-prefetch-host-sources.sh
           python3 scripts/tests/test-hybrid-snapshot.py
       - name: Restore selected source archives
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .build-cache/dl
           key: hybrid-ipq60xx-dl-v1-${{ runner.os }}-${{ github.run_id }}
           restore-keys: |
             hybrid-ipq60xx-dl-v1-${{ runner.os }}-
       - name: Restore compiler objects (no kernel trees)
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: .build-cache/ccache
           key: hybrid-ipq60xx-ccache-v1-${{ runner.os }}-${{ github.run_id }}
@@ -77,6 +78,21 @@ jobs:
             echo ""
             echo "For full logs, inspect the workflow artifact."
           } >> "$GITHUB_STEP_SUMMARY"
+      # Persist partial downloads/ccache even if host tools or kernel compilation
+      # fail. actions/cache@v4 post-save is skipped on failed jobs; that made
+      # every P2 diagnostic repeat an 8+ minute download step.
+      - name: Save downloaded archives after failure or success
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .build-cache/dl
+          key: hybrid-ipq60xx-dl-v1-${{ runner.os }}-${{ github.run_id }}
+      - name: Save ccache objects after failure or success
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .build-cache/ccache
+          key: hybrid-ipq60xx-ccache-v1-${{ runner.os }}-${{ github.run_id }}
       - name: Upload experiment logs and selection metadata
         if: always()
         uses: actions/upload-artifact@v4
