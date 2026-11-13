@@ -60,6 +60,12 @@ if [[ -s "$INSTALLED" && -s "$WORLD" ]] &&
     --installed-db "$INSTALLED" --world "$WORLD" \
     --official-index-dir "$OUT/swap-indexes" \
     --output "$OUT/official-rootfs-world-availability.json"
+  python3 "$ROOT/scripts/plan-swap-full-installed-world.py" \
+    --installed-db "$INSTALLED" --world "$WORLD" \
+    --donor-index "$OUT/swap-indexes/donor.txt" \
+    --official-index-dir "$OUT/swap-indexes" \
+    --output "$OUT/full-installed-world-swap-plan.json" \
+    --pins "$OUT/full-installed-world-swap-pins.txt"
 else
   echo "::warning::Cannot audit full installed world; required APK metadata/index absent"
 fi
