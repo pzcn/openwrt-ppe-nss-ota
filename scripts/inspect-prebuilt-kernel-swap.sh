@@ -177,12 +177,9 @@ grep -Ei 'kmod-fs-f2fs|f2fs\.ko|kmod-nss-wifi|nss-wifi-drv|kmod-wireguard' \
   "$OUT/julius-imagebuilder-file-list.txt" \
   > "$OUT/julius-relevant-prebuilt-ib-files.txt" || true
 
-F2FS_IB="$(grep -Ec 'kmod-fs-f2fs.*[.]apk
- "$OUT/julius-relevant-prebuilt-ib-files.txt" || true)"
-NSS_IB="$(grep -Ec 'kmod-nss-wifi-drv.*[.]apk
- "$OUT/julius-relevant-prebuilt-ib-files.txt" || true)"
-WG_IB="$(grep -Ec 'kmod-wireguard.*[.]apk
- "$OUT/julius-relevant-prebuilt-ib-files.txt" || true)"
+F2FS_IB="$(grep -Ec "kmod-fs-f2fs.*[.]apk" "$OUT/julius-relevant-prebuilt-ib-files.txt" || true)"
+NSS_IB="$(grep -Ec "kmod-nss-wifi-drv.*[.]apk" "$OUT/julius-relevant-prebuilt-ib-files.txt" || true)"
+WG_IB="$(grep -Ec "kmod-wireguard.*[.]apk" "$OUT/julius-relevant-prebuilt-ib-files.txt" || true)"
 jq --arg ib_name "$JULIUS_IB" --arg ib_sha "$IB_SHA" \
    --argjson ib_f2fs "$F2FS_IB" --argjson ib_nss "$NSS_IB" \
    --argjson ib_wireguard "$WG_IB" \
