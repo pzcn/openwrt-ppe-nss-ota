@@ -135,3 +135,11 @@
 - [x] 官方 SDK 包含 `build_dir/.../linux-6.18.55/Module.symvers`，共有 15,614 条符号记录。但此文件属于官方内核，**不可以放入 PPE/NSS 自定义内核 SDK**；必须使用本地内核真正编译产生的 `Module.symvers`。
 - [x] P2 Actions 已调整为按空闲磁盘量判断是否有必要清理预装依赖，避免无条件递归删除大型 Hosted Toolcache 导致额外耗时。新定向编译 [#43440331317](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43440331317) 为试验运行，不发布固件。
 - [ ] 只有 P2 内核/模块编译真正通过之后，才能从本地编译树生成有自有 ABI 的 SDK + 独立 ImageBuilder，并将已镜像的 151 个官方用户态 APK 与本地 28 个必需包一起做完整求解/索引/签名/镜像烟测。
+
+## 2026-11-13 失败复盘：PPE/EDMA 源码版本必须一致
+
+- [x] [失败构建 #43456252620](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43456252620) 的第一个实际错误：`qca_ppe_vlan.c` 使用旧 ImmortalWrt 的 `static ppe_xlt_idx_alloc/free`，而新 PPE `qca_ppe.h` 声明为对外接口；混用两个版本导致编译冲突。
+- [x] [cacad3b](https://github.com/pzcn/openwrt-ppe-nss-ota/commit/cacad3bd1fc76496f7577a6311fe54a1ac934a13) 改成成组移植新 PPE/EDMA 的 10 个源码文件，以及包含正确 Kbuild Flow/Offload 对象列表和 Kconfig 依赖的 `0952`、`0953` 补丁，不再只拷贝头文件与部分实现。
+- [x] [e5e37ac](https://github.com/pzcn/openwrt-ppe-nss-ota/commit/e5e37ac45325bc913128a841368806eaa93ef0d4) 恢复独立 `include/linux/qca_edma.h` 与 `soc/qcom/qca_edma.h` 的双接口移植；[c2fbc05](https://github.com/pzcn/openwrt-ppe-nss-ota/commit/c2fbc05e2f598d6cc02c8bbe91c7ab4c041e9973) 加入静态防回归测试。
+- [x] [源码/Kconfig 预检 #43460395807](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43460395807) 已通过。预检只证明文件匹配及配置解析，不是编译成功。
+- [ ] [最新内核/NSS 编译 #43460616588](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43460616588) 正在验证完整驱动编译，未经其通过，不允许更新 Builder/SDK/OTA。
