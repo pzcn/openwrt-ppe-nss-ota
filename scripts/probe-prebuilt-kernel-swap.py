@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Read-only FIT + squashfs inspection for an ImmortalWrt/Julius kernel swap.
+"""Inspect RE-SS-01 OpenWrt sysupgrade TARs to compare prebuilt FIT kernels.
 
-This script DOES NOT assemble, sign, or publish flashable firmware. It verifies
-that the two official RE-SS-01 sysupgrade files share the same physical image
-layout before any attempt to substitute a kernel or its ABI-bound modules.
+The device image recipe is 'sysupgrade-tar | append-metadata', NOT a raw FIT
+image. Extract only the embedded kernel and root members. Never assemble or
+publish flashable firmware from this read-only compatibility experiment.
 """
 from __future__ import annotations
 
@@ -11,12 +11,13 @@ import argparse
 import hashlib
 import json
 import struct
-from pathlib import Path
+import tarfile
+from pathlib import Path, PurePosixPath
 
 FIT_MAGIC = b"\xd0\x0d\xfe\xed"
 SQUASHFS_MAGIC = b"hsqs"
-KERNEL_PARTITION_LIMIT = 6144 * 1024  # both upstream jdcloud RE-SS-01 recipes
-BLOCK = 64 * 1024
+KERNEL_PARTITION_LIMIT = 6144 * 1024  # both RE-SS-01 upstream device recipes
+MAX_ROOTFS_MEMBER = 128 * 1024 * 1024
 MIN_SQUASHFS_HEADER = 96
 
 
@@ -24,70 +25,102 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def safe_tar_member_name(name: str) -> bool:
+    path = PurePosixPath(name)
+    return not path.is_absolute() and all(p not in ("", ".", "..") for p in path.parts)
+
+
+def read_sysupgrade_members(path: Path, name: str) -> tuple[bytes, bytes, dict]:
+    try:
+        with tarfile.open(path, mode="r:") as archive:
+            members = archive.getmembers()
+            if len(members) > 512:
+                raise ValueError(f"{name}: excessive sysupgrade member count")
+            for m in members:
+                if not safe_tar_member_name(m.name):
+                    raise ValueError(f"{name}: unsafe tar member path")
+            kernels = [m for m in members
+                       if m.isfile() and m.name.endswith("/kernel")]
+            roots = [m for m in members
+                     if m.isfile() and m.name.endswith("/root")]
+            if len(kernels) != 1 or len(roots) != 1:
+                raise ValueError(f"{name}: expected unique sysupgrade kernel/root entries")
+            kern, root = kernels[0], roots[0]
+            if kern.name.rsplit("/", 1)[0] != root.name.rsplit("/", 1)[0]:
+                raise ValueError(f"{name}: kernel/root belong to different profiles")
+            if kern.size < 1024 or kern.size > KERNEL_PARTITION_LIMIT:
+                raise ValueError(f"{name}: kernel member exceeds RE-SS-01 partition limit")
+            if root.size < MIN_SQUASHFS_HEADER or root.size > MAX_ROOTFS_MEMBER:
+                raise ValueError(f"{name}: invalid rootfs member size")
+            kernel_file = archive.extractfile(kern)
+            root_file = archive.extractfile(root)
+            if kernel_file is None or root_file is None:
+                raise ValueError(f"{name}: missing sysupgrade payload")
+            kernel = kernel_file.read()
+            rootfs = root_file.read()
+            return kernel, rootfs, {
+                "sysupgrade_prefix": kern.name.rsplit("/", 1)[0],
+                "kernel_member": kern.name,
+                "rootfs_member": root.name,
+                "kernel_member_bytes": len(kernel),
+                "rootfs_member_bytes": len(rootfs),
+            }
+    except (tarfile.TarError, EOFError) as e:
+        raise ValueError(f"{name}: invalid sysupgrade TAR: {e}") from e
+
+
 def inspect_sysupgrade(path: Path, *, extracted: Path | None = None,
                        name: str = "firmware") -> dict:
-    data = path.read_bytes()
-    if len(data) < 1024 * 1024:
-        raise ValueError(f"Firmware too small: {name}")
-    if data[:4] != FIT_MAGIC:
-        raise ValueError(f"{name}: expected an ARM64 FIT image at byte zero, not a raw/UBI image")
-    if len(data) < 40:
-        raise ValueError(f"{name}: incomplete FIT header")
-    fit_size = struct.unpack_from(">I", data, 4)[0]
-    if not (1024 < fit_size <= KERNEL_PARTITION_LIMIT):
-        raise ValueError(f"{name}: FIT size {fit_size} outside RE-SS-01 kernel limit")
-    offsets = [offset for offset in range(
-        (fit_size + BLOCK - 1) // BLOCK * BLOCK, KERNEL_PARTITION_LIMIT + 1, BLOCK
-    ) if data[offset:offset + 4] == SQUASHFS_MAGIC]
-    if len(offsets) != 1:
-        raise ValueError(f"{name}: expected exactly one 64KiB-aligned squashfs after FIT, got {offsets}")
-    rootfs_at = offsets[0]
-    if rootfs_at < fit_size:
-        raise ValueError(f"{name}: rootfs overlaps FIT")
-    if len(data) < rootfs_at + MIN_SQUASHFS_HEADER:
-        raise ValueError(f"{name}: truncated squashfs header")
-    major, minor = struct.unpack_from("<HH", data, rootfs_at + 28)
+    kernel, rootfs, meta = read_sysupgrade_members(path, name)
+    if kernel[:4] != FIT_MAGIC:
+        raise ValueError(f"{name}: kernel TAR member is not an ARM64 FIT")
+    fit_size = struct.unpack_from(">I", kernel, 4)[0]
+    if not (1024 < fit_size <= len(kernel) <= KERNEL_PARTITION_LIMIT):
+        raise ValueError(f"{name}: invalid FIT size outside RE-SS-01 kernel limit")
+    if rootfs[:4] != SQUASHFS_MAGIC:
+        raise ValueError(f"{name}: expected SquashFS root TAR member")
+    major, minor = struct.unpack_from("<HH", rootfs, 28)
     if (major, minor) != (4, 0):
         raise ValueError(f"{name}: unsupported squashfs format {major}.{minor}")
-    bytes_used = struct.unpack_from("<Q", data, rootfs_at + 40)[0]
-    if not (MIN_SQUASHFS_HEADER < bytes_used <= len(data) - rootfs_at):
+    bytes_used = struct.unpack_from("<Q", rootfs, 40)[0]
+    if not (MIN_SQUASHFS_HEADER < bytes_used <= len(rootfs)):
         raise ValueError(f"{name}: invalid squashfs size {bytes_used}")
-    fit = data[:fit_size]
-    rootfs = data[rootfs_at:rootfs_at + bytes_used]
+    fit = kernel[:fit_size]
+    squashfs = rootfs[:bytes_used]
     if extracted is not None:
         extracted.mkdir(parents=True, exist_ok=True)
         (extracted / f"{name}.fit").write_bytes(fit)
-        (extracted / f"{name}.squashfs").write_bytes(rootfs)
+        (extracted / f"{name}.squashfs").write_bytes(squashfs)
     return {
+        **meta,
+        "sysupgrade_format": "openwrt-sysupgrade-tar",
         "filename": path.name,
-        "file_bytes": len(data),
-        "file_sha256": sha256(data),
+        "file_bytes": path.stat().st_size,
         "fit_bytes": fit_size,
         "fit_sha256": sha256(fit),
         "kernel_max_bytes": KERNEL_PARTITION_LIMIT,
-        "rootfs_offset": rootfs_at,
         "rootfs_bytes": bytes_used,
-        "rootfs_sha256": sha256(rootfs),
+        "rootfs_sha256": sha256(squashfs),
         "squashfs_version": "4.0",
-        "kernel_padding_bytes": rootfs_at - fit_size,
+        "kernel_padding_bytes": len(kernel) - fit_size,
+        "rootfs_padding_bytes": len(rootfs) - bytes_used,
     }
 
 
 def compare(imm: dict, julius: dict) -> dict:
     return {
-        "schema": 1,
+        "schema": 2,
         "status": "experimental-inspection-only-not-flashable",
         "hardware": "jdcloud,re-ss-01",
         "board": "qualcommax/ipq60xx",
         "official_immortalwrt": imm,
         "julius_ppe_nss": julius,
-        "same_layout": all((
-            imm["squashfs_version"] == julius["squashfs_version"],
-            imm["kernel_max_bytes"] == julius["kernel_max_bytes"],
-            imm["rootfs_offset"] % BLOCK == 0,
-            julius["rootfs_offset"] % BLOCK == 0,
-        )),
-        "julius_kernel_fits_target_partition": julius["fit_bytes"] <= KERNEL_PARTITION_LIMIT,
+        "same_layout": (
+            imm["sysupgrade_format"] == julius["sysupgrade_format"] and
+            imm["squashfs_version"] == julius["squashfs_version"] and
+            imm["kernel_max_bytes"] == julius["kernel_max_bytes"]
+        ),
+        "julius_kernel_fits_target_partition": julius["kernel_member_bytes"] <= KERNEL_PARTITION_LIMIT,
         "same_kernel_binary": imm["fit_sha256"] == julius["fit_sha256"],
         "official_kmods_must_not_be_used_with_julius_kernel": True,
         "julius_kmods_and_firmware_must_be_provided": True,
@@ -111,10 +144,10 @@ def main() -> None:
     report = compare(imm, julius)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
-    print("ImmortalWrt FIT/rootfs: ", imm["fit_bytes"], imm["rootfs_bytes"])
-    print("Julius NSS FIT/rootfs: ", julius["fit_bytes"], julius["rootfs_bytes"])
-    print("FIT layout compatible:", report["same_layout"])
-    print("No flashable firmware built. Kernel module ABI remains unverified.")
+    print("ImmortalWrt FIT/rootfs bytes:", imm["fit_bytes"], imm["rootfs_bytes"])
+    print("Julius FIT/rootfs bytes:", julius["fit_bytes"], julius["rootfs_bytes"])
+    print("TAR/FIT layout compatible:", report["same_layout"])
+    print("No firmware built. Kernel module ABI remains unverified.")
 
 
 if __name__ == "__main__":
