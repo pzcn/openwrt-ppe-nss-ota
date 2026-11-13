@@ -50,6 +50,19 @@ else
   echo "::warning::Official rootfs has no /lib/apk/db/installed"
 fi
 
+# Analyze the *entire* official rootfs installed userland against the
+# precise target+arch package versions pinned in this experimental run.
+# Old Snapshot target and arch feeds can be published at different times.
+if [[ -s "$INSTALLED" && -s "$WORLD" ]] &&
+   grep -q '^P:' "$INSTALLED" &&
+   [[ -s "$OUT/swap-indexes/target.txt" ]]; then
+  python3 "$ROOT/scripts/audit-swap-official-world.py" \
+    --installed-db "$INSTALLED" --world "$WORLD" \
+    --official-index-dir "$OUT/swap-indexes" \
+    --output "$OUT/official-rootfs-world-availability.json"
+else
+  echo "::warning::Cannot audit full installed world; required APK metadata/index absent"
+fi
 jq -n \
   --argjson world_present "$([[ -s "$WORLD" ]] && echo true || echo false)" \
   --argjson installed_present "$([[ -s "$INSTALLED" ]] && echo true || echo false)" \
