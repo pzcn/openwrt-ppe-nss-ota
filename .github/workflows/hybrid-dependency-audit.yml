@@ -10,6 +10,8 @@ on:
       - "scripts/tests/test-hybrid-dependency-audit.py"
       - "scripts/mirror-hybrid-official-apks.py"
       - "scripts/tests/test-hybrid-mirror.py"
+      - "scripts/plan-hybrid-local-apks.py"
+      - "scripts/tests/test-hybrid-local-apks.py"
 
 permissions:
   contents: read
@@ -29,6 +31,7 @@ jobs:
           python3 scripts/tests/test-hybrid-dependency-audit.py
           python3 scripts/tests/test-hybrid-apk-plan.py
           python3 scripts/tests/test-hybrid-mirror.py
+          python3 scripts/tests/test-hybrid-local-apks.py
       - name: Install required extraction tools
         run: |
           sudo apt-get update -qq
@@ -75,6 +78,14 @@ jobs:
             --index-dir out-hybrid-deps/indexes \
             --lock out-snapshot/snapshot-lock.json \
             --output out-hybrid-deps/dependency-audit.json
+      - name: Derive all local kernel and patched-package obligations
+        run: |
+          python3 scripts/plan-hybrid-local-apks.py \
+            --lock out-snapshot/snapshot-lock.json \
+            --inventory out-hybrid-deps/package-inventory.json \
+            --audit out-hybrid-deps/dependency-audit.json \
+            --kernel-config config/hybrid-kernel-re-ss-01.config \
+            --output out-hybrid-deps/local-compilation-plan.json
       - name: Download two content-pinned userland APKs as offline mirror smoke test
         run: |
           python3 scripts/mirror-hybrid-official-apks.py \
@@ -104,6 +115,7 @@ jobs:
             out-snapshot/snapshot-lock.json
             out-hybrid-deps/package-inventory.json
             out-hybrid-deps/dependency-audit.json
+            out-hybrid-deps/local-compilation-plan.json
             out-hybrid-mirror/offline-mirror-manifest.json
           if-no-files-found: warn
           retention-days: 14
