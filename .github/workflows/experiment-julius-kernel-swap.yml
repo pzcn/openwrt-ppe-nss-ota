@@ -12,6 +12,8 @@ on:
       - scripts/tests/test-prebuilt-kernel-swap-probe.py
       - scripts/build-research-prebuilt-kernel-swap.py
       - scripts/tests/test-research-prebuilt-kernel-swap.py
+      - scripts/compare-swap-userspace-packages.py
+      - scripts/tests/test-swap-userspace-packages.py
 
 permissions:
   contents: read
@@ -35,6 +37,7 @@ jobs:
           python3 -m py_compile scripts/probe-prebuilt-kernel-swap.py
           python3 scripts/tests/test-prebuilt-kernel-swap-probe.py
           python3 scripts/tests/test-research-prebuilt-kernel-swap.py
+          python3 scripts/tests/test-swap-userspace-packages.py
           python3 scripts/tests/test-hybrid-snapshot.py
       - name: Install FIT and squashfs inspection tools
         run: |
@@ -87,6 +90,12 @@ jobs:
               echo "Image boundary or provenance validation failed; inspect logs."
             fi
             echo ""
+            if [ -s out-julius-swap/core-userspace-version-comparison.json ]; then
+              jq -r '"Official vs Julius base APK versions: " +
+                     (.matching_versions|tostring) + " matching; " +
+                     (.different_versions|tostring) + " different"' \
+                out-julius-swap/core-userspace-version-comparison.json
+            fi
             echo "Official kernel modules cannot be retained after Julius FIT substitution."
             echo "Matching Julius module/firmware migration, F2FS and boot testing are still required."
           } >> "$GITHUB_STEP_SUMMARY"
