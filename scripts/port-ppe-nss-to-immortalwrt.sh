@@ -47,6 +47,11 @@ for file in \
   qca_ppe_flow_offload.c qca_ppe_main.c qca_ppe_scheduler.c; do
   copy_file "target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/$file"
 done
+# Two different EDMA interfaces exist upstream:
+# include/linux/qca_edma.h: switch/conduit functions used by PPE and EDMA
+# include/linux/soc/qcom/qca_edma.h: NSS firmware queue routing API.
+# Both are required; copying only the soc/qcom variant breaks qca_ppe_main.c.
+copy_file target/linux/qualcommax/files/include/linux/qca_edma.h
 for file in qca_edma.h qca_ppe.h; do
   copy_file "target/linux/qualcommax/files/include/linux/soc/qcom/$file"
 done
