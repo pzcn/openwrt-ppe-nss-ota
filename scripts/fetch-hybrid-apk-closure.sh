@@ -52,9 +52,11 @@ if ! "$APK" --root "$APKROOT" --arch aarch64_cortex-a53 \
   tail -n 100 "$OUT/apk-initdb.log" >&2
   echo "::error::Could not initialize scratch APK database"; exit 1
 fi
+echo "APK scratch-root database layout:"
+find "$APKROOT" -maxdepth 5 -type f -printf "  %P\n" | head -n 35
 common=(
   --root "$APKROOT" --arch aarch64_cortex-a53
-  --keys-dir /etc/apk/keys --cache-dir /var/cache/apk
+  --keys-dir etc/apk/keys --cache-dir var/cache/apk
   --repositories-file /dev/null --timeout 75 --no-progress
   "${repos[@]}"
 )
