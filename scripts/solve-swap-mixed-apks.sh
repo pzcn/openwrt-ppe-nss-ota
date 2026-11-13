@@ -84,6 +84,12 @@ python3 "$ROOT/scripts/plan-swap-mixed-apk-roots.py" \
   --official-index-dir "$OUT/swap-indexes" \
   --output "$OUT/mixed-apk-roots.json" \
   --pins "$OUT/mixed-apk-roots.txt"
+python3 "$ROOT/scripts/plan-swap-mixed-apk-roots.py" \
+  --donor-index "$OUT/swap-indexes/donor.txt" \
+  --official-index-dir "$OUT/swap-indexes" \
+  --donor-exception firewall4 \
+  --output "$OUT/mixed-apk-roots-firewall4-exception.json" \
+  --pins "$OUT/mixed-apk-roots-firewall4-exception.txt"
 
 # First validate ALL six original official signed indexes with signature
 # verification enabled. No --allow-untrusted here.
@@ -136,6 +142,28 @@ else
   echo "Native solve blocked by missing roots/index verification." \
     > "$OUT/apk-mixed-simulate.log"
 fi
+# One tightly scoped compatibility probe: only firewall4 is allowed
+# to come from Julius, because official firewall4 depends on an unavailable
+# Julius kmod-nft-fullcone. Every other listed core userland package is still
+# pinned to the official ImmortalWrt version.
+FIREWALL_EXCEPTION_OK=false
+mapfile -t FIREWALL_PINS < "$OUT/mixed-apk-roots-firewall4-exception.txt"
+if [[ "$UPDATE_OK" == true ]] &&
+   [[ "$(jq -r '.blockers|length' "$OUT/mixed-apk-roots-firewall4-exception.json")" == 0 ]]; then
+  if "$APK" "${common[@]}" --allow-untrusted "${repos[@]}" \
+    add --simulate --usermode --no-scripts "${FIREWALL_PINS[@]}" \
+    > "$OUT/apk-mixed-firewall4-exception-simulate.log" 2>&1; then
+    FIREWALL_EXCEPTION_OK=true
+  else
+    echo "::notice::Even Julius firewall4 fallback cannot resolve all pinned core packages."
+  fi
+else
+  echo "Exception case cannot be evaluated (indexes or roots missing)." \
+    > "$OUT/apk-mixed-firewall4-exception-simulate.log"
+fi
+echo "Strict official userspace result: $SIMULATED"
+echo "11 official core + one Julius firewall4: $FIREWALL_EXCEPTION_OK"
+tail -n 120 "$OUT/apk-mixed-firewall4-exception-simulate.log" || true
 tail -n 120 "$OUT/apk-mixed-simulate.log" || true
 [[ "$UPDATE_OK" == true ]] || tail -n 100 "$OUT/apk-mixed-update.log" 2>/dev/null || true
 
@@ -145,6 +173,7 @@ tail -n 120 "$OUT/apk-mixed-simulate.log" || true
 jq -n --argjson signed "$SIGNATURES_VERIFIED" \
   --argjson update "$UPDATE_OK" \
   --argjson simulated "$SIMULATED" \
+  --argjson firewall_exception "$FIREWALL_EXCEPTION_OK" \
   --argjson pins "$(jq '.version_pins' "$OUT/mixed-apk-roots.json")" \
   --argjson blockers "$(jq '.blockers' "$OUT/mixed-apk-roots.json")" \
   --arg donor_index_sha "$(sha256sum "$DONOR/packages/packages.adb" | cut -d' ' -f1)" \
@@ -154,6 +183,7 @@ jq -n --argjson signed "$SIGNATURES_VERIFIED" \
     donor_index_origin:"content-pinned-julius-imagebuilder",
     mixed_indexes_updated:$update,
     pinned_core_simulation_succeeded:$simulated,
+    firewall4_only_donor_exception_simulation_succeeded:$firewall_exception,
     requested_pins:$pins,root_blockers:$blockers,
     complete_world_solved:false,
     all_kernel_modules_abi_checked:false,
@@ -162,6 +192,7 @@ jq -n --argjson signed "$SIGNATURES_VERIFIED" \
     boot_tested:false,publishable:false}' \
   > "$OUT/mixed-apk-native-solver-report.json"
 jq '{official_indexes_signature_verified,mixed_indexes_updated,
-     pinned_core_simulation_succeeded,requested_pins,root_blockers,publishable}' \
+     pinned_core_simulation_succeeded,firewall4_only_donor_exception_simulation_succeeded,
+     requested_pins,root_blockers,publishable}' \
   "$OUT/mixed-apk-native-solver-report.json"
 echo "No package installation, no flashable firmware, no OTA publication."
