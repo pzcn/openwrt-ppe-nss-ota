@@ -22,6 +22,8 @@ on:
       - scripts/inspect-swap-official-world.sh
       - scripts/audit-swap-official-world.py
       - scripts/tests/test-swap-official-world.py
+      - scripts/plan-swap-full-installed-world.py
+      - scripts/tests/test-swap-full-installed-world.py
       - scripts/solve-swap-mixed-apks.sh
 
 permissions:
@@ -49,6 +51,7 @@ jobs:
           python3 scripts/tests/test-swap-mixed-apk-roots.py
           python3 scripts/tests/test-swap-resolved-apks.py
           python3 scripts/tests/test-swap-official-world.py
+          python3 scripts/tests/test-swap-full-installed-world.py
           python3 -m py_compile scripts/probe-prebuilt-kernel-swap.py
           python3 scripts/tests/test-prebuilt-kernel-swap-probe.py
           python3 scripts/tests/test-research-prebuilt-kernel-swap.py
@@ -145,6 +148,13 @@ jobs:
                      ((.counts["official-name-version-rotated"] +
                        .counts["absent-from-current-official-index"])|tostring)' \
                 out-julius-swap/official-rootfs-world-availability.json
+            fi
+            if [ -s out-julius-swap/full-installed-world-swap-plan.json ]; then
+              jq -r '"Stock installed world: " + (.stock_installed_count|tostring) +
+                     "\nExact official userspace pins: " + (.exact_official_userland_pinned_count|tostring) +
+                     "\nJulius kmod/Kernel pins: " + (.julius_kernel_kmod_pinned_count|tostring) +
+                     "\nMissing stock modules in donor: " + (.missing_stock_kernel_or_kmods|length|tostring)' \
+                out-julius-swap/full-installed-world-swap-plan.json
             fi
             echo "Official kernel modules cannot be retained after Julius FIT substitution."
             echo "Matching Julius module/firmware migration, F2FS and boot testing are still required."
