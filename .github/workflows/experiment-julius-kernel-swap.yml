@@ -15,6 +15,9 @@ on:
       - scripts/compare-swap-userspace-packages.py
       - scripts/tests/test-swap-userspace-packages.py
       - scripts/inspect-julius-apk-repository.sh
+      - scripts/plan-swap-mixed-apk-roots.py
+      - scripts/tests/test-swap-mixed-apk-roots.py
+      - scripts/solve-swap-mixed-apks.sh
 
 permissions:
   contents: read
@@ -36,6 +39,8 @@ jobs:
         run: |
           bash -n scripts/inspect-prebuilt-kernel-swap.sh
           bash -n scripts/inspect-julius-apk-repository.sh
+          bash -n scripts/solve-swap-mixed-apks.sh
+          python3 scripts/tests/test-swap-mixed-apk-roots.py
           python3 -m py_compile scripts/probe-prebuilt-kernel-swap.py
           python3 scripts/tests/test-prebuilt-kernel-swap-probe.py
           python3 scripts/tests/test-research-prebuilt-kernel-swap.py
@@ -56,6 +61,17 @@ jobs:
       - name: Decode native Julius ImageBuilder package repository and ABI metadata
         run: |
           bash scripts/inspect-julius-apk-repository.sh out-julius-swap
+      - name: Extract pinned official ImageBuilder with trusted APK signing keys
+        run: |
+          bash scripts/inspect-hybrid-official-ib.sh out-snapshot/snapshot-lock.json
+      - name: Try native APK3 core dependency solver on mixed repositories (test only)
+        run: |
+          bash scripts/solve-swap-mixed-apks.sh \
+            out-snapshot/snapshot-lock.json out-julius-swap
+          jq -e '.publishable == false and
+                  .imagebuilder_assembled == false and
+                  .complete_world_solved == false' \
+            out-julius-swap/mixed-apk-native-solver-report.json >/dev/null
       - name: Prove kernel member substitution with untouched official rootfs (never publish)
         run: |
           set -Eeuo pipefail
@@ -100,6 +116,13 @@ jobs:
                      (.matching_versions|tostring) + " matching; " +
                      (.different_versions|tostring) + " different"' \
                 out-julius-swap/core-userspace-version-comparison.json
+            fi
+            if [ -s out-julius-swap/mixed-apk-native-solver-report.json ]; then
+              jq -r '"Official APK signatures: " + (.official_indexes_signature_verified|tostring) +
+                     "\nMixed APK indexes loaded: " + (.mixed_indexes_updated|tostring) +
+                     "\nPinned core APK simulation: " + (.pinned_core_simulation_succeeded|tostring) +
+                     "\nComplete firmware solver: NOT DONE"' \
+                out-julius-swap/mixed-apk-native-solver-report.json
             fi
             echo "Official kernel modules cannot be retained after Julius FIT substitution."
             echo "Matching Julius module/firmware migration, F2FS and boot testing are still required."
