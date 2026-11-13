@@ -1,0 +1,72 @@
+name: Hybrid Builder - diagnose host liblzo tool (no firmware)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/hybrid-official-snapshot]
+    paths:
+      - ".github/workflows/hybrid-host-liblzo-diagnostic.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    name: Reproduce liblzo host build error with full verbose logs
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve the exact official source commit
+        run: |
+          python3 scripts/resolve-immortalwrt-snapshot.py --output out-snapshot/snapshot-lock.json
+      - name: Install minimal build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential autoconf automake bison \
+            cmake curl flex gawk gettext git libtool ninja-build patch \
+            python3 python3-pyelftools rsync unzip wget zlib1g-dev zstd
+      - name: Checkout exact official revision and prepare minimum target configuration
+        run: |
+          set -Eeuo pipefail
+          SHA="$(jq -er .target_commit out-snapshot/snapshot-lock.json)"
+          SRC="$RUNNER_TEMP/immortal-host-diagnostic"
+          git init -q "$SRC"
+          git -C "$SRC" remote add origin https://github.com/immortalwrt/immortalwrt.git
+          git -C "$SRC" fetch --depth=1 --filter=blob:none origin "$SHA"
+          git -C "$SRC" checkout --detach -q FETCH_HEAD
+          test "$(git -C "$SRC" rev-parse HEAD)" = "$SHA"
+          printf 'CONFIG_TARGET_qualcommax=y\nCONFIG_TARGET_qualcommax_ipq60xx=y\n' > "$SRC/.config"
+          (cd "$SRC" && make defconfig)
+          echo "SOURCE_DIR=$SRC" >> "$GITHUB_ENV"
+      - name: Build only tools/liblzo with verbose output
+        run: |
+          mkdir -p out-hybrid-host-diagnostic
+          set -o pipefail
+          (cd "$SOURCE_DIR" && make -j1 V=sc tools/liblzo/compile) \
+            2>&1 | tee out-hybrid-host-diagnostic/liblzo-verbose.log
+      - name: Report failure context
+        if: always()
+        run: |
+          {
+            echo "## Hybrid host tool diagnostic"
+            echo "Reproduces only tools/liblzo, no kernel or image compilation."
+            if [ -f out-hybrid-host-diagnostic/liblzo-verbose.log ]; then
+              echo ""
+              echo "### Last reported errors"
+              grep -Ei 'error:|fatal:|not found|cannot|failed' \
+                out-hybrid-host-diagnostic/liblzo-verbose.log | tail -n 30 || true
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload full verbose host tool log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-hybrid-liblzo-diagnostic
+          path: |
+            out-snapshot/snapshot-lock.json
+            out-hybrid-host-diagnostic/
+          retention-days: 14
+          if-no-files-found: warn
