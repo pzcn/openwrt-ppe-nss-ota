@@ -11,6 +11,7 @@ on:
       - "scripts/hybrid-prefetch-host-sources.sh"
       - "scripts/configure-hybrid-kernel.sh"
       - "scripts/prepare-hybrid-kernel.sh"
+      - "scripts/port-ppe-nss-to-immortalwrt.sh"
       - "scripts/reuse-official-toolchain.sh"
       - "config/hybrid-kernel-re-ss-01.config"
 
@@ -43,6 +44,7 @@ jobs:
           done
           python3 scripts/tests/test-hybrid-snapshot.py
           python3 scripts/tests/test-hybrid-compile-entrypoint.py
+          python3 scripts/tests/test-hybrid-ppe-source-sync.py
       - name: Restore selected source archives
         uses: actions/cache/restore@v4
         with:
