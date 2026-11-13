@@ -157,4 +157,44 @@ jq '{same_layout,julius_kernel_fits_target_partition,
      official_module_file_count,donor_module_file_count,
      donor_memory_profile,donor_f2fs_module_found,donor_nss_wifi_module_found,
      ready_to_flash}' "$OUT/swap-compatibility-report.json"
+# The donor firmware only includes its default modules; investigate the
+# matching *precompiled* ImageBuilder before declaring F2FS unavailable.
+# This archive belongs to the same published donor kernel version/variant.
+JULIUS_INDEX="$WORK/julius-$JULIUS_PROFILE-sha256sums"
+JULIUS_IB="imagebuilder-ipq60xx-$JULIUS_PROFILE.tar.zst"
+JULIUS_CONFIG="config-ipq60xx-$JULIUS_PROFILE.buildinfo"
+IB_SHA="$(indexed_sha "$JULIUS_INDEX" "$JULIUS_IB")"
+CONFIG_SHA="$(indexed_sha "$JULIUS_INDEX" "$JULIUS_CONFIG")"
+download "$JULIUS_URL/$JULIUS_CONFIG" "$WORK/$JULIUS_CONFIG"
+verify_file "$WORK/$JULIUS_CONFIG" "$CONFIG_SHA"
+grep -Ei '(^# )?CONFIG_.*(F2FS|WIREGUARD|NSS_WIFI|ATH11K_NSS)' \
+  "$WORK/$JULIUS_CONFIG" > "$OUT/julius-kernel-config-relevant.txt" || true
+download "$JULIUS_URL/$JULIUS_IB" "$WORK/$JULIUS_IB"
+verify_file "$WORK/$JULIUS_IB" "$IB_SHA"
+tar -I zstd -tf "$WORK/$JULIUS_IB" \
+  > "$OUT/julius-imagebuilder-file-list.txt"
+grep -Ei 'kmod-fs-f2fs|f2fs\.ko|kmod-nss-wifi|nss-wifi-drv|kmod-wireguard' \
+  "$OUT/julius-imagebuilder-file-list.txt" \
+  > "$OUT/julius-relevant-prebuilt-ib-files.txt" || true
+
+F2FS_IB="$(grep -Ec 'kmod-fs-f2fs.*[.]apk
+ "$OUT/julius-relevant-prebuilt-ib-files.txt" || true)"
+NSS_IB="$(grep -Ec 'kmod-nss-wifi-drv.*[.]apk
+ "$OUT/julius-relevant-prebuilt-ib-files.txt" || true)"
+WG_IB="$(grep -Ec 'kmod-wireguard.*[.]apk
+ "$OUT/julius-relevant-prebuilt-ib-files.txt" || true)"
+jq --arg ib_name "$JULIUS_IB" --arg ib_sha "$IB_SHA" \
+   --argjson ib_f2fs "$F2FS_IB" --argjson ib_nss "$NSS_IB" \
+   --argjson ib_wireguard "$WG_IB" \
+  '. + {donor_prebuilt_imagebuilder:$ib_name,
+        donor_prebuilt_imagebuilder_sha256:$ib_sha,
+        donor_imagebuilder_f2fs_apk_found:($ib_f2fs>0),
+        donor_imagebuilder_nss_wifi_apk_found:($ib_nss>0),
+        donor_imagebuilder_wireguard_apk_found:($ib_wireguard>0),
+        ready_to_flash:false,publishable:false}' \
+  "$OUT/swap-compatibility-report.json" > "$OUT/report-new.json"
+mv "$OUT/report-new.json" "$OUT/swap-compatibility-report.json"
+echo "Matching Julius prebuilt Builder package availability:"
+cat "$OUT/julius-relevant-prebuilt-ib-files.txt"
+echo "Read-only inspection complete. No kernel or firmware is published."
 echo "All extracted rootfs files stay in ephemeral runner storage."
