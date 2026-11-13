@@ -111,3 +111,12 @@
 **P3 仍未完成**：138 个候选并非原生 APK 求解器验证过的全量闭包；`libc` 和定制 kernel/kmods 尚无匹配编译产物，尚未完成独立 ImageBuilder/SDK 的组合、源码真实性签名校验、升级/OTA 实机验收。上述脚本产物均禁止正式发布。
 
 **P2 阻塞**：官方 toolchain 复用已成功，首次定向编译在 host `tools/liblzo` 失败，尚未开始 kernel。单工具详细编译诊断在独立 CI 进行，不掩盖此失败。
+
+## 2026-11-13 继续推进：完整用户态离线缓存和真正的 Kernel-only P2
+
+- **完整候选镜像首次验收通过**：[#43437586634](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43437586634) 下载并二次验证 `add.txt` 对应的 138 个用户态候选 APK，总计 49,329,145 字节。留有完整 SHA256 证明、依赖审查和版本锁，保存为短期测试 artifact，绝不作为正式 Builder 发布。
+- **扩大实际基础固件选包范围**：此前仅从 `config/add.txt` 读取额外插件，遗漏 `config/immortalwrt-re-ss-01.config` 显式选中的 PPE、SQM、Aurora、wpad、LuCI 等基础包。现默认读取两者：新版审查得到 53 个官方直接候选、15 个直接本地 kmod、6 个本地定制包，151 个静态传递用户态候选。完整 151 包缓存已安排单独 Actions 验证；这仍不是被求解器最终接受的完整固件包集。
+- **P3 本地义务清单**：新增 `plan-hybrid-local-apks.py`，联合官方依赖审查与真实 Kconfig，识别必须本地编译的 kernel、kmod、base-files/libc/libgcc、Aurora、PPE LuCI 和 SQM；缺模块立即失败。扩大基础固件清单后发现缺失 `kmod-sched-core`，已添加到 P2 Kconfig。
+- **P2 构建拆分修正**：原有名为 kernel-only 的配置仍启用 `CONFIG_SDK=y` 和 `CONFIG_IB=y`，ImmortalWrt 官方 `tools/Makefile` 会因此额外选择 liblzo/lzop 等 SDK 宿主工具。这是误把 P3 打包负担提前交给 P2。现 P2 显式关闭 SDK/IB/ALL_HOST_TOOLS，复用官方工具链时保留关闭状态；**P3 必须重新启用并独立构建匹配 SDK/IB，绝不允许最终缺失这些产物**。
+- **liblzo 源码镜像**：[#43436845004](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43436845004) 证明 OpenWrt 公共镜像可下载 SHA256 固定的 `lzo-2.10.tar.gz`。但诊断显示 liblzo 的宿主构建还会触发数百步 CMake 编译，预下载并不能消除全部耗时。
+- **当前 Gate**：Snapshot/索引解析、APK 镜像、单包原生求解已通过；P2 的新内核与 NSS kmods 仍需真实编译；P3 离线完整依赖求解、签名根信任、来自同一内核的模块 ABI、ImageBuilder + SDK 重打包和实机验证均未通过。**不切换 main 默认 Builder，不更新 OTA**。
