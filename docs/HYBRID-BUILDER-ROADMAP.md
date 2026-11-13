@@ -24,11 +24,11 @@
 
 ### P1. Snapshot Resolver + 可重复锁文件（第一阶段实现）
 
-- [ ] 新增 `scripts/resolve-immortalwrt-snapshot.py`。安全下载官方 target `version.buildinfo`、`feeds.buildinfo`、`config.buildinfo`、`sha256sums` 及 arch `feeds.conf`、`sha256sums`。
-- [ ] 严格解析并校验 Hash、文件名、目标/架构、提交格式，锁定 ImageBuilder、SDK、Toolchain 的文件名与 SHA256，以及 target/arch 各自的仓库指纹。
-- [ ] 输出固定格式 `snapshot-lock.json`，计算独立的 `kernel_fingerprint` / `packages_fingerprint`，并能与旧锁比较为 `unchanged` / `packages-only` / `kernel-or-target`。
-- [ ] 离线测试：变化分类、缺文件、坏 checksum、路径污染、源版本切换、target/arch feed 不一致、重放结果稳定。
-- [ ] 新增只读 CI（每日及手动）上传锁文件与摘要，不做大规模编译、不会发布固件；先在 PR 中验证。
+- [x] 新增 `scripts/resolve-immortalwrt-snapshot.py`：读取 target `version.buildinfo`、`feeds.buildinfo`、`config.buildinfo`、`sha256sums` 及 arch `feeds.conf`；target 元数据进行 SHA256 校验。arch 独立 APK 索引仍待后续阶段锁定。
+- [x] 严格解析校验文件名、目标/架构、提交格式、target SHA256；锁定官方 ImageBuilder、SDK、Toolchain 的文件名与 SHA256，单独记录 arch feeds 指纹。
+- [x] 输出确定性的 `snapshot-lock.json`，计算 `kernel_fingerprint` / `packages_fingerprint`，支持 `unchanged` / `packages-only` / `kernel-or-target`。注意 `packages_fingerprint` 目前仅代表 arch feeds，不涵盖 APK 索引。
+- [x] 第一批离线测试：变化分类、坏 checksum、路径污染、稳定性；还需覆盖 snapshot 发布切换期间的索引重读、arch APK 索引差异。
+- [x] 新增只读 CI（每日及手动）上传锁文件与摘要，不做大规模编译、不会发布固件；在开发分支运行验证。
 
 **验收**：CI 可稳定取得最新版官方数据、解析出完整锁；不一致时明确失败或记录警告，**绝不自动发布**。
 
