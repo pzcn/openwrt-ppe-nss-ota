@@ -76,6 +76,30 @@ assert len(pinned["mirror_plan"]) == 3
 assert pinned["mirror_plan"][0]["name"] == "alpha"
 assert pinned["mirror_plan"][0]["sha256"] == "1" * 64
 assert not pinned["publishable"]  # SHA checks do not prove ABI or signature trust.
+
+# A target package is indexed under the special "target" feed but its
+# official checksum URL/path must be "packages/<filename>.apk".
+extra_indexes = dict(indexes)
+extra_indexes["target"] = audit.parse_adbdump(adb(
+    ("targettool", "1.0-r1", [], [])), "target")
+target_inventory = json.loads(json.dumps(inventory))
+target_inventory["packages"].append({
+    "name": "targettool", "status": "official-candidate",
+    "source": "target", "feed": "packages",
+    "filename": "targettool-1.0-r1.apk",
+})
+with_target = audit.review(
+    target_inventory, extra_indexes,
+    locked_sums={"target": {"packages/targettool-1.0-r1.apk": "4" * 64},
+                 "arch": archive_sums["arch"]},
+    lock=origin_lock)
+target_assets = [x for x in with_target["mirror_plan"]
+                 if x["name"] == "targettool"]
+assert len(target_assets) == 1
+assert target_assets[0]["feed"] == "packages"
+assert target_assets[0]["path"] == "packages/targettool-1.0-r1.apk"
+assert target_assets[0]["source"] == "target"
+assert with_target["mirror_plan_content_pinned"]
 missing_archive = {"target": {}, "arch": {"base/alpha-1.0-r1.apk": "1" * 64}}
 incomplete = audit.review(inventory, indexes, locked_sums=missing_archive, lock=origin_lock)
 assert not incomplete["mirror_plan_content_pinned"]
