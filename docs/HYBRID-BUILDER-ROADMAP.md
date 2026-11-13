@@ -128,3 +128,10 @@
 - [x] **P2 纯内核 Kconfig 预检**：Actions [#43439485836](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43439485836) 成功，P2 禁止启用 SDK、IB、ALL_HOST_TOOLS 和额外 Go 大包。官方交叉工具链启用时会保留该设置；正式 Builder/SDK 仍必须在 P3 另行构建。
 - [ ] **仍缺真实自有内核+ABI及匹配 SDK**：[#43439538368](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43439538368) 是新的定向编译实验。其通过之前，不能使用 151 个 APK 宣称可刷机、不能切换 main 默认工作流，也不能让 OTA 消费实验产物。
 - [ ] **正式包集还需包含设备默认配置**：当前 151 个 APK 来自显式基础固件配置和 `add.txt`，最终必须同真正 `make defconfig` 产生的默认包及所有本地 kmod 一起交由 APK 求解器验证；当前镜像不是最终根文件系统的依赖解。
+
+## 2026-11-13 官方 SDK 宿主工具复用检查
+
+- [x] Actions [#43440253993](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43440253993) 下载并按 SHA256 检验官方 SDK；含 472 个 `staging_dir/host/bin` 可执行文件，`staging_dir/host/stamp` / `hostpkg/stamp` 均为 0，不能依赖它恢复源码 `tools/install` 完成状态。
+- [x] 官方 SDK 包含 `build_dir/.../linux-6.18.55/Module.symvers`，共有 15,614 条符号记录。但此文件属于官方内核，**不可以放入 PPE/NSS 自定义内核 SDK**；必须使用本地内核真正编译产生的 `Module.symvers`。
+- [x] P2 Actions 已调整为按空闲磁盘量判断是否有必要清理预装依赖，避免无条件递归删除大型 Hosted Toolcache 导致额外耗时。新定向编译 [#43440331317](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43440331317) 为试验运行，不发布固件。
+- [ ] 只有 P2 内核/模块编译真正通过之后，才能从本地编译树生成有自有 ABI 的 SDK + 独立 ImageBuilder，并将已镜像的 151 个官方用户态 APK 与本地 28 个必需包一起做完整求解/索引/签名/镜像烟测。
