@@ -39,4 +39,20 @@ assert "procd:multiple-versions" in bad["blockers"]
 assert not any(x["name"] == "procd" for x in bad["roots"])
 assert not mod.plan(donor[1:], official)["publishable"]
 assert "missing-julius-kernel-root" in mod.plan(donor[1:], official)["blockers"]
+donor.append(mk("firewall4", "2026.10.29~julius-r1", "target"))
+alternative = mod.plan(donor, official, donor_exceptions=("firewall4",))
+assert "firewall4=2026.10.29~julius-r1" in alternative["version_pins"]
+assert "firewall4=1.1-r1" not in alternative["version_pins"]
+assert alternative["donor_userspace_exceptions"] == ["firewall4"]
+assert alternative["official_userspace_root_count"] == len(mod.OFFICIAL_ROOTS) - 1
+assert len([x for x in alternative["roots"]
+            if x["origin"] == "julius-userspace-exception"]) == 1
+assert not alternative["publishable"]
+try:
+    mod.plan(donor, official, donor_exceptions=("base-files",))
+except ValueError:
+    pass
+else:
+    raise AssertionError("Accepted an unreviewed donor base-files substitution")
+
 print("PASS mixed APK version pins, official userspace ownership and fail-closed ambiguity")
