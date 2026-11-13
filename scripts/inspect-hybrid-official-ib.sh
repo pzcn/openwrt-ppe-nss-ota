@@ -37,6 +37,13 @@ test -s "$IB/Makefile"
   find "$IB" -type f -name apk -print | head -n 20
   echo "Signing keys:"
   find "$IB" -type f \( -name '*.pem' -o -name '*.pub' \) -printf '%P\n' | head -n 20
+  echo "Official host tool inventory (for fast hybrid compilation feasibility):"
+  echo "host bin executables: $(find "$IB/staging_dir/host/bin" -maxdepth 1 -type f -executable | wc -l)"
+  echo "host stamps: $(find "$IB/staging_dir/host" -type f -path '*/stamp/*' | wc -l)"
+  echo "hostpkg stamps: $(find "$IB/staging_dir/hostpkg" -type f -path '*/stamp/*' 2>/dev/null | wc -l)"
+  echo "host build directories: $(find "$IB/build_dir" -mindepth 1 -maxdepth 1 -type d -name 'host*' | wc -l)"
+  echo "host stamps (first 30):"
+  find "$IB/staging_dir/host" -type f -path '*/stamp/*' -printf '  %P\n' | sort | head -n 30
 } > "$OUT/ib-layout.txt"
 cat "$OUT/ib-layout.txt"
 
