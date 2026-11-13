@@ -15,18 +15,45 @@ phase() {
   shift
   local begin
   begin="$(date +%s)"
-  echo "::group::Hybrid selective phase: $key"
-  echo "make -j$(nproc) $*"
-  if ! (cd "$IMM" && make -j"$(nproc)" "$@") > "$OUT/$key.log" 2>&1; then
-    tail -n 200 "$OUT/$key.log" >&2
-    echo "::error::Compilation phase '$key' failed: $OUT/$key.log" >&2
-    exit 1
+  local -a make_args
+  make_args=("-j$(nproc)")
+  # A top-level OpenWrt make without V=s or V=sc only reports the
+  # generic 'target/linux failed to build' wrapper. Always preserve
+  # inner compiler/patch output for the critical kernel phase.
+  if [[ "$key" == "linux-target" ]]; then
+    make_args+=("V=sc")
   fi
-  tail -n 12 "$OUT/$key.log"
-  printf '%s\n' "$(( $(date +%s) - begin ))" > "$OUT/$key.seconds"
-  echo "::endgroup::"
-}
+  echo "::group::Hybrid selective phase: $key"
+  echo "make ${make_args[*]} $*"
+  if (cd "$IMM" && make "${make_args[@]}" "$@") > "$OUT/$key.log" 2>&1; then
+    tail -n 12 "$OUT/$key.log"
+    printf '%s\n' "$(( $(date +%s) - begin ))" > "$OUT/$key.seconds"
+    echo "::endgroup::"
+    return 0
+  fi
 
+  # The initial failure can be in an internal parallel worker and lost
+  # among the last lines. Extract high-signal diagnostics before exit.
+  echo "::error::Phase '$key' failed. Detailed log: $OUT/$key.log" >&2
+  echo "::group::Failure diagnostics: $key"
+  grep -Ein 'error:|fatal:|patch failed|failed hunk|hunk #[0-9]+ failed|rejected|no rule to make target|undefined reference|module.symvers|cannot find|no such file'     "$OUT/$key.log" | tail -n 100 >&2 || true
+  tail -n 130 "$OUT/$key.log" >&2
+  echo "::endgroup::"
+
+  # If the kernel failure remains opaque, force OpenWrt's documented
+  # serial-verbose diagnosis. Keep the first failure as failure; never
+  # silently publish a one-off successful retry.
+  if [[ "$key" == "linux-target" ]] &&
+     ! grep -Eiq 'error:|fatal:|patch failed|hunk #[0-9]+ failed|undefined reference|no rule to make target' "$OUT/$key.log"; then
+    echo "::group::Serial verbose kernel diagnostic (-j1 V=sc)"
+    (cd "$IMM" && make -j1 V=sc "$@")       > "$OUT/$key.serial-verbose.log" 2>&1 || true
+    grep -Ein 'error:|fatal:|patch failed|failed hunk|hunk #[0-9]+ failed|rejected|no rule to make target|undefined reference|module.symvers'       "$OUT/$key.serial-verbose.log" | tail -n 90 >&2 || true
+    tail -n 180 "$OUT/$key.serial-verbose.log" >&2
+    echo "::endgroup::"
+  fi
+  printf '%s\n' "$(( $(date +%s) - begin ))" > "$OUT/$key.failed.seconds"
+  exit 1
+}
 # A lightweight executable control-flow check used by CI. It must reach
 # this function *as code*, not accidentally swallow it in a quoted regex.
 if [[ "${1:-}" == "--self-test" ]]; then
