@@ -40,6 +40,14 @@ if [[ -n "${IMM_OFFICIAL_SNAPSHOT_LOCK:-}" ]]; then
     echo "::error::Unexpected snapshot toolchain host/path"; exit 1;
   }
 fi
+# When the exact-Snapshot P2 profile has SDK and IB deliberately disabled,
+# keep it kernel-only. The production full-source Builder stays unchanged.
+KERNEL_ONLY=0
+if [[ -n "${IMM_OFFICIAL_SNAPSHOT_LOCK:-}" ]] &&
+   ! grep -Fqx 'CONFIG_SDK=y' "$IMM/.config" &&
+   ! grep -Fqx 'CONFIG_IB=y' "$IMM/.config"; then
+  KERNEL_ONLY=1
+fi
 DEST="$CACHE_DL/$ARCHIVE"
 WORK="${RUNNER_TEMP:-/tmp}/immortal-official-toolchain"
 ORIGINAL_CONFIG="$WORK/config.backup"
@@ -77,7 +85,11 @@ use_official() {
   # External toolchains require explicit permission to package ImageBuilder.
   # ext-toolchain.sh appends the exact compiler paths and libraries, then
   # invokes defconfig. Reassert the required IB flags before the final pass.
-  printf 'CONFIG_DEVEL=y\nCONFIG_EXTERNAL_TOOLCHAIN_IB=y\nCONFIG_EXTERNAL_TOOLCHAIN_SDK=y\n' >> "$IMM/.config"
+  if (( KERNEL_ONLY )); then
+    printf 'CONFIG_DEVEL=y\n# CONFIG_EXTERNAL_TOOLCHAIN_IB is not set\n# CONFIG_EXTERNAL_TOOLCHAIN_SDK is not set\n' >> "$IMM/.config"
+  else
+    printf 'CONFIG_DEVEL=y\nCONFIG_EXTERNAL_TOOLCHAIN_IB=y\nCONFIG_EXTERNAL_TOOLCHAIN_SDK=y\n' >> "$IMM/.config"
+  fi
   # The official script derives the buildroot from its argv[0], using
   # "${0%/scripts/*}". A relative "scripts/ext-toolchain.sh" invocation
   # silently writes to "scripts/ext-toolchain.sh/.config" instead of .config.
@@ -92,7 +104,18 @@ use_official() {
     cp "$ORIGINAL_CONFIG" "$IMM/.config"
     return 1
   fi
-  cat >> "$IMM/.config" <<'CONFIG'
+  if (( KERNEL_ONLY )); then
+    cat >> "$IMM/.config" <<'CONFIG'
+CONFIG_EXTERNAL_TOOLCHAIN=y
+# CONFIG_EXTERNAL_TOOLCHAIN_IB is not set
+# CONFIG_EXTERNAL_TOOLCHAIN_SDK is not set
+# CONFIG_IB is not set
+# CONFIG_IB_STANDALONE is not set
+# CONFIG_SDK is not set
+CONFIG_CCACHE=y
+CONFIG
+  else
+    cat >> "$IMM/.config" <<'CONFIG'
 CONFIG_EXTERNAL_TOOLCHAIN=y
 CONFIG_EXTERNAL_TOOLCHAIN_IB=y
 CONFIG_EXTERNAL_TOOLCHAIN_SDK=y
@@ -101,14 +124,16 @@ CONFIG_IB_STANDALONE=y
 CONFIG_SDK=y
 CONFIG_CCACHE=y
 CONFIG
-  for required in \
-    'CONFIG_EXTERNAL_TOOLCHAIN=y' \
-    'CONFIG_EXTERNAL_TOOLCHAIN_IB=y' \
-    'CONFIG_EXTERNAL_TOOLCHAIN_SDK=y' \
-    'CONFIG_SDK=y' \
-    "CONFIG_TOOLCHAIN_ROOT=\"$toolchain\""; do
+  fi
+  local required_flags=('CONFIG_EXTERNAL_TOOLCHAIN=y' "CONFIG_TOOLCHAIN_ROOT=\"$toolchain\"")
+  if (( ! KERNEL_ONLY )); then
+    required_flags+=('CONFIG_EXTERNAL_TOOLCHAIN_IB=y'
+                     'CONFIG_EXTERNAL_TOOLCHAIN_SDK=y'
+                     'CONFIG_SDK=y')
+  fi
+  for required in "${required_flags[@]}"; do
     if ! grep -Fqx "$required" "$IMM/.config"; then
-      echo "::warning::Official toolchain setup missing $required; falling back to source compilation" >&2
+      echo "::warning::Official toolchain setup missing $required; reverting to source compilation" >&2
       cp "$ORIGINAL_CONFIG" "$IMM/.config"
       return 1
     fi
