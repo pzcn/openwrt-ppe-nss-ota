@@ -163,8 +163,20 @@ jq '{same_layout,julius_kernel_fits_target_partition,
 JULIUS_INDEX="$WORK/julius-$JULIUS_PROFILE-sha256sums"
 JULIUS_IB="imagebuilder-ipq60xx-$JULIUS_PROFILE.tar.zst"
 JULIUS_CONFIG="config-ipq60xx-$JULIUS_PROFILE.buildinfo"
-IB_SHA="$(indexed_sha "$JULIUS_INDEX" "$JULIUS_IB")"
-CONFIG_SHA="$(indexed_sha "$JULIUS_INDEX" "$JULIUS_CONFIG")"
+# The per-profile sha256sums file covers firmware images, not the
+# config/IB attachments. These exact SHA256 values are pinned from the
+# published GitHub release asset digests, not invented from the manifest.
+case "$JULIUS_PROFILE" in
+  512m)
+    IB_SHA="c2eebb7a7fc37c49843347bab75db758b8f0bd50c0c9aaa9e2af7f44452c412b"
+    CONFIG_SHA="5859a5c79fbd14a638f41e520384de9c24bfca6a4ea3bc0c0988aad0ae9a5308"
+    ;;
+  1g)
+    IB_SHA="7786d30f7957d6656ec560aa892d8e68e112412a6907339bbe0c6db53cd5ba1d"
+    CONFIG_SHA="e7e2d61e68ed666d7cae4700a9ab5da953323fa71bf422e1709eae6ef5f1fa95"
+    ;;
+  *) echo "::error::Unexpected memory profile"; exit 1 ;;
+esac
 download "$JULIUS_URL/$JULIUS_CONFIG" "$WORK/$JULIUS_CONFIG"
 verify_file "$WORK/$JULIUS_CONFIG" "$CONFIG_SHA"
 grep -Ei '(^# )?CONFIG_.*(F2FS|WIREGUARD|NSS_WIFI|ATH11K_NSS)' \
