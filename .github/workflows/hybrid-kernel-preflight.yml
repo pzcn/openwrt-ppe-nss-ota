@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/hybrid-kernel-preflight.yml"
       - "scripts/prepare-hybrid-kernel.sh"
+      - "scripts/configure-hybrid-kernel.sh"
       - "scripts/port-ppe-nss-to-immortalwrt.sh"
       - "config/hybrid-kernel-re-ss-01.config"
 
@@ -30,7 +31,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/resolve-immortalwrt-snapshot.py
           python3 scripts/tests/test-hybrid-snapshot.py
-          bash -n scripts/prepare-hybrid-kernel.sh scripts/port-ppe-nss-to-immortalwrt.sh
+          bash -n scripts/prepare-hybrid-kernel.sh scripts/port-ppe-nss-to-immortalwrt.sh scripts/configure-hybrid-kernel.sh
       - name: Install light source-preflight dependencies
         run: |
           sudo apt-get update -qq
@@ -42,6 +43,9 @@ jobs:
         id: port
         run: |
           bash scripts/prepare-hybrid-kernel.sh out-snapshot/snapshot-lock.json
+      - name: Validate feed-pinned Kconfig without compiling
+        run: |
+          bash scripts/configure-hybrid-kernel.sh out-snapshot/snapshot-lock.json
       - name: Report checked sources
         if: success()
         run: |
@@ -55,7 +59,7 @@ jobs:
             echo ""
             echo "PPE SHA: $(jq -r .ppe_nss_commit out-hybrid-kernel-preflight/hybrid-kernel-preflight.json)"
             echo ""
-            echo "Next: pin feeds + official compiler, selective kernel/kmod compilation, ABI checks."
+            echo "Next: verified official compiler, selective kernel/kmod compilation, ABI checks."
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
