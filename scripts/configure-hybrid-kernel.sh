@@ -64,7 +64,8 @@ done
 
 # Required by audited official APK userland dependencies.
 for module in kmod-ifb kmod-inet-diag kmod-netlink-diag \
-  kmod-nf-conntrack-netlink kmod-nft-core kmod-nft-nat kmod-sched-cake; do
+  kmod-nf-conntrack-netlink kmod-nft-core kmod-nft-nat \
+  kmod-sched-core kmod-sched-cake; do
   grep -Fqx "CONFIG_PACKAGE_$module=y" "$IMM/.config" || {
     echo "::error::Missing closure-required local kernel module: $module" >&2
     exit 1
