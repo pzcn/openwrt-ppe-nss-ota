@@ -10,6 +10,8 @@ on:
       - scripts/inspect-prebuilt-kernel-swap.sh
       - scripts/probe-prebuilt-kernel-swap.py
       - scripts/tests/test-prebuilt-kernel-swap-probe.py
+      - scripts/build-research-prebuilt-kernel-swap.py
+      - scripts/tests/test-research-prebuilt-kernel-swap.py
 
 permissions:
   contents: read
@@ -32,6 +34,7 @@ jobs:
           bash -n scripts/inspect-prebuilt-kernel-swap.sh
           python3 -m py_compile scripts/probe-prebuilt-kernel-swap.py
           python3 scripts/tests/test-prebuilt-kernel-swap-probe.py
+          python3 scripts/tests/test-research-prebuilt-kernel-swap.py
           python3 scripts/tests/test-hybrid-snapshot.py
       - name: Install FIT and squashfs inspection tools
         run: |
@@ -45,6 +48,21 @@ jobs:
         run: |
           bash scripts/inspect-prebuilt-kernel-swap.sh \
             out-snapshot/snapshot-lock.json out-julius-swap
+      - name: Prove kernel member substitution with untouched official rootfs (never publish)
+        run: |
+          set -Eeuo pipefail
+          WORK="$RUNNER_TEMP/immortal-julius-swap"
+          RESEARCH="$RUNNER_TEMP/research-julius-kernel-replacement.tar"
+          python3 scripts/build-research-prebuilt-kernel-swap.py \
+            --immortalwrt "$WORK/immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin" \
+            --julius "$WORK/openwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin" \
+            --research-tar "$RESEARCH" \
+            --report out-julius-swap/research-swap-proof.json
+          jq -e '.official_immortalwrt_userland_retained == true and
+                  .julius_module_abi_migrated == false and .publishable == false' \
+            out-julius-swap/research-swap-proof.json >/dev/null
+          # Never upload or preserve an unsafe kernel-only sysupgrade specimen.
+          rm -f "$RESEARCH"
       - name: Publish read-only assessment
         if: always()
         run: |
