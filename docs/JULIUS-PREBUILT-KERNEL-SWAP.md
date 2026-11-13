@@ -81,3 +81,10 @@
 - 新增测试 `scripts/tests/test-swap-rootfs-packaging.py` 并接入实验 Action，失败会阻断测试工作流。
 - **提交不等于通过**：只有当实验 Actions 最新运行中的 `Repack disposable APK root...` 步骤成功且报告中的 `disposable_rootfs_file_roundtrip_passed=true`，才能称为压缩往返验证通过。
 - 该测试 **不运行 APK 安装脚本，不进行 `sysupgrade -T`，不证明正常启动或 Linux 内核 ABI 兼容，不保存可刷固件**。下一阶段仍需严格的 package post-install/overlay 检查、真正的目标设备配置校验和实机验证。
+
+## 2026-11-14：打包成功后的启动文件和模块版本审计
+
+- [#43475440594](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43475440594) 实际通过了新增的 `Repack disposable APK root into SquashFS, reextract and check research-only TAR` 步骤；`mksquashfs -> unsquashfs` 后 APK installed DB、模块文件、F2FS 早期加载配置和 /var 链接检查通过。临时研究 TAR 删除，**并未产生可刷固件**。
+- 添加 `scripts/audit-swap-runtime-readiness.py`：比较 **官方原版 SquashFS** 与 APK-only 混合目录的 boot/board/init/upgrade 核心文件，给出缺失和哈希差异清单，不自动修复或照搬可能不兼容的内核关联配置。
+- 扫描每个 `.ko` 内的 `vermagic` 版本串是否为 Julius 6.18.60，记录缺失、错误或无法解析的模块，并检查 modules.dep、modules.alias、F2FS、NSS Wi-Fi 和 WireGuard；版本串相同仍 **不等于**完成实际符号 ABI 或硬件验证。
+- 新增独立测试和 CI 报告 `boot-runtime-static-audit.json`。审计结果尚需下一轮 CI 验证，不会自动放行镜像发布；`main`/正式 Builder/OTA 保持不变。
