@@ -6,13 +6,14 @@ on:
     branches: [feat/hybrid-official-snapshot]
     paths:
       - ".github/workflows/hybrid-host-liblzo-diagnostic.yml"
+      - "scripts/hybrid-prefetch-host-sources.sh"
 
 permissions:
   contents: read
 
 jobs:
   reproduce:
-    name: Reproduce liblzo host build error with full verbose logs
+    name: Build liblzo from verified OpenWrt source mirror
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     env:
@@ -41,6 +42,8 @@ jobs:
           printf 'CONFIG_TARGET_qualcommax=y\nCONFIG_TARGET_qualcommax_ipq60xx=y\n' > "$SRC/.config"
           (cd "$SRC" && make defconfig)
           echo "SOURCE_DIR=$SRC" >> "$GITHUB_ENV"
+      - name: Prefetch pinned LZO tarball to bypass primary host stall
+        run: bash scripts/hybrid-prefetch-host-sources.sh "$SOURCE_DIR/dl"
       - name: Build only tools/liblzo with verbose output
         run: |
           mkdir -p out-hybrid-host-diagnostic
@@ -52,7 +55,7 @@ jobs:
         run: |
           {
             echo "## Hybrid host tool diagnostic"
-            echo "Reproduces only tools/liblzo, no kernel or image compilation."
+            echo "Uses verified upstream LZO tarball; no kernel or image compilation."
             if [ -f out-hybrid-host-diagnostic/liblzo-verbose.log ]; then
               echo ""
               echo "### Last reported errors"
