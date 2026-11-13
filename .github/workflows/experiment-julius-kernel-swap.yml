@@ -1,0 +1,81 @@
+name: Experiment - ImmortalWrt userland with Julius prebuilt PPE/NSS kernel
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/immortalwrt-julius-kernel-swap
+    paths:
+      - .github/workflows/experiment-julius-kernel-swap.yml
+      - scripts/inspect-prebuilt-kernel-swap.sh
+      - scripts/probe-prebuilt-kernel-swap.py
+      - scripts/tests/test-prebuilt-kernel-swap-probe.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: immortalwrt-julius-kernel-swap-readonly
+  cancel-in-progress: true
+
+jobs:
+  inspect:
+    name: Compare RE-SS-01 FIT images, rootfs and kernel-module ABI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate swap parser and shell
+        run: |
+          bash -n scripts/inspect-prebuilt-kernel-swap.sh
+          python3 -m py_compile scripts/probe-prebuilt-kernel-swap.py
+          python3 scripts/tests/test-prebuilt-kernel-swap-probe.py
+          python3 scripts/tests/test-hybrid-snapshot.py
+      - name: Install FIT and squashfs inspection tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq jq squashfs-tools u-boot-tools
+      - name: Pin official ImmortalWrt Snapshot
+        run: |
+          python3 scripts/resolve-immortalwrt-snapshot.py \
+            --output out-snapshot/snapshot-lock.json
+      - name: Verify and compare two published RE-SS-01 sysupgrade images
+        run: |
+          bash scripts/inspect-prebuilt-kernel-swap.sh \
+            out-snapshot/snapshot-lock.json out-julius-swap
+      - name: Publish read-only assessment
+        if: always()
+        run: |
+          {
+            echo "## ImmortalWrt + Julius prebuilt kernel experiment"
+            echo "This job **never** creates a flashable image."
+            echo "Official ImmortalWrt rootfs is preserved as reference."
+            if [ -s out-julius-swap/swap-compatibility-report.json ]; then
+              echo ""
+              jq -r '"FIT layout compatible: " + (.same_layout|tostring) +
+                "\nJulius profile: " + .donor_memory_profile +
+                "\nOfficial kernel module release(s): " + .official_kernel_module_directories +
+                "\nJulius kernel module release(s): " + .donor_kernel_module_directories +
+                "\nJulius compiled module files: " + (.donor_module_file_count|tostring) +
+                "\nHas Julius f2fs module: " + (.donor_f2fs_module_found|tostring) +
+                "\nHas Julius NSS Wi-Fi module: " + (.donor_nss_wifi_module_found|tostring)' \
+                out-julius-swap/swap-compatibility-report.json
+            else
+              echo "Image boundary or provenance validation failed; inspect logs."
+            fi
+            echo ""
+            echo "Official kernel modules cannot be retained after Julius FIT substitution."
+            echo "Matching Julius module/firmware migration, F2FS and boot testing are still required."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload analysis only (no firmware, modules or private keys)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: re-ss-01-immortalwrt-julius-kernel-compatibility
+          path: |
+            out-snapshot/snapshot-lock.json
+            out-julius-swap/
+          if-no-files-found: warn
+          retention-days: 14
