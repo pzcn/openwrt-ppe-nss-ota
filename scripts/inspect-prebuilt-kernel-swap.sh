@@ -203,6 +203,17 @@ jq --arg ib_name "$JULIUS_IB" --arg ib_sha "$IB_SHA" \
         ready_to_flash:false,publishable:false}' \
   "$OUT/swap-compatibility-report.json" > "$OUT/report-new.json"
 mv "$OUT/report-new.json" "$OUT/swap-compatibility-report.json"
+# The userland remains official ImmortalWrt only if the entire core APK
+# dependency set is reconciled, not merely the kernel tar member.
+ARCH_ROOT="https://downloads.immortalwrt.org/snapshots/packages/aarch64_cortex-a53"
+download "$ARCH_ROOT/sha256sums" "$WORK/immortalwrt-arch-sha256sums"
+verify_file "$WORK/immortalwrt-arch-sha256sums" \
+  "$(jq -er '.arch_checksums_sha256' "$LOCK")"
+python3 "$ROOT/scripts/compare-swap-userspace-packages.py" \
+  --julius-imagebuilder-list "$OUT/julius-imagebuilder-file-list.txt" \
+  --official-target-sums "$WORK/immortalwrt-sha256sums" \
+  --official-arch-sums "$WORK/immortalwrt-arch-sha256sums" \
+  --output "$OUT/core-userspace-version-comparison.json"
 echo "Matching Julius prebuilt Builder package availability:"
 cat "$OUT/julius-relevant-prebuilt-ib-files.txt"
 echo "Read-only inspection complete. No kernel or firmware is published."
