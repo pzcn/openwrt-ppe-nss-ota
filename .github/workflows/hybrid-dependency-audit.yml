@@ -70,6 +70,7 @@ jobs:
           python3 scripts/hybrid-dependency-audit.py \
             --inventory out-hybrid-deps/package-inventory.json \
             --index-dir out-hybrid-deps/indexes \
+            --lock out-snapshot/snapshot-lock.json \
             --output out-hybrid-deps/dependency-audit.json
       - name: Report remaining ABI and solver blockers
         if: success()
