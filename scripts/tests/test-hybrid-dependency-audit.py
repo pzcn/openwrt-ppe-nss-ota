@@ -29,7 +29,7 @@ def adb(*packages):
 
 
 base = audit.parse_adbdump(adb(
-    ("alpha", "1.0-r1", ["libc", "libhelper>=2.0", "so:libx.so.1", "kmod-wireguard"], []),
+    ("alpha", "1.0-r1", ["libc", "libhelper>=2.0", "so:libx.so.1", "kmod-wireguard", "sqm-scripts"], []),
     ("libhelper", "2.1-r1", ["libc"], []),
     ("runtime", "1.1-r1", ["libc"], ["so:libx.so.1"]),
 ), "base")
@@ -117,6 +117,8 @@ assert first["unresolved"] == []
 assert first["ambiguous"] == []
 assert "libc" in first["requires_local_provision"]
 assert "kmod-wireguard" in first["requires_local_provision"]
+assert "sqm-scripts" in first["requires_local_provision"]
+assert "sqm-scripts" not in {p["name"] for p in first["official_candidates"]}
 assert "libhelper>=2.0" in first["version_constraints_for_apk_solver"]
 assert "so:libx.so.1" in first["virtual_provides_for_apk_solver"]
 
