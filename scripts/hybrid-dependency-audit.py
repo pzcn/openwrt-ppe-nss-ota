@@ -88,7 +88,9 @@ def dependency_base(value: str) -> str:
     return base
 
 
-def review(inventory: dict, indexes: dict[str, list[dict]]) -> dict:
+def review(inventory: dict, indexes: dict[str, list[dict]],
+           *, locked_sums: dict[str, dict[str, str]] | None = None,
+           lock: dict | None = None) -> dict:
     if inventory.get("schema") != 1 or inventory.get("status") != \
             "P3-inventory-only-not-build-approved":
         raise ValueError("Not a pinned P3 inventory")
@@ -167,6 +169,29 @@ def review(inventory: dict, indexes: dict[str, list[dict]]) -> dict:
             else:
                 pending.append(providers[0])
 
+    mirror_assets: list[dict] = []
+    missing_archives: list[str] = []
+    if locked_sums is not None:
+        if lock is None or lock.get("lock_fingerprint") != inventory["snapshot_lock_fingerprint"]:
+            raise ValueError("Locked Snapshot and APK inventory are not from the same revision")
+        for candidate in sorted(candidates.values(), key=lambda p: p["name"]):
+            source = "target" if candidate["feed"] == "target" else "arch"
+            index_root = "packages" if source == "target" else candidate["feed"]
+            filename = candidate["name"] + "-" + candidate["version"] + ".apk"
+            relative = index_root + "/" + filename
+            source_index = locked_sums.get(source, {})
+            sha = source_index.get(relative)
+            if not sha or not re.fullmatch(r"[a-f0-9]{64}", sha):
+                missing_archives.append(relative)
+                continue
+            url_base = lock["target_url"] if source == "target" else lock["architecture_url"]
+            mirror_assets.append({
+                "name": candidate["name"], "version": candidate["version"],
+                "source": source, "feed": candidate["feed"], "filename": filename,
+                "path": relative, "sha256": sha, "url": url_base + "/" + relative,
+                "status": "official-candidate",
+            })
+
     report = {
         "schema": SCHEMA,
         "status": "P3-dependency-audit-not-build-approved",
@@ -175,6 +200,12 @@ def review(inventory: dict, indexes: dict[str, list[dict]]) -> dict:
         "requested_official_packages": len(official_roots),
         "candidate_closure_size": len(candidates),
         "official_candidates": sorted(candidates.values(), key=lambda x: x["name"]),
+        "mirror_plan": mirror_assets,
+        "mirror_plan_missing_archives": sorted(missing_archives),
+        "mirror_plan_content_pinned": (
+            locked_sums is not None and len(mirror_assets) == len(candidates)
+            and not missing_archives
+        ),
         "requires_local_provision": sorted(local_deps),
         "unresolved": sorted(unknown),
         "ambiguous": sorted(ambiguous),
@@ -197,17 +228,34 @@ def main() -> None:
     p.add_argument("--inventory", required=True, type=Path)
     p.add_argument("--index-dir", required=True, type=Path)
     p.add_argument("--output", required=True, type=Path)
+    p.add_argument("--lock", type=Path,
+                   help="When supplied, join dependency candidates to pinned official APK checksums")
     args = p.parse_args()
     indexes = {}
     for feed in KNOWN_FEEDS:
         path = args.index_dir / (feed + ".txt")
         indexes[feed] = parse_adbdump(path.read_text(), feed)
-    data = review(json.loads(args.inventory.read_text()), indexes)
+    selected = json.loads(args.inventory.read_text())
+    kwargs = {}
+    if args.lock is not None:
+        lock = json.loads(args.lock.read_text())
+        spec = __import__("importlib.util", fromlist=["spec_from_file_location"])
+        import importlib.util
+        loader = importlib.util.spec_from_file_location(
+            "hybrid_inventory_for_audit", Path(__file__).resolve().parent / "hybrid-official-apk-plan.py")
+        helper = importlib.util.module_from_spec(loader)
+        loader.loader.exec_module(helper)
+        target_sums, arch_sums = helper.verified_indexes(lock)
+        kwargs = {"lock": lock, "locked_sums": {"target": target_sums, "arch": arch_sums}}
+    data = review(selected, indexes, **kwargs)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
     print("Hybrid APK dependency audit:")
     print(f"  requested official APKs: {data['requested_official_packages']}")
     print(f"  candidate transitive closure: {data['candidate_closure_size']}")
+    print(f"  SHA256-pinned mirror assets: {len(data['mirror_plan'])}")
+    if data["mirror_plan_missing_archives"]:
+        print("  Missing indexed archives: " + ", ".join(data["mirror_plan_missing_archives"]))
     for name in ("requires_local_provision", "unresolved", "ambiguous",
                  "version_constraints_for_apk_solver", "virtual_provides_for_apk_solver"):
         print(f"  {name}: {len(data[name])}")
