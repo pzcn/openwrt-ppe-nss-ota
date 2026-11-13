@@ -8,6 +8,10 @@ on:
       - ".github/workflows/hybrid-kernel-build.yml"
       - "scripts/compile-hybrid-kernel.sh"
       - "scripts/hybrid-prefetch-host-sources.sh"
+      - "scripts/configure-hybrid-kernel.sh"
+      - "scripts/prepare-hybrid-kernel.sh"
+      - "scripts/reuse-official-toolchain.sh"
+      - "config/hybrid-kernel-re-ss-01.config"
 
 permissions:
   contents: read
