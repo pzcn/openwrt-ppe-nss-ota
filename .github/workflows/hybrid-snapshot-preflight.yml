@@ -30,6 +30,8 @@ jobs:
     name: Verify official target/architecture snapshot metadata
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - name: Offline resolver tests
