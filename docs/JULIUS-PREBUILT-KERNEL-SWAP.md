@@ -73,3 +73,11 @@
 - [ ] 进一步要验证的不是基本 APK 依赖，而是完整固件生成、`sysupgrade -T`、新内核的内置驱动/模块 ABI、原版 `procd`/网络/无线运行、F2FS 持久化 overlay、升级配置保留，以及缺失的 Fullcone NAT 功能如何处理。
 
 **以上只证明 Linux 6.18.60 预编译内核及模块配合官方 ImmortalWrt 用户态的文件级兼容性，没有发布刷机固件；正式 Builder/OTA 不变。**
+
+## 2026-11-14：混合根文件系统压缩往返实验（新测试，待 CI 验证）
+
+- 新增 `scripts/pack-swap-research-rootfs.py`：从上一步的临时 APK-installed root 生成 **临时** SquashFS，使用 `unsquashfs` 重新展开，验证 169 个精确版本、APK installed DB 哈希、`/var -> tmp` 软链接、6.18.60 的全部模块文件及文件权限、F2FS early autoload 配置是否一致。
+- 临时用 Julius 的原版 FIT + 新压缩 rootfs 组成只用于 **TAR 成员与字节哈希检查** 的研究容器；其 `CONTROL` 被故意设置为 `BOARD=research-invalid-not-a-real-device`，不附加 fwtool metadata，所有容器和 SquashFS 临时文件在脚本退出时销毁，仅保留 JSON 报告。
+- 新增测试 `scripts/tests/test-swap-rootfs-packaging.py` 并接入实验 Action，失败会阻断测试工作流。
+- **提交不等于通过**：只有当实验 Actions 最新运行中的 `Repack disposable APK root...` 步骤成功且报告中的 `disposable_rootfs_file_roundtrip_passed=true`，才能称为压缩往返验证通过。
+- 该测试 **不运行 APK 安装脚本，不进行 `sysupgrade -T`，不证明正常启动或 Linux 内核 ABI 兼容，不保存可刷固件**。下一阶段仍需严格的 package post-install/overlay 检查、真正的目标设备配置校验和实机验证。
