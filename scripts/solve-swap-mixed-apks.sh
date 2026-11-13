@@ -161,6 +161,22 @@ else
   echo "Exception case cannot be evaluated (indexes or roots missing)." \
     > "$OUT/apk-mixed-firewall4-exception-simulate.log"
 fi
+# Resolve every proposed dependency back to its frozen package index.
+# A successful simulation alone does not prove that transitive userland
+# libraries came from ImmortalWrt or that the files can coexist.
+PROVENANCE_AUDITED=false
+if [[ "$FIREWALL_EXCEPTION_OK" == true ]]; then
+  if python3 "$ROOT/scripts/audit-swap-resolved-apks.py" \
+    --log "$OUT/apk-mixed-firewall4-exception-simulate.log" \
+    --donor-index "$OUT/swap-indexes/donor.txt" \
+    --official-index-dir "$OUT/swap-indexes" \
+    --roots "$OUT/mixed-apk-roots-firewall4-exception.json" \
+    --output "$OUT/mixed-apk-provenance-audit.json"; then
+    PROVENANCE_AUDITED=true
+  else
+    echo "::warning::Native solver provenance audit rejected proposed package selection."
+  fi
+fi
 echo "Strict official userspace result: $SIMULATED"
 echo "11 official core + one Julius firewall4: $FIREWALL_EXCEPTION_OK"
 tail -n 120 "$OUT/apk-mixed-firewall4-exception-simulate.log" || true
@@ -174,6 +190,7 @@ jq -n --argjson signed "$SIGNATURES_VERIFIED" \
   --argjson update "$UPDATE_OK" \
   --argjson simulated "$SIMULATED" \
   --argjson firewall_exception "$FIREWALL_EXCEPTION_OK" \
+  --argjson provenance_audited "$PROVENANCE_AUDITED" \
   --argjson pins "$(jq '.version_pins' "$OUT/mixed-apk-roots.json")" \
   --argjson blockers "$(jq '.blockers' "$OUT/mixed-apk-roots.json")" \
   --arg donor_index_sha "$(sha256sum "$DONOR/packages/packages.adb" | cut -d' ' -f1)" \
@@ -184,6 +201,7 @@ jq -n --argjson signed "$SIGNATURES_VERIFIED" \
     mixed_indexes_updated:$update,
     pinned_core_simulation_succeeded:$simulated,
     firewall4_only_donor_exception_simulation_succeeded:$firewall_exception,
+    resolved_package_provenance_audited:$provenance_audited,
     requested_pins:$pins,root_blockers:$blockers,
     complete_world_solved:false,
     all_kernel_modules_abi_checked:false,
@@ -193,6 +211,7 @@ jq -n --argjson signed "$SIGNATURES_VERIFIED" \
   > "$OUT/mixed-apk-native-solver-report.json"
 jq '{official_indexes_signature_verified,mixed_indexes_updated,
      pinned_core_simulation_succeeded,firewall4_only_donor_exception_simulation_succeeded,
+     resolved_package_provenance_audited,
      requested_pins,root_blockers,publishable}' \
   "$OUT/mixed-apk-native-solver-report.json"
 echo "No package installation, no flashable firmware, no OTA publication."
