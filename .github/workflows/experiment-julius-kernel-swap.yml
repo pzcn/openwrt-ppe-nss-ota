@@ -31,6 +31,8 @@ on:
       - scripts/solve-swap-mixed-apks.sh
       - scripts/pack-swap-research-rootfs.py
       - scripts/tests/test-swap-rootfs-packaging.py
+      - scripts/audit-swap-runtime-readiness.py
+      - scripts/tests/test-swap-runtime-readiness.py
 
 permissions:
   contents: read
@@ -58,6 +60,7 @@ jobs:
           bash -n scripts/install-swap-disposable-apk-root.sh
           python3 scripts/tests/test-swap-extracted-root.py
           python3 scripts/tests/test-swap-rootfs-packaging.py
+          python3 scripts/tests/test-swap-runtime-readiness.py
           python3 scripts/tests/test-swap-mixed-apk-roots.py
           python3 scripts/tests/test-swap-resolved-apks.py
           python3 scripts/tests/test-swap-official-world.py
@@ -111,6 +114,18 @@ jobs:
                   .secure_sysupgrade_produced == false and
                   .ephemeral_root_only == true' \
             out-julius-swap/disposable-apk-payload-install-result.json >/dev/null
+      - name: Audit boot and sysupgrade file drift plus kernel module vermagic (report only)
+        run: |
+          set -Eeuo pipefail
+          WORK="$RUNNER_TEMP/immortal-julius-swap"
+          python3 scripts/audit-swap-runtime-readiness.py \
+            --official-squashfs "$WORK/extracted/immortalwrt.squashfs" \
+            --mixed-rootfs "$WORK/disposable-apk-root" \
+            --report out-julius-swap/boot-runtime-static-audit.json
+          jq -e '.publishable == false and
+                  .target_postinstall_scripts_executed == false and
+                  .readiness_for_flash_proven == false' \
+            out-julius-swap/boot-runtime-static-audit.json >/dev/null
       - name: Repack disposable APK root into SquashFS, reextract and check research-only TAR
         run: |
           set -Eeuo pipefail
@@ -221,6 +236,13 @@ jobs:
               jq -r '"Ephemeral SquashFS rootfs round-trip: " + (.disposable_rootfs_file_roundtrip_passed|tostring) +
                      "\nResearch TAR was intentionally nonflashable and deleted: " + (.tar_has_intentionally_invalid_board_identity|tostring)' \
                 out-julius-swap/nonflashable-packaging-smoke.json
+            fi
+            if [ -s out-julius-swap/boot-runtime-static-audit.json ]; then
+              jq -r '"Missing stock boot files: " + (.comparison.missing_boot_path_count|tostring) +
+                     "\nChanged stock boot files: " + (.comparison.different_boot_path_count|tostring) +
+                     "\nAll scanned .ko vermagic release strings match Julius: " +
+                     (.kernel_abi_string_inspection.matching_module_version_strings|tostring)' \
+                out-julius-swap/boot-runtime-static-audit.json
             fi
             echo "Official kernel modules cannot be retained after Julius FIT substitution."
             echo "Matching Julius module/firmware migration, F2FS and boot testing are still required."
