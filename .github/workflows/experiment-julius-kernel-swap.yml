@@ -24,6 +24,7 @@ on:
       - scripts/tests/test-swap-official-world.py
       - scripts/plan-swap-full-installed-world.py
       - scripts/tests/test-swap-full-installed-world.py
+      - scripts/solve-swap-full-stock-world.sh
       - scripts/solve-swap-mixed-apks.sh
 
 permissions:
@@ -48,6 +49,7 @@ jobs:
           bash -n scripts/inspect-julius-apk-repository.sh
           bash -n scripts/solve-swap-mixed-apks.sh
           bash -n scripts/inspect-swap-official-world.sh
+          bash -n scripts/solve-swap-full-stock-world.sh
           python3 scripts/tests/test-swap-mixed-apk-roots.py
           python3 scripts/tests/test-swap-resolved-apks.py
           python3 scripts/tests/test-swap-official-world.py
@@ -86,6 +88,13 @@ jobs:
       - name: Inspect ALL APK world/installed packages in original ImmortalWrt rootfs
         run: |
           bash scripts/inspect-swap-official-world.sh out-julius-swap
+      - name: Native APK3 dry-run for entire installed ImmortalWrt world (missing kmods explicit)
+        run: |
+          bash scripts/solve-swap-full-stock-world.sh out-julius-swap
+          jq -e '.publishable == false and
+                  .complete_world_solver_passed == false and
+                  .exact_world_preserved == false' \
+            out-julius-swap/full-stock-native-solver-result.json >/dev/null
       - name: Prove kernel member substitution with untouched official rootfs (never publish)
         run: |
           set -Eeuo pipefail
@@ -155,6 +164,12 @@ jobs:
                      "\nJulius kmod/Kernel pins: " + (.julius_kernel_kmod_pinned_count|tostring) +
                      "\nMissing stock modules in donor: " + (.missing_stock_kernel_or_kmods|length|tostring)' \
                 out-julius-swap/full-installed-world-swap-plan.json
+            fi
+            if [ -s out-julius-swap/full-stock-native-solver-result.json ]; then
+              jq -r '"Full stock world dry-run (with missing modules): " + (.native_partial_world_solved|tostring) +
+                     "\nMissing original kmod packages: " + (.donor_missing_original_kmods|join(", ")) +
+                     "\nFull world approved: NO"' \
+                out-julius-swap/full-stock-native-solver-result.json
             fi
             echo "Official kernel modules cannot be retained after Julius FIT substitution."
             echo "Matching Julius module/firmware migration, F2FS and boot testing are still required."
