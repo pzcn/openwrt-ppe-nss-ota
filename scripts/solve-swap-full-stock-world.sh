@@ -77,8 +77,52 @@ if "$APK" "${common[@]}" --allow-untrusted "${mixed_repos[@]}" \
   > "$OUT/full-stock-apk-native-simulate.log" 2>&1; then
   SOLVED=true
 fi
+# Stronger userland-purity test: only expose Julius' kernel/kmods,
+# NSS firmware and the single explicit firewall4 exception. Never allow
+# a transitive random Julius userland library to silently replace ImmortalWrt.
+# First solve with all 1463 donor APKs above as a compatibility baseline.
+restricted=()
+for file in "$DONOR/packages/"*.apk; do
+  filename="${file##*/}"
+  case "$filename" in
+    kernel-*.apk|kmod-*.apk|nss-firmware-*.apk|firewall4-*.apk)
+      restricted+=("$file") ;;
+  esac
+done
+[[ "${#restricted[@]}" -gt 70 ]] || {
+  echo "::error::Donor kernel-only selection unexpectedly small"; exit 1;
+}
+FILTERED="$OUT/swap-indexes/donor-restricted.adb"
+"$APK" mkndx --allow-untrusted --output "$FILTERED" "${restricted[@]}" \
+  > "$OUT/donor-restricted-mkndx.log" 2>&1 || {
+    tail -n 80 "$OUT/donor-restricted-mkndx.log"; exit 1;
+  }
+[[ -s "$FILTERED" ]] || exit 1
+restricted_repo=(-X "file://$FILTERED" "${official_repos[@]}")
+FILTERED_UPDATED=false
+FILTERED_SOLVED=false
+if "$APK" "${common[@]}" --allow-untrusted "${restricted_repo[@]}" update \
+  > "$OUT/full-stock-donor-restricted-update.log" 2>&1; then
+  FILTERED_UPDATED=true
+  if "$APK" "${common[@]}" --allow-untrusted "${restricted_repo[@]}" \
+     add --simulate --usermode --no-scripts "${pins[@]}" \
+     > "$OUT/full-stock-donor-restricted-simulate.log" 2>&1; then
+    FILTERED_SOLVED=true
+  fi
+fi
+if [[ "$FILTERED_SOLVED" == true ]]; then
+  echo "STRICT userland-origin closure PASSED without extra Julius packages."
+else
+  echo "Restricted donor closure failed; this reveals required non-kernel Julius dependencies."
+  tail -n 100 "$OUT/full-stock-donor-restricted-simulate.log" 2>/dev/null || \
+    tail -n 100 "$OUT/full-stock-donor-restricted-update.log" || true
+fi
+echo "Donor APK index restricted to ${#restricted[@]} kernel/modules/NSS-firmware/firewall APKs"
 tail -n 110 "$OUT/full-stock-apk-native-simulate.log" || true
 jq -n --argjson simulated "$SOLVED" \
+  --argjson restricted_updated "$FILTERED_UPDATED" \
+  --argjson restricted_solved "$FILTERED_SOLVED" \
+  --argjson restricted_packages "${#restricted[@]}" \
   --argjson dropped "$BLOCKERS" \
   --argjson requested "${#pins[@]}" \
   --argjson stock "$(jq -er .stock_installed_count "$PLAN")" \
@@ -86,6 +130,9 @@ jq -n --argjson simulated "$SOLVED" \
     pinned_roots_requested:$requested,
     original_official_installed_count:$stock,
     native_partial_world_solved:$simulated,
+    donor_restricted_repo_updated:$restricted_updated,
+    donor_restricted_repo_simulation_succeeded:$restricted_solved,
+    allowed_donor_apk_candidates:$restricted_packages,
     donor_missing_original_kmods:$dropped,
     exact_world_preserved:($dropped|length == 0),
     no_untrusted_approval:true,
