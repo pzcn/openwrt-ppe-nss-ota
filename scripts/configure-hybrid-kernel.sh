@@ -54,7 +54,7 @@ for required in \
   'CONFIG_ATH11K_NSS_WIFI=y' \
   'CONFIG_PACKAGE_kmod-nss-wifi-drv=y' \
   'CONFIG_PACKAGE_kmod-fs-f2fs=y' \
-  'CONFIG_IB=y' 'CONFIG_IB_STANDALONE=y' 'CONFIG_SDK=y'; do
+  'CONFIG_PACKAGE_kmod-tun=y' 'CONFIG_PACKAGE_kmod-wireguard=y'; do
   grep -Fqx "$required" "$IMM/.config" || {
     echo "::error::Kconfig dropped required selection: $required" >&2
     grep -E '^(CONFIG_(TARGET_DEVICE|ATH11K|PACKAGE_kmod-nss|IB|SDK))' "$IMM/.config" | head -n 70 || true
@@ -69,7 +69,36 @@ for module in kmod-ifb kmod-inet-diag kmod-netlink-diag \
     exit 1
   }
 done
-if grep -Eq '^CONFIG_(ALL_KMODS|ALL_NONSHARED|PACKAGE_(sing-box|tailscale|ddns-go))=y$' "$IMM/.config"; then
+# P2 must never enable the optional SDK/ImageBuilder host tool superset.
+if grep -Eq '^CONFIG_(IB|IB_STANDALONE|SDK|BUILD_ALL_HOST_TOOLS)=y
+  echo "::error::Heavy userland packages or ALL_KMODS forced into kernel selection" >&2
+  exit 1
+fi
+printf '%s\n' "$NSS_BRANCH_SHA" > "$OUT/nss-feed-sha.txt"
+cp "$IMM/feeds.conf" "$OUT/pinned-feeds.conf"
+sha256sum "$IMM/.config" > "$OUT/kernel-config.sha256"
+grep -E '^(CONFIG_(TARGET|ATH11K|NSS_|PACKAGE_kmod-|IB|SDK|CCACHE)=)' "$IMM/.config" \
+  > "$OUT/kernel-config-selected.txt" || true
+echo "Pinned official feeds + NSS feed, Kconfig accepted kernel-only selection."
+echo "NSS feed revision: $NSS_BRANCH_SHA"
+echo "Heavy Go packages and ALL_KMODS are not selected."
+ "$IMM/.config"; then
+  echo "::error::P2 kernel-only profile unexpectedly enabled SDK/IB/ALL_HOST_TOOLS" >&2
+  exit 1
+fi
+if grep -Eq '^CONFIG_(ALL_KMODS|ALL_NONSHARED|PACKAGE_(sing-box|tailscale|ddns-go))=y
+  echo "::error::Heavy userland packages or ALL_KMODS forced into kernel selection" >&2
+  exit 1
+fi
+printf '%s\n' "$NSS_BRANCH_SHA" > "$OUT/nss-feed-sha.txt"
+cp "$IMM/feeds.conf" "$OUT/pinned-feeds.conf"
+sha256sum "$IMM/.config" > "$OUT/kernel-config.sha256"
+grep -E '^(CONFIG_(TARGET|ATH11K|NSS_|PACKAGE_kmod-|IB|SDK|CCACHE)=)' "$IMM/.config" \
+  > "$OUT/kernel-config-selected.txt" || true
+echo "Pinned official feeds + NSS feed, Kconfig accepted kernel-only selection."
+echo "NSS feed revision: $NSS_BRANCH_SHA"
+echo "Heavy Go packages and ALL_KMODS are not selected."
+ "$IMM/.config"; then
   echo "::error::Heavy userland packages or ALL_KMODS forced into kernel selection" >&2
   exit 1
 fi
