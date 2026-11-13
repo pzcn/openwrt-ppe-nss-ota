@@ -25,6 +25,7 @@ on:
       - scripts/plan-swap-full-installed-world.py
       - scripts/tests/test-swap-full-installed-world.py
       - scripts/solve-swap-full-stock-world.sh
+      - scripts/install-swap-disposable-apk-root.sh
       - scripts/solve-swap-mixed-apks.sh
 
 permissions:
@@ -50,6 +51,7 @@ jobs:
           bash -n scripts/solve-swap-mixed-apks.sh
           bash -n scripts/inspect-swap-official-world.sh
           bash -n scripts/solve-swap-full-stock-world.sh
+          bash -n scripts/install-swap-disposable-apk-root.sh
           python3 scripts/tests/test-swap-mixed-apk-roots.py
           python3 scripts/tests/test-swap-resolved-apks.py
           python3 scripts/tests/test-swap-official-world.py
@@ -95,6 +97,14 @@ jobs:
                   .complete_world_solver_passed == false and
                   .exact_world_preserved == false' \
             out-julius-swap/full-stock-native-solver-result.json >/dev/null
+      - name: Install full mixed APK closure into disposable runner root without scripts
+        run: |
+          bash scripts/install-swap-disposable-apk-root.sh \
+            out-snapshot/snapshot-lock.json out-julius-swap
+          jq -e '.publishable == false and
+                  .secure_sysupgrade_produced == false and
+                  .ephemeral_root_only == true' \
+            out-julius-swap/disposable-apk-payload-install-result.json >/dev/null
       - name: Prove kernel member substitution with untouched official rootfs (never publish)
         run: |
           set -Eeuo pipefail
@@ -170,6 +180,12 @@ jobs:
                      "\nMissing original kmod packages: " + (.donor_missing_original_kmods|join(", ")) +
                      "\nFull world approved: NO"' \
                 out-julius-swap/full-stock-native-solver-result.json
+            fi
+            if [ -s out-julius-swap/disposable-apk-payload-install-result.json ]; then
+              jq -r '"Scratch APK payload installation (no scripts): " +
+                     (.scratch_payload_install_succeeded|tostring) +
+                     "\nFlashable firmware created: NO"' \
+                out-julius-swap/disposable-apk-payload-install-result.json
             fi
             echo "Official kernel modules cannot be retained after Julius FIT substitution."
             echo "Matching Julius module/firmware migration, F2FS and boot testing are still required."
