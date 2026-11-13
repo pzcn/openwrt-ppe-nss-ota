@@ -17,7 +17,7 @@ actual = re.findall(r"^phase ([a-z0-9-]+) ", source, flags=re.MULTILINE)
 assert actual == expected, f"Unexpected compiler phases: {actual}"
 assert "if grep -Eq '^CONFIG_(IB|IB_STANDALONE|SDK|BUILD_ALL_HOST_TOOLS)=y$' \\" in source
 assert "if grep -Eq '^CONFIG_(ALL_KMODS|ALL_NONSHARED|PACKAGE_(sing-box|tailscale|ddns-go))=y$' \\" in source
-assert "grep -Fqx 'toolchain=official-immortalwrt'" in source
+assert "grep -Fxq 'toolchain=official-immortalwrt'" in source
 
 for command in (["bash", "-n", str(script)],
                 ["bash", str(script), "--self-test"]):
