@@ -8,6 +8,11 @@ on:
       - ".github/workflows/hybrid-offline-mirror.yml"
       - "scripts/verify-hybrid-official-mirror.py"
       - "scripts/tests/test-hybrid-mirror-verifier.py"
+      - "scripts/hybrid-official-apk-plan.py"
+      - "scripts/plan-hybrid-local-apks.py"
+      - "config/immortalwrt-re-ss-01.config"
+      - "config/add.txt"
+      - "config/remove.txt"
 
 permissions:
   contents: read
@@ -31,6 +36,8 @@ jobs:
           python3 scripts/tests/test-hybrid-mirror.py
           python3 scripts/tests/test-hybrid-mirror-verifier.py
           python3 scripts/tests/test-hybrid-dependency-audit.py
+          python3 scripts/tests/test-hybrid-apk-plan.py
+          python3 scripts/tests/test-hybrid-local-apks.py
       - name: Install ImageBuilder unpack tools
         run: |
           sudo apt-get update -qq
@@ -74,6 +81,14 @@ jobs:
             --index-dir out-hybrid-full-mirror/indexes \
             --lock out-snapshot/snapshot-lock.json \
             --output out-hybrid-full-mirror/dependency-audit.json
+      - name: Record all remaining local firmware and ABI package obligations
+        run: |
+          python3 scripts/plan-hybrid-local-apks.py \
+            --lock out-snapshot/snapshot-lock.json \
+            --inventory out-hybrid-full-mirror/package-inventory.json \
+            --audit out-hybrid-full-mirror/dependency-audit.json \
+            --kernel-config config/hybrid-kernel-re-ss-01.config \
+            --output out-hybrid-full-mirror/local-compilation-plan.json
       - name: Download ALL content-pinned userland APKs
         run: |
           python3 scripts/mirror-hybrid-official-apks.py \
@@ -114,6 +129,7 @@ jobs:
             out-snapshot/snapshot-lock.json
             out-hybrid-full-mirror/package-inventory.json
             out-hybrid-full-mirror/dependency-audit.json
+            out-hybrid-full-mirror/local-compilation-plan.json
             out-hybrid-full-mirror/offline-repo/
             out-hybrid-full-mirror/verification.json
           retention-days: 3
