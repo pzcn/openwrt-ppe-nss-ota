@@ -1,0 +1,43 @@
+name: Hybrid Builder - inspect official ImageBuilder apk solver
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/hybrid-official-snapshot]
+    paths:
+      - ".github/workflows/hybrid-ib-inspect.yml"
+      - "scripts/inspect-hybrid-official-ib.sh"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Verify official IB asset and inspect apk solver without building
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install extraction utilities
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq zstd jq file
+      - name: Resolve the official Snapshot
+        run: |
+          bash -n scripts/inspect-hybrid-official-ib.sh
+          python3 scripts/resolve-immortalwrt-snapshot.py --output out-snapshot/snapshot-lock.json
+      - name: Inspect pinned official ImageBuilder and APK metadata
+        run: |
+          bash scripts/inspect-hybrid-official-ib.sh out-snapshot/snapshot-lock.json
+      - name: Upload inspection report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-official-ib-apk-inspect
+          path: |
+            out-snapshot/snapshot-lock.json
+            out-hybrid-ib-inspect/
+          retention-days: 14
+          if-no-files-found: warn
