@@ -95,8 +95,12 @@ for name in immortalwrt julius; do
   grep -Fq 'config@cp03-c2' "$OUT/$name-fit.txt" || {
     echo "::error::$name FIT missing RE-SS-01 config@cp03-c2 DTB"; exit 1;
   }
-  unsquashfs -no-progress -no-devices -d "$WORK/$name-rootfs" \
-    "$WORK/extracted/$name.squashfs" > "$OUT/$name-unpack.log"
+  # Extract only the files needed for this comparison. Full OpenWrt
+  # rootfs contains /dev/console character devices, which an unprivileged
+  # GitHub runner cannot recreate; extracting those is unnecessary here.
+  unsquashfs -no-progress -no-xattrs -d "$WORK/$name-rootfs" \
+    "$WORK/extracted/$name.squashfs" \
+    lib/modules etc/openwrt_release > "$OUT/$name-unpack.log"
   test -d "$WORK/$name-rootfs/lib/modules"
   find "$WORK/$name-rootfs/lib/modules" -mindepth 1 -maxdepth 1 -type d \
     -printf '%f\n' | sort > "$OUT/$name-module-versions.txt"
