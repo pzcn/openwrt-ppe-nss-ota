@@ -44,3 +44,14 @@
 - [ ] 经过亚瑟实机验证，才评估是否采用本路线作为默认。
 
 **当前结论：内核可以在 sysupgrade TAR 的结构上替换，且同一 Julius Builder 已提供 F2FS/NSS/WireGuard 模块而无需重编译；但 Kernel ABI 从 6.18.55 变为 6.18.60、10 类核心用户态包版本漂移，仍需完成 APK 求解和系统/OTA 测试。现阶段不是可刷机固件。**
+
+## 2026-11-14：全量原版 world + Julius 模块严格求解
+
+- [x] [#43468735204](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43468735204) 已解出真实官方固件的 `/etc/apk/world`（168 条）及 `/lib/apk/db/installed`（168 包）。其中 **94 个用户态包**全部能在被锁定的官方 Snapshot 软件仓库中按**原始名称和精确版本**找到，0 个用户态包需因仓库缺失而升级或降级。
+- [x] [#43469237468](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43469237468) 用真实原版已安装的 74 个 kernel/kmod 包逐个比对 Julius 6.18.60，明确缺 **`kmod-nf-log6`** 和 **`kmod-nft-fullcone`**；另加入 Julius NSS Wi-Fi、F2FS、WireGuard 的 3 个包后，能锁定 **93 个官方原版用户态 + 1 个 Julius firewall4 + 75 个 Julius kernel/kmod**，即 169 个精确版本要求。缺失的两个原版模块不计入此可求解计划，也不能据此宣称原版功能全部保留。
+- [x] [#43469812454](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43469812454)：原生 APK3 对这 **169 个精确版本**组成的方案完成 `--simulate` 求解成功。
+- [x] [#43470065489](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43470065489)：把 Julius 1,463 包仓库限制成 1,254 个 **kernel/kmod/NSS 固件/firewall4 候选**，其它 Julius `procd`、`netifd`、`ubus`、`libubox` 等用户态全部禁止参与。该更严格来源约束下 **169 个包仍能原生求解成功**，解决此前“73 包虽然通过却偷偷混入大量 Julius 用户态”的问题。
+- [ ] **两种 kmod 缺口性质不同**：参考固定上游源码，ImmortalWrt `kmod-nf-log6` 在 6.18 所依赖的 `CONFIG_NF_LOG_IPV6` 只适用于 Linux 5.13 之前，Julius 把 Netfilter 日志归到 `kmod-nf-log`，需进一步核对实际模块、服务引用；`kmod-nft-fullcone` 属于 ImmortalWrt 额外 NAT 功能，Julius 无同名驱动，选择其 firewall4 可以通过求解**但可能丢失 Fullcone NAT 功能**。不得假装两个模块功能完全等价。
+- [ ] [实际负载解包测试](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/workflows/experiment-julius-kernel-swap.yml) 正在以一次性临时根目录、不执行软件包脚本的方式安装 169 个版本锁定包，验证文件覆盖/拆包而不是仅求解依赖；**不输出刷机镜像**。
+
+**仍未完成**：整套 APK 二进制散列与签名根信任证据、运行时 SONAME/ABI 和文件冲突校验、全部功能（尤其 Fullcone NAT）的保留、F2FS 启动早期加载、NSS Wi-Fi、系统升级及配置保留、实机启动与回滚。发布/OTA 永久留在现有生产路径，除非以上全部通过。
