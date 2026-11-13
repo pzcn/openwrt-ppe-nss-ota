@@ -23,6 +23,23 @@ fi
 ARCHIVE="immortalwrt-toolchain-qualcommax-ipq60xx_gcc-14.4.0_musl.Linux-x86_64.tar.zst"
 SHA256="560d48f55910abbe3060d1c3a7140459eae010770745a498bb579ea05075238a"
 URL="https://downloads.immortalwrt.org/snapshots/targets/qualcommax/ipq60xx/$ARCHIVE"
+# Hybrid mode follows the locked official snapshot, never this script's
+# historical 2026-11-09 toolchain SHA. The full-source mode is unchanged.
+if [[ -n "${IMM_OFFICIAL_SNAPSHOT_LOCK:-}" ]]; then
+  command -v jq >/dev/null || { echo "::error::jq required for snapshot toolchain lock"; exit 1; }
+  [[ -s "$IMM_OFFICIAL_SNAPSHOT_LOCK" ]] || { echo "::error::Missing snapshot lock"; exit 1; }
+  jq -e '.schema == 2 and .target == "qualcommax/ipq60xx"' "$IMM_OFFICIAL_SNAPSHOT_LOCK" >/dev/null
+  ARCHIVE="$(jq -er '.assets.toolchain.filename' "$IMM_OFFICIAL_SNAPSHOT_LOCK")"
+  SHA256="$(jq -er '.assets.toolchain.sha256' "$IMM_OFFICIAL_SNAPSHOT_LOCK")"
+  [[ "$ARCHIVE" =~ ^immortalwrt-toolchain-qualcommax-ipq60xx[A-Za-z0-9._+~-]*[.]tar[.]zst$ ]] || {
+    echo "::error::Unexpected official snapshot toolchain filename"; exit 1;
+  }
+  [[ "$SHA256" =~ ^[a-f0-9]{64}$ ]] || { echo "::error::Invalid official toolchain digest"; exit 1; }
+  URL="$(jq -er '.target_url' "$IMM_OFFICIAL_SNAPSHOT_LOCK")/$ARCHIVE"
+  [[ "$URL" == https://downloads.immortalwrt.org/snapshots/targets/qualcommax/ipq60xx/* ]] || {
+    echo "::error::Unexpected snapshot toolchain host/path"; exit 1;
+  }
+fi
 DEST="$CACHE_DL/$ARCHIVE"
 WORK="${RUNNER_TEMP:-/tmp}/immortal-official-toolchain"
 ORIGINAL_CONFIG="$WORK/config.backup"
