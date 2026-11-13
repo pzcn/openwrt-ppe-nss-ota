@@ -62,6 +62,9 @@ for file in \
   copy_file "target/linux/qualcommax/patches-6.18/$file"
 done
 
+# The EDMA switch API used by qca_ppe_main.c is distinct from NSS's
+# linux/soc/qcom/qca_edma.h firmware-queue API. Preserve both.
+copy_file target/linux/qualcommax/files/include/linux/qca_edma.h
 for file in qca_edma.h qca_ppe.h; do
   copy_file "target/linux/qualcommax/files/include/linux/soc/qcom/$file"
 done
@@ -91,8 +94,7 @@ grep -Eq '^void ppe_xlt_idx_free\(' "$vlan"
 grep -Fq 'int ppe_xlt_idx_alloc(' "$ppe_header"
 grep -Fq 'void ppe_xlt_idx_free(' "$ppe_header"
 grep -Fq 'qca_ppe_flow.o qca_ppe_flow_offload.o' "$ppe_patch"
-grep -Fq '+\tdepends on NET_DSA && QCOM_EDMA' "$ppe_patch" || \
-  grep -Fq 'depends on NET_DSA && QCOM_EDMA' "$ppe_patch"
+grep -Fq 'depends on NET_DSA && QCOM_EDMA' "$ppe_patch"
 grep -Fq 'select PAGE_POOL' "$edma_patch"
 grep -Fq 'CONFIG_ATH11K_NSS_WIFI' "$imm/package/kernel/mac80211/Makefile"
 grep -Fq '#include "ipq6018-nss.dtsi"' "$imm/target/linux/qualcommax/dts/ipq6000-re-ss-01.dts"
