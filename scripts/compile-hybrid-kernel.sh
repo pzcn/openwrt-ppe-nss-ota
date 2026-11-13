@@ -66,6 +66,10 @@ phase() {
   printf '%s\n' "$(( $(date +%s) - begin ))" > "$OUT/$key.seconds"
   echo "::endgroup::"
 }
+# A 2026-11-13 run spent 13 minutes in tools/liblzo without a
+# successful archive. Download verified upstream source via OpenWrt's
+# mirrors first; keep running normal host build, without spoofing stamps.
+bash "$ROOT/scripts/hybrid-prefetch-host-sources.sh" "$CACHE_ROOT/dl"
 phase download download
 phase host-tools tools/install
 phase toolchain toolchain/install
