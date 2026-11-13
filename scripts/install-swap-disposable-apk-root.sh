@@ -29,6 +29,24 @@ SCRATCH="$WORK/disposable-apk-root"
 # OpenWrt base-files owns /var (often a symlink to /tmp). Never precreate
 # /var/cache/apk or apk will fail with "failed to commit var: Is a directory".
 mkdir -p "$SCRATCH/etc/apk/keys" "$SCRATCH/tmp/apk-cache" "$SCRATCH/lib/apk/db"
+# This must mirror the stock ImmortalWrt rootfs exactly: base-files makes
+# /var a *relative symlink* to tmp in its Makefile. We previously let apk
+# create /var as a directory before base-files was extracted, resulting in
+# "base-files: failed to commit var: Is a directory".
+ORIGINAL_VAR="$WORK/original-stock-var-only"
+mkdir -p "$ORIGINAL_VAR"
+unsquashfs -no-progress -no-xattrs -d "$ORIGINAL_VAR" \
+  "$WORK/extracted/immortalwrt.squashfs" var \
+  > "$OUT/stock-var-link-inspection.log"
+[[ -L "$ORIGINAL_VAR/var" ]] || {
+  echo "::error::Official SquashFS /var is not a symlink"; exit 1;
+}
+STOCK_VAR_TARGET="$(readlink "$ORIGINAL_VAR/var")"
+[[ "$STOCK_VAR_TARGET" == tmp ]] || {
+  echo "::error::Unexpected official /var target: $STOCK_VAR_TARGET"; exit 1;
+}
+ln -s tmp "$SCRATCH/var"
+echo "Preseeded stock /var -> $STOCK_VAR_TARGET symlink in scratch root."
 for key in "$DONOR/keys/"*.pem; do
   [[ -f "$key" ]] && cp "$key" "$SCRATCH/etc/apk/keys/julius-$(basename "$key")"
 done
