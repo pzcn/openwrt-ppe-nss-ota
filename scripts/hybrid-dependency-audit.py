@@ -188,7 +188,7 @@ def review(inventory: dict, indexes: dict[str, list[dict]],
             url_base = lock["target_url"] if source == "target" else lock["architecture_url"]
             mirror_assets.append({
                 "name": candidate["name"], "version": candidate["version"],
-                "source": source, "feed": candidate["feed"], "filename": filename,
+                "source": source, "feed": index_root, "filename": filename,
                 "path": relative, "sha256": sha, "url": url_base + "/" + relative,
                 "status": "official-candidate",
             })
