@@ -17,6 +17,8 @@ on:
       - scripts/inspect-julius-apk-repository.sh
       - scripts/plan-swap-mixed-apk-roots.py
       - scripts/tests/test-swap-mixed-apk-roots.py
+      - scripts/audit-swap-resolved-apks.py
+      - scripts/tests/test-swap-resolved-apks.py
       - scripts/solve-swap-mixed-apks.sh
 
 permissions:
@@ -41,6 +43,7 @@ jobs:
           bash -n scripts/inspect-julius-apk-repository.sh
           bash -n scripts/solve-swap-mixed-apks.sh
           python3 scripts/tests/test-swap-mixed-apk-roots.py
+          python3 scripts/tests/test-swap-resolved-apks.py
           python3 -m py_compile scripts/probe-prebuilt-kernel-swap.py
           python3 scripts/tests/test-prebuilt-kernel-swap-probe.py
           python3 scripts/tests/test-research-prebuilt-kernel-swap.py
@@ -121,6 +124,7 @@ jobs:
               jq -r '"Official APK signatures: " + (.official_indexes_signature_verified|tostring) +
                      "\nMixed APK indexes loaded: " + (.mixed_indexes_updated|tostring) +
                      "\nPinned core APK simulation: " + (.pinned_core_simulation_succeeded|tostring) +
+                     "\nResolved package provenance audit: " + (.resolved_package_provenance_audited|tostring) +
                      "\nComplete firmware solver: NOT DONE"' \
                 out-julius-swap/mixed-apk-native-solver-report.json
             fi
