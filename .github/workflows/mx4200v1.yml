@@ -1,0 +1,102 @@
+name: MX4200 v1 - ImmortalWrt PPE NSS test build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "mx4200v1/**"
+      - ".github/workflows/mx4200v1.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mx4200v1-ppe-nss-test
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Compile MX4200 v1 firmware, ImageBuilder and SDK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check isolated build contracts and shell syntax
+        run: |
+          python3 mx4200v1/test_contract.py
+          bash -n mx4200v1/build.sh
+          bash -n mx4200v1/port-ppe-nss.sh
+      - name: Restore source archive cache
+        uses: actions/cache@v4
+        with:
+          path: .build-cache/mx4200v1/dl
+          key: mx4200v1-dl-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            mx4200v1-dl-${{ runner.os }}-
+      - name: Restore C/C++ compilation cache
+        uses: actions/cache@v4
+        with:
+          path: .build-cache/mx4200v1/ccache
+          key: mx4200v1-ccache-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            mx4200v1-ccache-${{ runner.os }}-
+      - name: Restore Go compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .build-cache/mx4200v1/go-build
+          key: mx4200v1-go-${{ runner.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            mx4200v1-go-${{ runner.os }}-
+      - name: Free unused runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo apt-get clean
+          df -h
+      - name: Install ImmortalWrt build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential ack antlr3 asciidoc autoconf automake autopoint \
+            binutils bison bzip2 ccache clang cmake cpio curl device-tree-compiler \
+            file flex gawk gettext git gperf haveged help2man intltool jq \
+            libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+            libmpfr-dev libncurses-dev libreadline-dev libssl-dev libtool \
+            ninja-build p7zip-full patch pkgconf python3 python3-pip \
+            python3-ply python3-pyelftools qemu-utils rsync scons \
+            squashfs-tools subversion swig texinfo unzip wget xmlto xxd \
+            zlib1g-dev zstd
+      - name: Setup Go bootstrap
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: false
+      - name: Compile and verify v1 images
+        run: bash mx4200v1/build.sh
+      - name: Upload MX4200 v1 firmware for manual testing
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mx4200v1-firmware-test
+          path: |
+            out-mx4200v1/*-factory.bin
+            out-mx4200v1/*-sysupgrade.bin
+            out-mx4200v1/*.manifest
+            out-mx4200v1/sha256sums
+            out-mx4200v1/source-commits.txt
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 0
+      - name: Upload matching ImageBuilder and SDK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mx4200v1-builder-sdk-test
+          path: |
+            out-mx4200v1/*imagebuilder*.tar.zst
+            out-mx4200v1/*sdk*.tar.zst
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 0

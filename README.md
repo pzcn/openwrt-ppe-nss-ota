@@ -78,3 +78,7 @@ ubus call luci.ppe-nss-monitor get_status
 - [中文本地化](docs/CHINESE-LOCALIZATION.md)
 
 源码布局：`config/` 保存设备、插件与翻译配置；`files/` 为固件覆盖层；`scripts/` 保存源码构建、固件打包、补丁与测试代码。
+
+## Linksys MX4200 v1 (separate test target)
+
+The isolated `qualcommax/ipq807x` **MX4200 v1** PPE/NSS test build is under [`mx4200v1/`](mx4200v1/README.md). It has its own [GitHub Actions workflow](.github/workflows/mx4200v1.yml), source config, package list and build artifacts. This does not reuse Arthur's `ipq60xx` ImageBuilder or enable MX4200 OTA before hardware testing.
