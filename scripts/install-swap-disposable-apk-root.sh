@@ -26,7 +26,9 @@ test -s "$OUT/swap-indexes/donor-restricted.adb"
 cp "$OUT/swap-indexes/donor-restricted.adb" "$DONOR/packages/research-restricted.adb"
 SHA="$(sha256sum "$DONOR/packages/research-restricted.adb" | cut -d' ' -f1)"
 SCRATCH="$WORK/disposable-apk-root"
-mkdir -p "$SCRATCH/etc/apk/keys" "$SCRATCH/var/cache/apk" "$SCRATCH/lib/apk/db"
+# OpenWrt base-files owns /var (often a symlink to /tmp). Never precreate
+# /var/cache/apk or apk will fail with "failed to commit var: Is a directory".
+mkdir -p "$SCRATCH/etc/apk/keys" "$SCRATCH/tmp/apk-cache" "$SCRATCH/lib/apk/db"
 for key in "$DONOR/keys/"*.pem; do
   [[ -f "$key" ]] && cp "$key" "$SCRATCH/etc/apk/keys/julius-$(basename "$key")"
 done
@@ -66,7 +68,7 @@ for feed in base packages luci routing telephony; do
 done
 donor_repos=(-X "file://$DONOR/packages/research-restricted.adb" "${official_repos[@]}")
 common=(--root "$SCRATCH" --arch aarch64_cortex-a53
-  --keys-dir etc/apk/keys --cache-dir var/cache/apk
+  --keys-dir etc/apk/keys --cache-dir tmp/apk-cache
   --repositories-file /dev/null --timeout 90 --no-progress)
 mapfile -t pins < "$OUT/full-installed-world-swap-pins.txt"
 [[ "${#pins[@]}" -gt 140 ]] || exit 1
