@@ -124,12 +124,27 @@ if [[ "$INSTALL_OK" == true ]]; then
     -type d ! -name 6.18.60 -printf '%f\n' 2>/dev/null || true)"
   [[ -z "$old_modules" ]] || { echo "::error::Foreign kernel modules: $old_modules"; INSTALL_OK=false; }
 fi
+# An APK installation success is only a filesystem transaction result.
+# Re-open the installed DB and verify *actual* exact version pins and that
+# there are no remaining 6.18.55 module paths.
+ROOT_AUDITED=false
+if [[ "$INSTALL_OK" == true ]]; then
+  if python3 "$ROOT/scripts/audit-swap-extracted-root.py" \
+    --rootfs "$SCRATCH" --plan "$PLAN" \
+    --output "$OUT/disposable-root-file-audit.json"; then
+    ROOT_AUDITED=true
+  else
+    echo "::warning::Unable to inspect installed scratch APK database."
+  fi
+fi
 jq -n --argjson succeeded "$INSTALL_OK" --argjson requests "${#pins[@]}" \
+  --argjson root_audited "$ROOT_AUDITED" \
   --arg donor_repo_sha "$SHA" \
   '{schema:1,status:"throwaway-root-payload-install-experiment",
     requested_exact_pins:$requests,
     donor_restricted_index_sha256:$donor_repo_sha,
     scratch_payload_install_succeeded:$succeeded,
+    installed_root_file_audit_completed:$root_audited,
     package_scripts_disabled:true,ephemeral_root_only:true,
     kernel_abi_runtime_tested:false,
     original_missing_kmods_restored:false,
