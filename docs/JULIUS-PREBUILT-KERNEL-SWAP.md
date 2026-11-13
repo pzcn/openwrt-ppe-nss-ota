@@ -38,9 +38,9 @@
 - [x] 验证 RE-SS-01 FIT 与 sysupgrade TAR 结构一致、内核尺寸满足分区限制。
 - [x] 找到并校验 Julius 同 ABI 的 F2FS、NSS Wi-Fi、WireGuard 预编译 APK。
 - [x] **机械性换核证明**：完整保留原始 ImmortalWrt 根文件系统。
-- [ ] 比较 ImmortalWrt 官方与 Julius Builder 的基础用户态 APK 版本及依赖约束。
-- [ ] 让包管理器以 Julius kernel + 所需 kmod 为本地源，ImmortalWrt 用户态为用户态源，实际完成一致性求解；出现缺包/版本冲突应报错而非强制忽略。
+- [x] 比较 ImmortalWrt 官方与 Julius Builder 的 21 类核心用户态 APK **文件版本**：[#43465055284](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43465055284) 成功，**4 类版本一致、10 类不同、7 类在其中一套索引中未发现**；如 `base-files`、`busybox`、`procd`、`netifd`、`ubus`、`firewall4`、`dnsmasq`、`rpcd`、`uhttpd` 均有版本差异。这是版本清单审查，不是实际 APK 依赖求解或 ABI 通过。
+- [ ] 让包管理器以 Julius kernel + 所需 kmod 为本地源，ImmortalWrt 用户态为用户态源，实际完成一致性求解；现已有 10 类核心 APK 版本漂移，必须真实检查 provides、soname、版本依赖与文件覆盖；出现冲突应报错而非强制忽略。
 - [ ] 用 ImageBuilder 组装匹配的完整测试固件，检查模块 ABI、`Module.symvers`（如果可获得）、F2FS、NSS 与 `sysupgrade -T`。
 - [ ] 经过亚瑟实机验证，才评估是否采用本路线作为默认。
 
-**当前结论：内核可以在 sysupgrade TAR 的结构上替换，而且无需重新编译 F2FS/NSS 模块；但不能声称保留官方 rootfs 后已经具备可刷机兼容性。**
+**当前结论：内核可以在 sysupgrade TAR 的结构上替换，且同一 Julius Builder 已提供 F2FS/NSS/WireGuard 模块而无需重编译；但 Kernel ABI 从 6.18.55 变为 6.18.60、10 类核心用户态包版本漂移，仍需完成 APK 求解和系统/OTA 测试。现阶段不是可刷机固件。**
