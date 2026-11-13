@@ -1,0 +1,66 @@
+name: Hybrid Builder - official Snapshot preflight (read-only)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "11 3 * * *"
+  push:
+    branches:
+      - "feat/hybrid-official-snapshot"
+    paths:
+      - ".github/workflows/hybrid-snapshot-preflight.yml"
+      - "scripts/resolve-immortalwrt-snapshot.py"
+      - "scripts/tests/test-hybrid-snapshot.py"
+      - "docs/HYBRID-BUILDER-ROADMAP.md"
+  pull_request:
+    paths:
+      - ".github/workflows/hybrid-snapshot-preflight.yml"
+      - "scripts/resolve-immortalwrt-snapshot.py"
+      - "scripts/tests/test-hybrid-snapshot.py"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: re-ss-01-hybrid-snapshot-preflight
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Verify official target/architecture snapshot metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Offline resolver tests
+        run: |
+          python3 -m py_compile scripts/resolve-immortalwrt-snapshot.py
+          python3 scripts/tests/test-hybrid-snapshot.py
+      - name: Resolve latest official Snapshot without compiling
+        id: snapshot
+        run: |
+          python3 scripts/resolve-immortalwrt-snapshot.py --output out-snapshot/snapshot-lock.json
+      - name: Summary
+        if: success()
+        run: |
+          {
+            echo "## Hybrid Builder P1: official Snapshot preflight"
+            echo ""
+            echo "**Read-only inspection; no compiled Builder or firmware is published.**"
+            echo ""
+            echo "Target: $(jq -r .target out-snapshot/snapshot-lock.json)"
+            echo ""
+            echo "Version: $(jq -r .snapshot_version out-snapshot/snapshot-lock.json)"
+            echo ""
+            echo "Target fingerprint: $(jq -r .kernel_fingerprint out-snapshot/snapshot-lock.json)"
+            echo ""
+            echo "Architecture feed fingerprint: $(jq -r .packages_fingerprint out-snapshot/snapshot-lock.json)"
+            echo ""
+            echo "Note: package feed pins are not proof of APK index compatibility."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: immortalwrt-official-snapshot-lock
+          path: out-snapshot/snapshot-lock.json
+          retention-days: 14
