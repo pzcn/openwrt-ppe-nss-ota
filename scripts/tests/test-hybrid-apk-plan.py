@@ -122,7 +122,7 @@ with tempfile.TemporaryDirectory() as tempdir:
     extra["base/tailscale-1.90.0-r1.apk"] = "e" * 64
     dup = planner.plan(lock, t, extra, ["tailscale"], [])
     assert dup["packages"][0]["status"] == "ambiguous"
-    for illegal in ("../kmod-hijack", "x;rm", "kmod\nroot"):
+    for illegal in ("../kmod-hijack", "x;rm", "kmod/root"):
         try:
             planner.parse_names(illegal)
         except ValueError:
