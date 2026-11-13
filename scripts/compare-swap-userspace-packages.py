@@ -72,7 +72,11 @@ def parse_checksums(data: str) -> list[str]:
         match = re.fullmatch(r"([0-9a-f]{64})\s+\*?([A-Za-z0-9._+~:@%=-]+(?:/[A-Za-z0-9._+~:@%=-]+)*)", line)
         if not match:
             raise ValueError("Malformed snapshot sha256sums entry")
-        out.append(match.group(2))
+        relative = match.group(2)
+        if relative.startswith("/") or any(segment in ("", ".", "..")
+                                            for segment in relative.split("/")):
+            raise ValueError("Unsafe package path in snapshot sha256sums")
+        out.append(relative)
     return out
 
 
