@@ -47,6 +47,24 @@ def parse_names(text: str) -> list[str]:
     return sorted(output)
 
 
+def config_package_names(text: str) -> list[str]:
+    """Packages explicitly selected by the PPE/NSS base firmware config.
+
+    The supplementary add.txt list alone omits wpad, SQM, PPE, Aurora and
+    other required baseline applications. Target default packages will be
+    added separately from the exact defconfig before final image assembly.
+    """
+    output: set[str] = set()
+    for raw in text.splitlines():
+        match = re.fullmatch(r"CONFIG_PACKAGE_([A-Za-z0-9+._-]+)=y", raw.strip())
+        if match:
+            name = match.group(1)
+            if not PKG.fullmatch(name):
+                raise ValueError(f"Invalid explicitly selected core package: {name}")
+            output.add(name)
+    return sorted(output)
+
+
 def package_name(filename: str) -> str:
     match = APK.fullmatch(filename)
     if not match:
@@ -207,6 +225,8 @@ def main() -> None:
     parser.add_argument("--lock", type=Path, required=True)
     parser.add_argument("--add", type=Path, default=ROOT / "config/add.txt")
     parser.add_argument("--remove", type=Path, default=ROOT / "config/remove.txt")
+    parser.add_argument("--core-config", type=Path,
+                        default=ROOT / "config/immortalwrt-re-ss-01.config")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--download", nargs="*", default=[])
     parser.add_argument("--download-dir", type=Path)
@@ -214,7 +234,8 @@ def main() -> None:
     args = parser.parse_args()
     lock = json.loads(args.lock.read_text())
     target_sums, arch_sums = verified_indexes(lock, fixture=args.fixture_dir)
-    selected = parse_names(args.add.read_text())
+    selected = sorted(set(parse_names(args.add.read_text())) |
+                      set(config_package_names(args.core_config.read_text())))
     excluded = parse_names(args.remove.read_text())
     inventory = plan(lock, target_sums, arch_sums, selected, excluded)
     args.output.parent.mkdir(parents=True, exist_ok=True)
