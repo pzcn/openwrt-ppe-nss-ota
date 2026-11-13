@@ -19,7 +19,8 @@ DONOR="${donor_matches[0]}"
 OFFICIAL="${official_matches[0]}"
 APK="$OFFICIAL/staging_dir/host/bin/apk"
 [[ -x "$APK" && -d "$DONOR/packages" ]] || exit 1
-mkdir -p "$OUT/swap-indexes" "$WORK/mixed-apk-root/etc/apk/keys"
+mkdir -p "$OUT/swap-indexes" "$WORK/mixed-apk-root/etc/apk/keys" \
+  "$WORK/mixed-apk-root/var/cache/apk" "$WORK/mixed-apk-root/lib/apk/db"
 APKR="$WORK/mixed-apk-root"
 
 # The Julius ImageBuilder contains 1463 prebuilt APKs but no repository
