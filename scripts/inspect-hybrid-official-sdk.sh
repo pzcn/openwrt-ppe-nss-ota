@@ -23,7 +23,15 @@ mapfile -t sdks < <(find "$WORK/extracted" -mindepth 1 -maxdepth 1 -type d -name
 }
 SDK="${sdks[0]}"
 test -s "$SDK/Makefile"
-num() { find "$@" 2>/dev/null | wc -l; }
+num() {
+  local folder="$1"
+  shift
+  if [[ ! -d "$folder" ]]; then
+    printf '0\n'
+    return 0
+  fi
+  find "$folder" "$@" 2>/dev/null | wc -l
+}
 HOST_BIN="$(num "$SDK/staging_dir/host/bin" -maxdepth 1 -type f -executable)"
 HOST_STAMPS="$(num "$SDK/staging_dir/host/stamp" -type f)"
 HOSTPKG_STAMPS="$(num "$SDK/staging_dir/hostpkg/stamp" -type f)"
