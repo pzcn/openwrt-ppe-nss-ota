@@ -42,11 +42,29 @@ copy_tree package/kernel/mac80211/patches/ath11k
 copy_file package/kernel/mac80211/Makefile
 copy_file package/kernel/mac80211/ath.mk
 
+# Treat Qualcomm PPE/EDMA as one coherent source unit. The upstream
+# qca_ppe.h exports functions (including ppe_xlt_idx_alloc/free) which the
+# older official qca_ppe_vlan.c defines static: mixing them fails compilation.
+# Do not keep any older official PPE .c file alongside newer upstream headers.
 for file in \
-  qca_edma.c qca_edma.h qca_ppe.h qca_ppe_flow.c \
-  qca_ppe_flow_offload.c qca_ppe_main.c qca_ppe_scheduler.c; do
+  qca_edma.c qca_edma.h \
+  qca_ppe.h qca_ppe_main.c qca_ppe_vlan.c qca_ppe_scheduler.c \
+  qca_ppe_debugfs.c qca_ppe_acl.c \
+  qca_ppe_flow.c qca_ppe_flow_offload.c; do
   copy_file "target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/$file"
 done
+# Upstream 0952 includes the flow/offload object files in qca_ppe-objs and
+# necessary Kconfig constraints; upstream 0953 selects PAGE_POOL for EDMA.
+# Their official counterparts describe the older driver source set.
+for file in \
+  0952-net-ethernet-qca-add-ppe.patch \
+  0953-net-ethernet-qca-add-EDMA.patch; do
+  copy_file "target/linux/qualcommax/patches-6.18/$file"
+done
+
+# The EDMA switch API used by qca_ppe_main.c is distinct from NSS's
+# linux/soc/qcom/qca_edma.h firmware-queue API. Preserve both.
+copy_file target/linux/qualcommax/files/include/linux/qca_edma.h
 for file in qca_edma.h qca_ppe.h; do
   copy_file "target/linux/qualcommax/files/include/linux/soc/qcom/$file"
 done
@@ -65,6 +83,19 @@ for file in \
   copy_file "target/linux/qualcommax/patches-6.18/$file"
 done
 
+# Compile-time API and Kbuild consistency gates. Catch cross-version
+# source mixing before a 15-minute host-tools + 1-minute kernel rebuild.
+vlan="$imm/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe_vlan.c"
+ppe_header="$imm/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe.h"
+ppe_patch="$imm/target/linux/qualcommax/patches-6.18/0952-net-ethernet-qca-add-ppe.patch"
+edma_patch="$imm/target/linux/qualcommax/patches-6.18/0953-net-ethernet-qca-add-EDMA.patch"
+grep -Eq '^int ppe_xlt_idx_alloc\(' "$vlan"
+grep -Eq '^void ppe_xlt_idx_free\(' "$vlan"
+grep -Fq 'int ppe_xlt_idx_alloc(' "$ppe_header"
+grep -Fq 'void ppe_xlt_idx_free(' "$ppe_header"
+grep -Fq 'qca_ppe_flow.o qca_ppe_flow_offload.o' "$ppe_patch"
+grep -Fq 'depends on NET_DSA && QCOM_EDMA' "$ppe_patch"
+grep -Fq 'select PAGE_POOL' "$edma_patch"
 grep -Fq 'CONFIG_ATH11K_NSS_WIFI' "$imm/package/kernel/mac80211/Makefile"
 grep -Fq '#include "ipq6018-nss.dtsi"' "$imm/target/linux/qualcommax/dts/ipq6000-re-ss-01.dts"
 grep -Fq 'qcom,nss' "$imm/target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/ipq6018-nss.dtsi"

@@ -65,12 +65,31 @@ def make_metadata(args: argparse.Namespace) -> None:
                           else args.source / "feeds" / name)
         for name in FEEDS
     }
-    digest = feed_fingerprint(feeds)
-    if digest != builder["feeds_fingerprint"]:
-        raise ValueError("SDK feeds do not match the Builder's compiled package versions")
     mode = args.toolchain_status.read_text().splitlines()[0]
     if mode not in ("toolchain=official-immortalwrt", "toolchain=source"):
         raise ValueError("Unknown or empty toolchain provenance")
+    issue(args.builder_metadata, args.archive, mode.split("=", 1)[1], feeds,
+          actual_source, args.feed_lock, args.output)
+
+
+def issue(builder_metadata: Path, archive: Path, toolchain: str, feeds: dict[str, str],
+          immortal: str, feed_lock: Path, output: Path, extra: dict | None = None) -> None:
+    """Write the feed lock and SDK metadata binding an SDK to one Builder.
+
+    Used directly by a hybrid refresh: the SDK archive is reused unchanged,
+    while the feeds follow the newly mirrored official snapshot.
+    """
+    builder, legacy = check_metadata(builder_metadata)
+    if legacy:
+        raise ValueError("SDK publishing requires Builder metadata with locked feed revisions")
+    if immortal != builder["immortalwrt_commit"]:
+        raise ValueError("SDK source is different from the Builder's ImmortalWrt commit")
+    if toolchain not in ("official-immortalwrt", "source"):
+        raise ValueError("Unknown SDK toolchain")
+    digest = feed_fingerprint(feeds)
+    if digest != builder["feeds_fingerprint"]:
+        raise ValueError("SDK feeds do not match the Builder's compiled package versions")
+    actual_source = immortal
 
     lock = {
         "schema": 1,
@@ -80,26 +99,27 @@ def make_metadata(args: argparse.Namespace) -> None:
         "feeds": feeds,
         "feeds_fingerprint": digest,
     }
-    write_json(args.feed_lock, lock)
+    write_json(feed_lock, lock)
     sdk = {
         "schema": 1,
         "channel": SDK_CHANNEL,
         "target": SDK_TARGET,
         "profile": builder["profile"],
         "builder_tag": builder["tag"],
-        "builder_metadata_sha256": sha256(args.builder_metadata),
+        "builder_metadata_sha256": sha256(builder_metadata),
         "immortalwrt_commit": builder["immortalwrt_commit"],
         "ppe_nss_commit": builder["ppe_nss_commit"],
         "base_overlay_commit": builder["base_overlay_commit"],
         "feeds_fingerprint": digest,
-        "toolchain": mode.split("=", 1)[1],
-        "archive": args.archive.name,
-        "archive_sha256": sha256(args.archive),
-        "feed_lock": args.feed_lock.name,
-        "feed_lock_sha256": sha256(args.feed_lock),
+        "toolchain": toolchain,
+        "archive": archive.name,
+        "archive_sha256": sha256(archive),
+        "feed_lock": feed_lock.name,
+        "feed_lock_sha256": sha256(feed_lock),
     }
-    write_json(args.output, sdk)
-    verify_files(args.output, args.builder_metadata, args.archive, args.feed_lock)
+    sdk.update(extra or {})
+    write_json(output, sdk)
+    verify_files(output, builder_metadata, archive, feed_lock)
 
 
 def verify_files(metadata: Path, builder_metadata: Path, archive: Path,
@@ -153,15 +173,29 @@ def main() -> None:
     create.add_argument("--toolchain-status", type=Path, required=True)
     create.add_argument("--output", type=Path, required=True)
     create.add_argument("--feed-lock", type=Path, required=True)
+    reissue = command.add_parser("reissue", help="bind an unchanged SDK to a refreshed Builder")
+    reissue.add_argument("--parent-metadata", type=Path, required=True)
+    reissue.add_argument("--feeds", type=Path, required=True, help="JSON {feed: sha}")
+    reissue.add_argument("--output", type=Path, required=True)
+    reissue.add_argument("--feed-lock", type=Path, required=True)
     verify = command.add_parser("verify", help="verify the exact SDK/Builder pair")
     verify.add_argument("--metadata", type=Path, required=True)
     verify.add_argument("--feed-lock", type=Path, required=True)
-    for parser_ in (create, verify):
+    for parser_ in (create, verify, reissue):
         parser_.add_argument("--builder-metadata", type=Path, required=True)
         parser_.add_argument("--archive", type=Path, required=True)
     args = parser.parse_args()
     if args.action == "metadata":
         make_metadata(args)
+    elif args.action == "reissue":
+        parent = json.loads(args.parent_metadata.read_text())
+        if parent.get("archive_sha256") != sha256(args.archive):
+            raise ValueError("Reissued SDK archive differs from the parent SDK")
+        issue(args.builder_metadata, args.archive, parent["toolchain"],
+              json.loads(args.feeds.read_text()), parent["immortalwrt_commit"],
+              args.feed_lock, args.output,
+              extra={"derived_from_builder": parent["builder_tag"],
+                     "derivation": "hybrid-userland-refresh-no-kernel-rebuild"})
     else:
         verify_files(args.metadata, args.builder_metadata, args.archive, args.feed_lock)
 

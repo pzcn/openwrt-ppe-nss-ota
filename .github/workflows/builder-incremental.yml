@@ -1,16 +1,8 @@
 name: Incremental Builder + SDK (reuse compiled ABI)
 
 on:
-  # Fast package selection changes rebuild the APK repository, not the kernel.
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/builder-incremental.yml"
-      - "scripts/immortalwrt_derive.py"
-      - "scripts/derive-immortalwrt-builder.sh"
-      - "scripts/tests/test-immortalwrt-derive.py"
-      - "config/add.txt"
-      - "config/remove.txt"
+  # Manual fallback for full-source Builders only. add.txt/remove.txt changes
+  # are handled by the hybrid Builder's refresh mode.
   workflow_dispatch:
     inputs:
       parent_builder_tag:

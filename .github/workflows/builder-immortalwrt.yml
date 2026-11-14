@@ -1,11 +1,9 @@
 name: Build ImmortalWrt PPE/NSS Builder and matching SDK
 
 on:
-  # Always compile on either trigger. No upstream version preflight.
+  # Manual fallback only. The scheduled Builder is the hybrid one
+  # (builder-immortalwrt-hybrid.yml), which reuses official snapshot APKs.
   workflow_dispatch:
-  schedule:
-    # Every Sunday at 05:43 UTC (13:43 China Standard Time).
-    - cron: "43 5 * * 0"
 permissions:
   contents: write
   # Required by gh workflow run firmware-immortalwrt.yml.

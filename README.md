@@ -27,18 +27,19 @@
 
 完整插件清单在 [config/add.txt](config/add.txt)，核心构建选项在 [config/immortalwrt-re-ss-01.config](config/immortalwrt-re-ss-01.config)，自动测试会检查必需插件是否齐全。
 
-## 两套独立 Actions
+## Actions
 
 | 工作流 | 自动触发 | 产物 |
 | --- | --- | --- |
 | [固件打包 Firmware](../../actions/workflows/firmware-immortalwrt.yml) | `main` 的代码、LuCI、OTA、插件配置变化；每天检查一次 | 从已发布 Builder 重打包 `imm-ppe-nss-...` 固件 |
-| [源码 Builder + SDK](../../actions/workflows/builder-immortalwrt.yml) | 每周日自动完整编译一次，或随时手动触发 | 同一轮源码编译发布 `imm-builder-...` ImageBuilder、匹配 SDK 和 feed 锁定文件 |
+| [源码 Builder + SDK](../../actions/workflows/builder-immortalwrt.yml)（后备） | 仅手动触发 | 同一轮源码编译发布 `imm-builder-...` ImageBuilder、匹配 SDK 和 feed 锁定文件 |
+| [Hybrid Builder](../../actions/workflows/builder-immortalwrt-hybrid.yml)（默认） | 每天检查；`add.txt` 等改动推送时 | 内核侧不变时只替换官方 APK（不编译，约 10 分钟）；PPE/内核侧变化时只编内核、kmod 和定制包。新内核以 prerelease 发布，见 [docs/HYBRID-BUILDER.md](docs/HYBRID-BUILDER.md) |
 
-Builder 无需预先检查上游是否更新：定时或手动触发后直接完整源码编译，成功发布后自动触发固件工作流。固件工作流始终默认选用最新发布的 Builder（可手动指定），仅校验其设备型号、发行元数据与资产 SHA256，不比较当前代码的 Builder 核心指纹。固件工作流仍会在源码和 Builder 均未变化时跳过打包，且**只进行固件打包，不涉及内核编译**。
+Hybrid Builder 每天先用几十秒判断：无变化跳过；只有官方用户态或插件列表变化时复用上一版内核、ImageBuilder 和 SDK，仅替换官方 APK；PPE/NSS 或内核配方变化时才编译内核侧。非 prerelease 的 Builder 发布后自动触发固件工作流。固件工作流始终默认选用最新发布的 Builder（可手动指定），仅校验其设备型号、发行元数据与资产 SHA256，不比较当前代码的 Builder 核心指纹。固件工作流仍会在源码和 Builder 均未变化时跳过打包，且**只进行固件打包，不涉及内核编译**。
 
 - 修改 `files/`、LuCI、OTA、翻译或 `config/add.txt`：使用最新发布的 Builder 打包。
 - 添加已编译的插件 APK：直接重打包。若 Builder 缺少 APK，固件工作流自动使用同一 Release 配套 SDK 补编并加入离线仓库，无需重新编译内核；没有 SDK 的旧 Builder 缺包时需先手动完整编译一次。
-- 修改编译配置、内核或 PPE/NSS 代码：由下一次每周/手动源码构建生成新 Builder。
+- 修改编译配置、内核或 PPE/NSS 代码：Hybrid Builder 编译新的内核侧，以 prerelease 发布，实机验证后在 Releases 页转正即生效。
 - [Releases](../../releases) 保存 Builder（包含配套 OpenWrt SDK）和固件，附 SHA256 与版本锁定信息；未来可用 SDK 补编与当前 Builder ABI 匹配的插件 APK。
 
 详细说明：[构建与版本判定](docs/IMMORTALWRT-PPE-NSS.md)。

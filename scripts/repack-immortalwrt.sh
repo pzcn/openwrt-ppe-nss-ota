@@ -32,6 +32,24 @@ mapfile -t IB_DIRS < <(find "$WORK/builder" -mindepth 1 -maxdepth 1 -type d -nam
 [[ "${#IB_DIRS[@]}" -eq 1 ]] || { echo "::error::Unexpected ImageBuilder archive layout" >&2; exit 1; }
 IB="${IB_DIRS[0]}"
 test -f "$IB/Makefile"
+# ImageBuilder cannot rebuild a device kernel FIT: verify it was included
+# with the source kernel before spending time reinstalling 300+ APKs.
+mapfile -t fit_files < <(find "$IB/build_dir" -type f \
+  -path "*/linux-qualcommax_ipq60xx/jdcloud_re-ss-01-uImage.itb" -print | sort)
+(( ${#fit_files[@]} == 1 )) && [[ -s "${fit_files[0]}" ]] || {
+  echo "::error::ImageBuilder archive lacks jdcloud_re-ss-01-uImage.itb. Rebuild Hybrid Builder with the device-fit phase; do not borrow an official FIT." >&2
+  exit 1
+}
+(( $(stat -c %s "${fit_files[0]}") <= 6144 * 1024 )) || {
+  echo "::error::RE-SS-01 FIT exceeds the 6144 KiB kernel partition" >&2
+  exit 1
+}
+# Parsed with a stdlib script: the firmware workflow installs no dtc tools,
+# and the ImageBuilder does not ship them either.
+if ! python3 "$ROOT/scripts/fit_configs.py" "${fit_files[0]}" | grep -Fxq "config@cp03-c2"; then
+  echo "::error::RE-SS-01 ImageBuilder FIT lacks config@cp03-c2" >&2
+  exit 1
+fi
 # Only if requested packages are missing, use the exact matching SDK to
 # compile APKs and augment this extracted ImageBuilder's local repository.
 bash "$ROOT/scripts/rebuild-missing-apks.sh" "$IB" "$META"

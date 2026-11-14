@@ -1,0 +1,397 @@
+name: Hybrid Builder (official snapshot userland + local PPE/NSS kernel)
+
+# One resolve job decides, in seconds, between:
+#   skip     an identical Builder is already published
+#   refresh  only official userland / add.txt changed: reuse the previous
+#            kernel, IB and SDK, swap the mirrored APKs (no compilation)
+#   full     kernel side changed (PPE/NSS, recipe, compiler/libc) or the
+#            kernel is older than max_kernel_age_days: compile it
+# A failed refresh falls back to a full build automatically.
+#
+# Pushes to feat/hybrid-** branches run it too (GitHub only offers the
+# Run-workflow button for files on the default branch). Branch builds are
+# always prereleases and never dispatch the firmware workflow. Put "[full]"
+# in the commit message to force a full build from a push.
+# On PR #16's exact experiment branch, [ssh] forces full and enables a
+# bounded Tailscale SSH debugging window on failure (never auto-publish).
+on:
+  schedule:
+    - cron: "37 2 * * *"
+  push:
+    branches: [main, "feat/hybrid-**"]
+    paths:
+      - "config/add.txt"
+      - "config/remove.txt"
+      - "config/immortalwrt-re-ss-01.config"
+      - "config/hybrid-ssh-debug.trigger"
+      - "scripts/build-immortalwrt-hybrid.sh"
+      - "scripts/repack-immortalwrt.sh"
+      - "scripts/refresh-hybrid-builder.sh"
+      - "scripts/publish-hybrid-builder.sh"
+      - "scripts/hybrid-common.sh"
+      - "scripts/tests/test-hybrid-builder.py"
+      - "scripts/hybrid-prefetch-host-sources.sh"
+      - "scripts/hybrid_builder.py"
+      - "scripts/fit_configs.py"
+      - "scripts/resolve-immortalwrt-snapshot.py"
+      - "scripts/port-ppe-nss-to-immortalwrt.sh"
+      - "scripts/apply-immortalwrt-compat.sh"
+      - "scripts/reuse-official-toolchain.sh"
+      - ".github/workflows/builder-immortalwrt-hybrid.yml"
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: "auto = skip/refresh/full as needed; full = always compile the kernel side"
+        type: choice
+        options: [auto, full]
+        default: auto
+      channel:
+        description: "auto = full builds as prerelease, refreshes inherit their parent"
+        type: choice
+        options: [auto, prerelease, release]
+        default: auto
+      max_kernel_age_days:
+        description: "Rebuild the kernel from current master after this many days"
+        type: number
+        default: 14
+      publish:
+        description: "Publish the Release after all smoke tests pass"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: re-ss-01-builder
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve snapshot, upstream heads and build mode
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      mode: ${{ steps.decide.outputs.mode }}
+      parent: ${{ steps.decide.outputs.parent }}
+      parent_prerelease: ${{ steps.parent.outputs.prerelease }}
+      identity: ${{ steps.decide.outputs.identity }}
+      kernel_identity: ${{ steps.decide.outputs.kernel_identity }}
+      imm: ${{ steps.heads.outputs.imm }}
+      ppe: ${{ steps.heads.outputs.ppe }}
+      base: ${{ steps.heads.outputs.base }}
+      nss: ${{ steps.heads.outputs.nss }}
+      ppe_luci: ${{ steps.heads.outputs.ppe_luci }}
+      host_key: ${{ steps.heads.outputs.host_key }}
+      host_prefix: ${{ steps.heads.outputs.host_prefix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Offline tests
+        run: |
+          set -Eeuo pipefail
+          for script in scripts/build-immortalwrt-hybrid.sh scripts/refresh-hybrid-builder.sh \
+            scripts/publish-hybrid-builder.sh scripts/hybrid-common.sh \
+            scripts/hybrid-prefetch-host-sources.sh; do bash -n "$script"; done
+          python3 scripts/tests/test-hybrid-snapshot.py
+          python3 scripts/tests/test-hybrid-builder.py
+          python3 scripts/tests/test-hybrid-ppe-source-sync.py
+          python3 scripts/tests/test-immortalwrt-builder.py
+          python3 scripts/tests/test-immortalwrt-sdk.py
+          python3 scripts/tests/test-fit-configs.py
+      - name: Lock the latest published official snapshot
+        run: python3 scripts/resolve-immortalwrt-snapshot.py --output out-snapshot/snapshot-lock.json
+      - name: Resolve upstream heads and the host-tools cache key
+        id: heads
+        run: |
+          set -Eeuo pipefail
+          head_of() { git ls-remote "https://github.com/$1.git" "refs/heads/$2" | awk '{print $1}'; }
+          IMM="$(head_of immortalwrt/immortalwrt master)"
+          # Host tools depend on tools/ and include/: key the cache on both trees.
+          git init -q "$RUNNER_TEMP/imm-trees"
+          git -C "$RUNNER_TEMP/imm-trees" fetch -q --depth 1 --filter=blob:none \
+            https://github.com/immortalwrt/immortalwrt.git "$IMM"
+          INCLUDE="$(git -C "$RUNNER_TEMP/imm-trees" rev-parse "$IMM:include")"
+          TOOLS="$(git -C "$RUNNER_TEMP/imm-trees" rev-parse "$IMM:tools")"
+          {
+            echo "imm=$IMM"
+            echo "ppe=$(head_of JuliusBairaktaris/openwrt-ppe-nss ppe-nss)"
+            echo "base=$(head_of JuliusBairaktaris/Qualcommax_NSS_Builder main)"
+            echo "nss=$(head_of JuliusBairaktaris/nss-packages ppe-nss)"
+            echo "ppe_luci=$(head_of JuliusBairaktaris/luci luci-app-ppe-qos)"
+            echo "host_prefix=hybrid-host-v1-${INCLUDE:0:12}-"
+            echo "host_key=hybrid-host-v1-${INCLUDE:0:12}-${TOOLS:0:12}"
+          } | tee -a "$GITHUB_OUTPUT"
+      - name: Find the newest hybrid Builder
+        id: parent
+        run: |
+          set -Eeuo pipefail
+          REL="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq \
+            '[.[] | select(.draft == false and (.tag_name | startswith("imm-builder-"))
+                     and ((.name // "") | startswith("Hybrid ImageBuilder")))]
+             | sort_by(.published_at) | last // {}')"
+          TAG="$(jq -r '.tag_name // ""' <<< "$REL")"
+          PRE="$(jq -r 'if has("prerelease") then .prerelease else true end' <<< "$REL")"
+          mkdir -p out-parent
+          if [[ -n "$TAG" ]]; then
+            gh release download "$TAG" -R "$GITHUB_REPOSITORY" -D out-parent -p builder-metadata.json
+            [[ "$(jq -r .tag out-parent/builder-metadata.json)" == "$TAG" ]]
+          fi
+          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+      - name: Decide skip / refresh / full
+        id: decide
+        env:
+          FORCE_FULL: ${{ inputs.build_mode == 'full' || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[full]') || (github.repository == 'pzcn/openwrt-ppe-nss-ota' && github.ref == 'refs/heads/feat/hybrid-official-snapshot' && startsWith(github.event.head_commit.message, '[ssh] ')))) }}
+          MAX_AGE: ${{ inputs.max_kernel_age_days || 14 }}
+        run: |
+          set -Eeuo pipefail
+          LOCK=out-snapshot/snapshot-lock.json
+          heads=(--ppe '${{ steps.heads.outputs.ppe }}' --base '${{ steps.heads.outputs.base }}'
+                 --nss '${{ steps.heads.outputs.nss }}' --ppe-luci '${{ steps.heads.outputs.ppe_luci }}')
+          ID="$(python3 scripts/hybrid_builder.py identity --lock "$LOCK" "${heads[@]}" \
+            --packages "$(python3 scripts/immortalwrt_builder.py package-fingerprint)")"
+          KID="$(python3 scripts/hybrid_builder.py kernel-identity --lock "$LOCK" "${heads[@]}")"
+          args=(--identity "$ID" --kernel-identity "$KID" --parent out-parent/builder-metadata.json
+                --max-age-days "$MAX_AGE")
+          [[ "$FORCE_FULL" == true ]] && args+=(--force-full)
+          python3 scripts/hybrid_builder.py decide "${args[@]}" | tee decision.txt
+          { cat decision.txt; echo "identity=$ID"; echo "kernel_identity=$KID"; } >> "$GITHUB_OUTPUT"
+          {
+            echo "## Hybrid Builder: $(sed -n 's/^mode=//p' decision.txt)"
+            echo "- Reason: $(sed -n 's/^reason=//p' decision.txt)"
+            echo "- Official snapshot: \`$(jq -r .snapshot_version "$LOCK")\`"
+            echo "- Parent: \`$(jq -r '.tag // "none"' out-parent/builder-metadata.json 2>/dev/null || echo none)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-lock
+          path: out-snapshot/snapshot-lock.json
+          retention-days: 7
+
+  refresh:
+    name: Refresh userland of the previous hybrid Builder (no compilation)
+    needs: resolve
+    if: needs.resolve.outputs.mode == 'refresh'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SNAPSHOT_LOCK: ${{ github.workspace }}/out-snapshot/snapshot-lock.json
+      EXPECTED_KERNEL_IDENTITY: ${{ needs.resolve.outputs.kernel_identity }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: snapshot-lock
+          path: out-snapshot
+      - name: Install repack dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq zstd jq rsync make python3 file
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Download the parent Builder
+        env:
+          PARENT: ${{ needs.resolve.outputs.parent }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$PARENT" =~ ^imm-builder-[a-zA-Z0-9._-]+$ ]]
+          gh release download "$PARENT" -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/parent"
+      - name: Swap official userland, reissue IB + SDK, repack smoke test
+        run: bash scripts/refresh-hybrid-builder.sh "$RUNNER_TEMP/parent"
+      - name: Publish
+        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        env:
+          CHANNEL: ${{ inputs.channel || 'auto' }}
+          PARENT_PRERELEASE: ${{ needs.resolve.outputs.parent_prerelease }}
+        run: |
+          case "$CHANNEL" in
+            prerelease) PRE=true ;; release) PRE=false ;; *) PRE="$PARENT_PRERELEASE" ;;
+          esac
+          bash scripts/publish-hybrid-builder.sh out-hybrid "$PRE"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: immortalwrt-hybrid-refresh
+          path: |
+            out-hybrid/
+            !out-hybrid/*.tar.zst
+          retention-days: 14
+          if-no-files-found: warn
+
+  full:
+    name: Compile kernel side, mirror official APKs, package IB + SDK
+    needs: [resolve, refresh]
+    if: >-
+      always() && needs.resolve.result == 'success' &&
+      (needs.resolve.outputs.mode == 'full' ||
+       (needs.resolve.outputs.mode == 'refresh' && needs.refresh.result == 'failure'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      HYBRID_SSH_DEBUG: ${{ github.event_name == 'push' && github.repository == 'pzcn/openwrt-ppe-nss-ota' && github.ref == 'refs/heads/feat/hybrid-official-snapshot' && startsWith(github.event.head_commit.message, '[ssh] ') }}
+      GH_TOKEN: ${{ github.token }}
+      SNAPSHOT_LOCK: ${{ github.workspace }}/out-snapshot/snapshot-lock.json
+      EXPECTED_IMM_SHA: ${{ needs.resolve.outputs.imm }}
+      EXPECTED_PPE_SHA: ${{ needs.resolve.outputs.ppe }}
+      EXPECTED_BASE_SHA: ${{ needs.resolve.outputs.base }}
+      EXPECTED_NSS_SHA: ${{ needs.resolve.outputs.nss }}
+      EXPECTED_PPE_LUCI_SHA: ${{ needs.resolve.outputs.ppe_luci }}
+    steps:
+      - uses: actions/checkout@v4
+      # Validate opt-in credentials before downloading caches or installing tools.
+      - name: Validate SSH debug credentials (opt-in)
+        if: env.HYBRID_SSH_DEBUG == 'true'
+        env:
+          TS_DEBUG_OAUTH_CLIENT_ID: ${{ secrets.TS_DEBUG_OAUTH_CLIENT_ID }}
+          TS_DEBUG_OAUTH_SECRET: ${{ secrets.TS_DEBUG_OAUTH_SECRET }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -z "$TS_DEBUG_OAUTH_CLIENT_ID" || -z "$TS_DEBUG_OAUTH_SECRET" ]]; then
+            echo "::error::SSH debug requires TS_DEBUG_OAUTH_CLIENT_ID and TS_DEBUG_OAUTH_SECRET GitHub repository secrets." >&2
+            exit 1
+          fi
+      - uses: actions/download-artifact@v4
+        with:
+          name: snapshot-lock
+          path: out-snapshot
+      - name: Restore source archives
+        uses: actions/cache/restore@v4
+        with:
+          path: .build-cache/dl
+          key: hybrid-dl-v2-${{ github.run_id }}
+          restore-keys: hybrid-dl-v2-
+      - name: Restore compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .build-cache/ccache
+          key: hybrid-ccache-v2-${{ github.run_id }}
+          restore-keys: hybrid-ccache-v2-
+      # Host tools are restored in place; the build script normalizes tools/
+      # mtimes so OpenWrt's stamps accept them and rebuilds only changed tools.
+      - name: Restore host tools
+        id: host
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ${{ runner.temp }}/immortal-hybrid/immortalwrt/staging_dir/host
+            ${{ runner.temp }}/immortal-hybrid/immortalwrt/build_dir/host
+          key: ${{ needs.resolve.outputs.host_key }}
+          restore-keys: ${{ needs.resolve.outputs.host_prefix }}
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          df -h
+      - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential ack antlr3 asciidoc autoconf automake autopoint \
+            binutils bison bzip2 ccache clang cmake cpio curl device-tree-compiler \
+            file flex gawk gettext git gperf haveged help2man intltool jq \
+            libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+            libmpfr-dev libncurses-dev libreadline-dev libssl-dev libtool \
+            ninja-build p7zip-full patch pkgconf python3 python3-pip \
+            python3-ply python3-pyelftools qemu-utils rsync scons \
+            squashfs-tools subversion swig texinfo unzip wget xmlto xxd \
+            zlib1g-dev zstd
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # This is deliberately restricted to this repository's PR #16 branch
+      # and is NOT active on scheduled/main/PR builds.
+      - name: Join Tailscale for interactive debug
+        if: env.HYBRID_SSH_DEBUG == 'true'
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_DEBUG_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_DEBUG_OAUTH_SECRET }}
+          tags: tag:gh-hybrid-debug
+      - name: Enable Tailscale SSH on temporary runner
+        id: enable_debug_ssh
+        if: env.HYBRID_SSH_DEBUG == 'true'
+        run: |
+          set -Eeuo pipefail
+          sudo tailscale set --ssh
+          ip="$(tailscale ip -4 | head -n 1)"
+          [[ "$ip" =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::No private Tailnet IPv4 address was assigned" >&2
+            exit 1
+          }
+          echo "::notice title=Hybrid SSH ready::Use tailscale ssh runner@$ip from a permitted Tailnet device"
+          echo "Build directory: $RUNNER_TEMP/immortal-hybrid/immortalwrt"
+      - name: Build hybrid Builder and SDK with SDK + ImageBuilder smoke tests
+        id: hybrid_build
+        run: bash scripts/build-immortalwrt-hybrid.sh
+      # A failing build retains its original failure result; this step merely
+      # keeps the same runner and files alive for hands-on diagnosis.
+      - name: Hold failed hybrid runner for SSH (up to 45 min)
+        if: ${{ failure() && env.HYBRID_SSH_DEBUG == 'true' && steps.hybrid_build.outcome == 'failure' && steps.enable_debug_ssh.outcome == 'success' }}
+        timeout-minutes: 45
+        run: |
+          set -Eeuo pipefail
+          ip="$(tailscale ip -4 | head -n 1)"
+          done_file="$RUNNER_TEMP/hybrid-ssh-debug-done"
+          echo "::notice title=Hybrid SSH retained::tailscale ssh runner@$ip (up to 45 minutes)"
+          echo "Reconnect: tailscale ssh runner@$ip"
+          echo "Workspace: $GITHUB_WORKSPACE"
+          echo "Build dir: $RUNNER_TEMP/immortal-hybrid/immortalwrt"
+          echo "When finished, run: touch $done_file"
+          {
+            echo "## Hybrid Builder SSH debugging (ephemeral)"
+            echo "- Connect: \`tailscale ssh runner@$ip\`"
+            echo "- Build root: \`$RUNNER_TEMP/immortal-hybrid/immortalwrt\`"
+            echo "- Close early: \`touch $done_file\`"
+            echo "- Original build step has failed; SSH changes do not turn the run green."
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Stop before the 45-minute step timeout, to save diagnostic caches.
+          while [[ ! -e "$done_file" ]] && (( SECONDS < 2600 )); do
+            sleep 10
+          done
+          echo "SSH debugging window closed; proceeding to cache/artifact cleanup."
+      # Caches are saved even when the build fails, so a retry is not cold.
+      - name: Save source archives
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .build-cache/dl
+          key: hybrid-dl-v2-${{ github.run_id }}
+      - name: Save compiler cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .build-cache/ccache
+          key: hybrid-ccache-v2-${{ github.run_id }}
+      - name: Save host tools
+        if: always() && steps.host.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ${{ runner.temp }}/immortal-hybrid/immortalwrt/staging_dir/host
+            ${{ runner.temp }}/immortal-hybrid/immortalwrt/build_dir/host
+          key: ${{ needs.resolve.outputs.host_key }}
+      - name: Publish
+        # Debug runs are never published, even if the initial build succeeds.
+        if: ${{ success() && env.HYBRID_SSH_DEBUG != 'true' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
+        env:
+          CHANNEL: ${{ inputs.channel || 'auto' }}
+        run: |
+          # A new kernel is a prerelease until it has been tested on hardware.
+          case "$CHANNEL" in release) PRE=false ;; *) PRE=true ;; esac
+          bash scripts/publish-hybrid-builder.sh out-hybrid "$PRE"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: immortalwrt-hybrid-full
+          path: |
+            out-hybrid/
+            !out-hybrid/*.tar.zst
+          retention-days: 14
+          if-no-files-found: warn
