@@ -312,13 +312,15 @@ mapfile -t fit_dirs < <(find "$IMM/build_dir" -mindepth 2 -maxdepth 2 -type d \
 # Kernel/CompileImage and copies the raw Image into KERNEL_BUILD_DIR.
 # Do not run target/linux/install here: that also runs full image/rootfs logic.
 KDIR="${fit_dirs[0]}"
-mapfile -t kernel_sources < <(find "$KDIR" -mindepth 1 -maxdepth 1 -type d \
-  -name "linux-*" -print | sort)
-(( ${#kernel_sources[@]} == 1 )) || {
-  echo "::error::Expected one configured linux-* kernel source tree, got ${#kernel_sources[@]}" >&2
+# Select the current kernel version from ImmortalWrt make, not a linux-* glob.
+# Multiple source directories may legitimately coexist in the build tree.
+LINUX_SRC="$(make -s -C "$IMM/target/linux/qualcommax" \
+  "TOPDIR=$IMM" "TARGET_BUILD=1" val.LINUX_DIR)"
+[[ "$LINUX_SRC" == "$KDIR"/linux-* && -d "$LINUX_SRC" ]] || {
+  echo "::error::Configured LINUX_DIR is not inside RE-SS-01 kernel build tree: $LINUX_SRC" >&2
+  find "$KDIR" -mindepth 1 -maxdepth 1 -type d -name "linux-*" -print >&2 || true
   exit 1
 }
-LINUX_SRC="${kernel_sources[0]}"
 [[ -s "$LINUX_SRC/vmlinux" ]] || {
   echo "::error::Kernel modules phase did not produce vmlinux: $LINUX_SRC" >&2
   exit 1

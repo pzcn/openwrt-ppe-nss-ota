@@ -442,6 +442,10 @@ assert 'touch $done_file' in workflow
 # Compiling kmods alone is insufficient: kernel-build.mk only populates
 # KERNEL_BUILD_DIR/Image when the .image target runs Kernel/CompileImage.
 assert 'phase kernel-image -C target/linux/qualcommax "TOPDIR=$IMM" "TARGET_BUILD=1" "$LINUX_SRC/.image"' in full_script
+# The selected kernel source is resolved through target Make, not path guessing.
+assert '"TARGET_BUILD=1" val.LINUX_DIR' in full_script
+assert 'LINUX_SRC="$(make -s -C' in full_script
+assert 'Expected one configured linux-* kernel source tree' not in full_script
 assert '[[ -s "$KDIR/Image" ]]' in full_script
 assert full_script.index("phase kmods") < full_script.index("phase kernel-image") < full_script.index("phase device-fit")
 assert "phase device-fit -C target/linux/qualcommax/image" in full_script
