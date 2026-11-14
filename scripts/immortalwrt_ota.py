@@ -121,7 +121,7 @@ LATEST=$(jq -r --arg image "$EXPECTED_IMAGE" --arg manifest "$EXPECTED_MANIFEST"
 def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
              manifest: Path, output: Path, builder_tag: str = "",
              source_commit: str = "", layer_tag: str = "",
-             device: str = "arthur") -> None:
+             device: str = "arthur", sing_box_core: Path | None = None) -> None:
     spec = device_spec(device)
     if not TAG_PATTERN.fullmatch(tag) or not tag.startswith(spec["tag_prefix"]) or build < 1:
         raise ValueError("Invalid tag/build")
@@ -165,6 +165,15 @@ def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
         doc["source_commit"] = source_commit
     if layer_tag:
         doc["layer_tag"] = layer_tag
+    if sing_box_core is not None and sing_box_core.is_file():
+        details = json.loads(sing_box_core.read_text())
+        if (not isinstance(details, dict) or
+            details.get("version") != "1.15.0-alpha.13" or
+            details.get("architecture") != "aarch64" or
+            details.get("placement") != "firmware-squashfs" or
+            not re.fullmatch(r"[a-f0-9]{64}", details.get("binary_sha256", ""))):
+            raise ValueError("Invalid pinned sing-box pre-release metadata")
+        doc["sing_box_core"] = details
     output.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -188,13 +197,15 @@ def main() -> None:
     b.add_argument("--builder-tag", default="")
     b.add_argument("--source-commit", default="")
     b.add_argument("--layer-tag", default="")
+    b.add_argument("--sing-box-core", type=Path)
     args = parser.parse_args()
     if args.action == "prepare":
         prepare(args.overlay, args.tag, args.build, args.device)
     else:
         metadata(args.tag, args.build, args.immortal_commit, args.ppe_commit,
                  args.image, args.manifest, args.output,
-                 args.builder_tag, args.source_commit, args.layer_tag, args.device)
+                 args.builder_tag, args.source_commit, args.layer_tag, args.device,
+                 args.sing_box_core)
 
 
 if __name__ == "__main__":
