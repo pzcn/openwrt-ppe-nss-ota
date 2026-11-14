@@ -278,6 +278,10 @@ while IFS= read -r name; do
   [[ -n "$(find "$IMM/bin" -type f -name "$name-[0-9]*.apk" -print -quit)" ]] || not_built+=("$name")
 done < <(jq -r '.local_packages[].apk_name' "$OUT/local-plan.json")
 (( ${#not_built[@]} == 0 )) || { echo "::error::Not built locally: ${not_built[*]}" >&2; exit 1; }
+# Dependencies built on the way (master-ABI libraries etc.) must not reach the
+# ImageBuilder, which copies every APK under bin/: the official build of the
+# same library is the one the image uses.
+"${HB[@]}" prune-local --plan "$OUT/local-plan.json" --dir "$IMM/bin" | tee "$OUT/pruned-local.txt" | tail -n1
 find "$IMM/bin" -type f -name '*.apk' -printf '%f\n' | sort > "$OUT/local-apks.txt"
 
 # ---------------------------------------------------------------------------

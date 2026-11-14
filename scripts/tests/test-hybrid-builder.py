@@ -422,3 +422,49 @@ publish_sh = (ROOT / "scripts/publish-hybrid-builder.sh").read_text()
 assert 'if [[ "$BRANCH" != main ]]; then\n  PRERELEASE=true' in publish_sh
 
 print("PASS hybrid plan, closure, mirror, identities, skip/refresh/full, host cache, metadata, workflow")
+
+# Stray dependencies built from master (other ABI) never reach the ImageBuilder.
+stray_plan = {"local_packages": [{"apk_name": n} for n in
+                                 ("kernel", "kmod-nft-nat", "base-files", "qca-ppe-qos", "libc")]}
+assert h.stray_apks(["kernel-6.18.60~ab-r1.apk", "kmod-nft-nat-6.18.60-r1.apk",
+                     "kmod-nft-nat6-6.18.60-r1.apk", "libubox20261103-2026.11.03-r1.apk",
+                     "libc-1.2.5-r5.apk", "libcap-2.70-r1.apk", "base-files-1786-r1.apk",
+                     "qca-ppe-qos-1.0-r1.apk", "packages.adb"], stray_plan) == [
+    "kmod-nft-nat6-6.18.60-r1.apk", "libcap-2.70-r1.apk", "libubox20261103-2026.11.03-r1.apk"]
+with tempfile.TemporaryDirectory() as tmp:
+    d = Path(tmp)
+    (d / "sub").mkdir()
+    for f in ("kernel-6.18-r1.apk", "sub/libubox20261103-1-r1.apk"):
+        (d / f).write_text("x")
+    pf = d / "plan.json"
+    pf.write_text(json.dumps(stray_plan))
+    h.main(["prune-local", "--plan", str(pf), "--dir", str(d)])
+    assert sorted(p.name for p in d.rglob("*.apk")) == ["kernel-6.18-r1.apk"]
+
+def abi_pkg(name, abi, provides=()):
+    return {"name": name, "version": "1", "tags": [f"openwrt:abiversion={abi}"],
+            "provides": [f"{p}=1" for p in provides]}
+clean = [abi_pkg("libubox20261028", "20261028", ["libubox"]),
+         abi_pkg("libubus20261028", "20261028", ["libubus"]), {"name": "jq", "version": "1"}]
+assert h.ambiguous_abi(clean) == {}
+mixed = clean + [abi_pkg("libubox20261103", "20261103", ["libubox"])]
+assert h.ambiguous_abi(mixed) == {"libubox": ["20261028", "20261103"]}
+with tempfile.TemporaryDirectory() as tmp:
+    idx = Path(tmp) / "i.json"
+    idx.write_text(json.dumps({"packages": mixed}))
+    try:
+        h.main(["check-index", "--index", str(idx)])
+    except SystemExit as e:
+        assert e.code == 1
+    else:
+        raise AssertionError("ambiguous ABI accepted")
+    names = Path(tmp) / "n.txt"
+    names.write_text("jq\nlibubus\n")
+    h.main(["check-index", "--index", str(idx), "--names", str(names)])  # libubox not requested
+common_sh = (ROOT / "scripts/hybrid-common.sh").read_text()
+assert 'check-index --index "$out/imagebuilder-index.json" --names' in common_sh
+assert "prune-local" in (ROOT / "scripts/build-immortalwrt-hybrid.sh").read_text()
+assert "prune-local" in (ROOT / "scripts/refresh-hybrid-builder.sh").read_text()
+full_sh = (ROOT / "scripts/build-immortalwrt-hybrid.sh").read_text()
+assert full_sh.index("prune-local") < full_sh.index("local-apks.txt") < full_sh.index("target/imagebuilder/install")
+print("stray/ABI checks ok")

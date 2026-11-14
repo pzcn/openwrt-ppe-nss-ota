@@ -760,6 +760,72 @@ def cmd_normalize_mtimes(args: argparse.Namespace) -> None:
     print(f"Normalized mtimes of {normalize_mtimes(args.repo, args.path)} files")
 
 
+def stray_apks(files: list[str], plan: dict) -> list[str]:
+    """APK files that are not one of the planned local packages.
+
+    Building kmods (with dependencies) and the NSS feed also compiles userland
+    libraries from this tree, with master's ABI versions. A standalone
+    ImageBuilder copies every APK under bin/, so such a library would sit next
+    to the official one (libubox20261103 beside libubox20261028) and the
+    ImageBuilder's ABI lookup returns both suffixes for one name.
+    """
+    names = [p["apk_name"] for p in plan["local_packages"]]
+    stray = []
+    for f in files:
+        if not f.endswith(".apk"):
+            continue
+        if not any(f.startswith(n + "-") and f[len(n) + 1:len(n) + 2].isdigit() for n in names):
+            stray.append(f)
+    return sorted(stray)
+
+
+def ambiguous_abi(entries: list[dict]) -> dict[str, list[str]]:
+    """Names that more than one ABI version provides in one repository.
+
+    ImageBuilder's GetABISuffix queries every provider of a requested name; two
+    ABI versions yield "name<A> <B>" and a bogus package "<B>".
+    """
+    seen: dict[str, set[str]] = {}
+    for raw in entries:
+        name = raw.get("name", "")
+        abi = next((t.split("=", 1)[1] for t in raw.get("tags") or []
+                    if isinstance(t, str) and t.startswith("openwrt:abiversion=")), "")
+        if not abi:
+            continue
+        provided = {name, name[: -len(abi)] if name.endswith(abi) else name}
+        provided.update(atom_name(a.lstrip("@")) for a in _atoms(raw.get("provides")))
+        for n in provided:
+            if n:
+                seen.setdefault(n, set()).add(abi)
+    return {n: sorted(v) for n, v in sorted(seen.items()) if len(v) > 1}
+
+
+def cmd_prune_local(args: argparse.Namespace) -> None:
+    plan = json.loads(args.plan.read_text())
+    files = {f.name: f for f in args.dir.rglob("*.apk")}
+    stray = stray_apks(list(files), plan)
+    for name in stray:
+        print(f"pruned {name}")
+        if not args.dry_run:
+            files[name].unlink()
+    print(f"Pruned {len(stray)} APKs that are not planned local packages")
+
+
+def cmd_check_index(args: argparse.Namespace) -> None:
+    data = json.loads(args.index.read_text())
+    if isinstance(data, dict):
+        data = data.get("packages") or []
+    bad = ambiguous_abi(data)
+    if args.names:
+        # Only names the ImageBuilder will actually look up matter.
+        wanted = set(args.names.read_text().split())
+        bad = {n: v for n, v in bad.items() if n in wanted}
+    if bad:
+        raise ValueError("Several ABI versions provide one name (stray local library?): " +
+                         ", ".join(f"{n}={'/'.join(v)}" for n, v in bad.items()))
+    print(f"ImageBuilder index: {len(data)} packages, ABI versions unambiguous")
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -813,6 +879,15 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--repo", type=Path, required=True)
     s.add_argument("--path", action="append", required=True)
     s.set_defaults(func=cmd_normalize_mtimes)
+    s = sub.add_parser("prune-local")
+    s.add_argument("--plan", type=Path, required=True)
+    s.add_argument("--dir", type=Path, required=True)
+    s.add_argument("--dry-run", action="store_true")
+    s.set_defaults(func=cmd_prune_local)
+    s = sub.add_parser("check-index")
+    s.add_argument("--index", type=Path, required=True, help="apk adbdump --format json")
+    s.add_argument("--names", type=Path, help="restrict to these requested names")
+    s.set_defaults(func=cmd_check_index)
     s = sub.add_parser("fingerprint")
     s.add_argument("kind", choices=("core", "kernel-core", "feeds"))
     s.add_argument("--lock", type=Path)

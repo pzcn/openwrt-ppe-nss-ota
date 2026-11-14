@@ -178,6 +178,11 @@ hybrid_ib_manifest() {  # ib_dir out_dir local_apks_file
   awk 'NF >= 3 && $2 == "-" && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
        $1 != "kernel" && $1 != "libc" && $1 != "base-files" { print $1 }' \
     "$out/imagebuilder.manifest" | sort -u > "$out/imagebuilder-packages.txt"
+  # The firmware repack requests every one of these names; the ImageBuilder
+  # appends the ABI suffix of every provider, so each must have exactly one.
+  "$apk_bin" adbdump --format json "$apk_dir/packages.adb" > "$out/imagebuilder-index.json"
+  { cat "$out/imagebuilder-packages.txt"; printf '%s\n' $request; } > "$out/imagebuilder-requested.txt"
+  "${HB[@]}" check-index --index "$out/imagebuilder-index.json" --names "$out/imagebuilder-requested.txt"
   # Every requested package must really be in the image (apk would
   # otherwise satisfy a name through some other provider silently).
   missing=()

@@ -104,6 +104,7 @@ while IFS= read -r file; do
   rm -f "$IB/packages/$file"
 done < <(jq -r '.mirrored[]' "$PARENT/official-apks.json")
 rm -f "$IB/packages/packages.adb" "$IB/packages/index.json"
+"${HB[@]}" prune-local --plan "$OUT/local-plan.json" --dir "$IB/packages" | tail -n1
 find "$IB/packages" -maxdepth 1 -type f -name '*.apk' -printf '%f\n' | sort > "$OUT/local-apks.txt"
 while IFS= read -r name; do
   [[ -n "$(find "$IB/packages" -maxdepth 1 -type f -name "$name-[0-9]*.apk" -print -quit)" ]] || {
