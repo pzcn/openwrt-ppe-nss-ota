@@ -170,6 +170,7 @@ python3 "$ROOT/scripts/immortalwrt_ota.py" metadata \
   --image "$OUT/$IMAGE" --manifest "$OUT/$MANIFEST" \
   --builder-tag "$BUILDER_TAG" --source-commit "$(git -C "$ROOT" rev-parse HEAD)" \
   --layer-tag "$LAYER_TAG" \
+  --sing-box-core "$OUT/sing-box-core.json" \
   --output "$OUT/ota.json"
 cp "$META" "$OUT/builder-metadata.json"
 
