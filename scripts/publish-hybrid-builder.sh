@@ -12,6 +12,12 @@ PRERELEASE="${2:?true or false}"
 REPO="${GITHUB_REPOSITORY:-pzcn/openwrt-ppe-nss-ota}"
 [[ "$REPO" == pzcn/openwrt-ppe-nss-ota ]] || { echo "::error::Unexpected repository" >&2; exit 1; }
 [[ "$PRERELEASE" == true || "$PRERELEASE" == false ]]
+# Builds from a non-default branch are test builds: never let the firmware
+# workflow pick them up.
+BRANCH="${GITHUB_REF_NAME:-main}"
+if [[ "$BRANCH" != main ]]; then
+  PRERELEASE=true
+fi
 
 META="$DIR/builder-metadata.json"
 SDK_META="$DIR/sdk-metadata.json"
@@ -37,6 +43,7 @@ if [[ -n "$PARENT" ]]; then
 else
   KIND="full build (new kernel)"
 fi
+[[ "$BRANCH" != main ]] && KIND="$KIND, branch $BRANCH"
 flags=(--latest=false)
 [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
 # The title carries the identity: the resolve job finds the newest hybrid

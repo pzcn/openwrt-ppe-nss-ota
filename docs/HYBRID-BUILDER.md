@@ -4,7 +4,7 @@
 
 | 文件 | 作用 |
 |---|---|
-| [`builder-immortalwrt-hybrid.yml`](../.github/workflows/builder-immortalwrt-hybrid.yml) | 每天检查 + `add.txt` 等改动推送时触发 |
+| [`builder-immortalwrt-hybrid.yml`](../.github/workflows/builder-immortalwrt-hybrid.yml) | 每天检查 + `add.txt` 等改动推送时触发；`feat/hybrid-**` 分支推送也会跑（只发 prerelease，不触发固件），提交信息带 `[full]` 强制完整构建 |
 | [`hybrid_builder.py`](../scripts/hybrid_builder.py) | 本地/官方划分、官方依赖闭包、identity、skip/refresh/full 判定 |
 | [`build-immortalwrt-hybrid.sh`](../scripts/build-immortalwrt-hybrid.sh) | full：编译内核侧 |
 | [`refresh-hybrid-builder.sh`](../scripts/refresh-hybrid-builder.sh) | refresh：复用上一版，只换官方 APK，不编译 |

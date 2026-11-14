@@ -7,11 +7,16 @@ name: Hybrid Builder (official snapshot userland + local PPE/NSS kernel)
 #   full     kernel side changed (PPE/NSS, recipe, compiler/libc) or the
 #            kernel is older than max_kernel_age_days: compile it
 # A failed refresh falls back to a full build automatically.
+#
+# Pushes to feat/hybrid-** branches run it too (GitHub only offers the
+# Run-workflow button for files on the default branch). Branch builds are
+# always prereleases and never dispatch the firmware workflow. Put "[full]"
+# in the commit message to force a full build from a push.
 on:
   schedule:
     - cron: "37 2 * * *"
   push:
-    branches: [main]
+    branches: [main, "feat/hybrid-**"]
     paths:
       - "config/add.txt"
       - "config/remove.txt"
@@ -129,7 +134,7 @@ jobs:
       - name: Decide skip / refresh / full
         id: decide
         env:
-          FORCE_FULL: ${{ inputs.build_mode == 'full' }}
+          FORCE_FULL: ${{ inputs.build_mode == 'full' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[full]')) }}
           MAX_AGE: ${{ inputs.max_kernel_age_days || 14 }}
         run: |
           set -Eeuo pipefail

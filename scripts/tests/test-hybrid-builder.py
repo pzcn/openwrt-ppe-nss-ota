@@ -378,5 +378,10 @@ assert "--prerelease" in publish and "firmware-immortalwrt.yml" in publish
 assert 'startswith("Hybrid ImageBuilder")' in workflow and "Hybrid ImageBuilder + SDK" in publish
 assert "schedule:" not in (ROOT / ".github/workflows/builder-immortalwrt.yml").read_text()
 assert "push:" not in (ROOT / ".github/workflows/builder-incremental.yml").read_text()
+hybrid_wf = (ROOT / ".github/workflows/builder-immortalwrt-hybrid.yml").read_text()
+assert 'branches: [main, "feat/hybrid-**"]' in hybrid_wf
+assert "contains(github.event.head_commit.message, '[full]')" in hybrid_wf
+publish_sh = (ROOT / "scripts/publish-hybrid-builder.sh").read_text()
+assert 'if [[ "$BRANCH" != main ]]; then\n  PRERELEASE=true' in publish_sh
 
 print("PASS hybrid plan, closure, mirror, identities, skip/refresh/full, host cache, metadata, workflow")
