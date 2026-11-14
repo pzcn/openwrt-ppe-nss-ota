@@ -229,8 +229,8 @@ mark prepare "$T0"
 # 4. Host tools, toolchain wrapper and host apk (needed to read official indexes)
 # ---------------------------------------------------------------------------
 # The original LZO download host previously stalled this build. Preseed the
-# exact pinned 2.10 archive from OpenWrt mirrors (SHA256-verified) before make.
-bash "$ROOT/scripts/hybrid-prefetch-host-sources.sh" "$CACHE_DL"
+# pinned archive (name/hash from tools/liblzo) from OpenWrt mirrors before make.
+bash "$ROOT/scripts/hybrid-prefetch-host-sources.sh" "$IMM" "$CACHE_DL"
 phase tools tools/install
 phase toolchain toolchain/install
 phase apk-host package/system/apk/host/compile

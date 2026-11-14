@@ -25,6 +25,7 @@ on:
       - "scripts/refresh-hybrid-builder.sh"
       - "scripts/publish-hybrid-builder.sh"
       - "scripts/hybrid-common.sh"
+      - "scripts/hybrid-prefetch-host-sources.sh"
       - "scripts/hybrid_builder.py"
       - "scripts/resolve-immortalwrt-snapshot.py"
       - "scripts/port-ppe-nss-to-immortalwrt.sh"
