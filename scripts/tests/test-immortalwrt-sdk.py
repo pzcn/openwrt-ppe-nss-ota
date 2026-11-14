@@ -159,6 +159,6 @@ assert 'python3 scripts/tests/test-immortalwrt-sdk.py' in builder_workflow
 assert 'gh release create "$TAG"' in builder_workflow
 assert '"$SDK_ARCHIVE"' in builder_workflow
 assert 'gh workflow run firmware-immortalwrt.yml' in builder_workflow
-assert 'cron: "43 5 * * 0"' in builder_workflow
+assert 'schedule:' not in builder_workflow
 
 print("PASS matching SDK metadata, feed pinning, artifact integrity and CI publishing")

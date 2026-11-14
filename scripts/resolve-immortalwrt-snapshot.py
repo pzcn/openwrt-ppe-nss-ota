@@ -136,6 +136,15 @@ def checked(blob: bytes, index: dict[str, str], filename: str) -> str:
     return expected
 
 
+def libc_version(checksums: dict[str, str]) -> str:
+    """Official libc APK version: our locally built libc must match it."""
+    found = [m.group(1) for name in checksums
+             if (m := re.fullmatch(r"packages/libc-([0-9][A-Za-z0-9._+~-]*)\.apk", name))]
+    if len(found) != 1:
+        raise ValueError(f"Expected one official libc APK, got {len(found)}")
+    return found[0]
+
+
 def choose_asset(checksums: dict[str, str], kind: str) -> dict[str, str]:
     names = [name for name in checksums if name.startswith("immortalwrt-" + kind + "-qualcommax-ipq60xx")
              and name.endswith(".tar.zst") and "/" not in name]
@@ -219,6 +228,7 @@ def resolve(fixture: Path | None = None) -> dict:
             "arch_apks": sum(n.endswith(".apk") for n in arch_sums),
         },
         "official_kernel_abi": abi,
+        "libc_version": libc_version(sums),
         "compatibility": {
             "official_kernel_line": kernel_line,
             "port_requires_kernel_line": PORT_KERNEL_LINE,

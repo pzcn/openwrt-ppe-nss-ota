@@ -138,6 +138,9 @@ def check_metadata(path: Path) -> tuple[dict, bool]:
         expected = release_tag(doc["immortalwrt_commit"], doc["ppe_nss_commit"],
                                doc["base_overlay_commit"], recorded_core,
                                packages, feeds)
+        if doc.get("build_mode") == "hybrid":
+            expected += hybrid_tag_suffix(doc.get("official_snapshot") or {})
+            check_hybrid_info(doc.get("hybrid") or {})
     if doc.get("tag") != expected:
         raise ValueError("Builder release tag and recorded provenance do not match")
     for name in ("archive", "overlay", "packages"):
@@ -154,6 +157,35 @@ def tag(immortal: str, ppe: str, base: str, root: Path = ROOT,
         feeds: str = "0" * 64, mode: str = "full") -> str:
     return release_tag(immortal, ppe, base, fingerprint(root, mode),
                        package_fingerprint(root), feeds)
+
+
+def hybrid_tag_suffix(snapshot: dict) -> str:
+    """Hybrid Builders are also versioned by the official snapshot they mirror.
+
+    A refresh reuses the kernel tree, PPE and recipe of its parent, so without
+    this suffix a new userland would collide with the parent's tag.
+    """
+    fp = snapshot.get("lock_fingerprint", "")
+    if not FP_SHA.fullmatch(fp):
+        raise ValueError("Hybrid Builder lacks its official snapshot lock fingerprint")
+    return "-s" + fp[:8]
+
+
+HYBRID_KEYS = ("identity", "kernel_identity", "kernel_built_at", "keyring_commit")
+
+
+def check_hybrid_info(info: dict) -> dict:
+    for key in ("identity", "kernel_identity"):
+        if not FP_SHA.fullmatch(str(info.get(key, ""))):
+            raise ValueError(f"Hybrid metadata has an invalid {key}")
+    check_sha(info.get("keyring_commit", ""))
+    stamp = str(info.get("kernel_built_at", ""))
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", stamp):
+        raise ValueError("Hybrid metadata has an invalid kernel_built_at")
+    parent = info.get("kernel_parent")
+    if parent is not None and not re.fullmatch(r"imm-builder-[A-Za-z0-9._-]+", str(parent)):
+        raise ValueError("Hybrid metadata has an invalid kernel_parent")
+    return {key: info[key] for key in HYBRID_KEYS} | {"kernel_parent": parent}
 
 
 def snapshot_provenance(lock_path: Path) -> dict:
@@ -202,6 +234,11 @@ def metadata(args: argparse.Namespace) -> None:
     }
     if lock is not None:
         doc["official_snapshot"] = snapshot_provenance(lock)
+        doc["tag"] += hybrid_tag_suffix(doc["official_snapshot"])
+        info = getattr(args, "hybrid_info", None)
+        if info is None:
+            raise ValueError("A hybrid Builder records its identity and kernel lineage")
+        doc["hybrid"] = check_hybrid_info(json.loads(info.read_text()))
     args.output.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
 
 
@@ -235,6 +272,7 @@ def main() -> None:
     m.add_argument("--feeds", default="0" * 64)
     m.add_argument("--mode", choices=MODES, default="full")
     m.add_argument("--snapshot-lock", type=Path)
+    m.add_argument("--hybrid-info", type=Path)
     m.add_argument("--archive", required=True, type=Path)
     m.add_argument("--overlay", required=True, type=Path)
     m.add_argument("--packages", required=True, type=Path)

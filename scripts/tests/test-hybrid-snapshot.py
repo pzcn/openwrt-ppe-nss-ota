@@ -60,6 +60,7 @@ def fixture(root: Path, *, kernel_abi: str = KMOD_ABI) -> tuple[Path, Path]:
         put_index(target, "packages/packages.adb", b"binary target apk index"),
         put_index(target, f"kmods/{kernel_abi}/packages.adb", b"binary kmod index"),
         put_index(target, "packages/sample-1.0-r1.apk", b"tarred target apk"),
+        put_index(target, "packages/libc-1.2.6-r5.apk", b"official libc"),
     ]
     for kind in ("imagebuilder", "sdk", "toolchain"):
         target_entries.append(
@@ -89,7 +90,8 @@ with tempfile.TemporaryDirectory() as directory:
     assert first["official_kernel_abi"] == KMOD_ABI
     assert first["compatibility"]["ppe_port_kernel_line_matches"]
     assert not first["compatibility"]["checksum_signature_verified"]
-    assert first["package_counts"] == {"target_apks": 1, "arch_apks": 1}
+    assert first["package_counts"] == {"target_apks": 2, "arch_apks": 1}
+    assert first["libc_version"] == "1.2.6-r5"
     assert set(first["package_indexes"]["architecture"]) == set(snap.ARCH_REPOS)
     assert set(first["assets"]) == {"imagebuilder", "sdk", "toolchain"}
     assert snap.classify(first, first) == "unchanged"

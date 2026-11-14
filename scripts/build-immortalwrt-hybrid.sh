@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
-# Hybrid Builder: compile only the PPE/NSS kernel, its kmods, base-files and
-# the custom packages; take every other APK from the official ImmortalWrt
-# snapshot; then package a standalone ImageBuilder + matching SDK.
+# Hybrid Builder, full mode: compile the PPE/NSS kernel side (kernel, kmods,
+# base-files, toolchain libs, custom packages); take every other APK from the
+# official ImmortalWrt snapshot; package a standalone ImageBuilder + SDK.
 #
 #   kernel tree   ImmortalWrt master + PPE/NSS port (same as the full Builder)
 #   feeds         pinned to the commits of the official arch package repos
 #   toolchain     official snapshot toolchain (same libc/libgcc as userland)
-#   userland      official APKs, signed index + SHA256 verified, mirrored
-#                 into the ImageBuilder so it never depends on a moving URL
+#   userland      official APKs, signed index + per-package signature +
+#                 SHA256, mirrored into the IB so it never depends on a
+#                 moving URL
 #
-# Inputs (environment):
-#   SNAPSHOT_LOCK        output of resolve-immortalwrt-snapshot.py (required)
-#   EXPECTED_*_SHA       optional pins from the resolve job
+# When only the userland changes, refresh-hybrid-builder.sh reuses this
+# build's output instead (no compilation at all).
+#
+# Environment: SNAPSHOT_LOCK (required), EXPECTED_*_SHA (optional pins).
 set -Eeuo pipefail
 trap 'echo "::error::Hybrid Builder failed at line $LINENO: $BASH_COMMAND" >&2' ERR
 
 ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "$0")/.." && pwd)}"
+# shellcheck source=hybrid-common.sh
+source "$ROOT/scripts/hybrid-common.sh"
 WORK="${RUNNER_TEMP:-/tmp}/immortal-hybrid"
 OUT="${HYBRID_OUT_DIR:-$ROOT/out-hybrid}"
 IMM="$WORK/immortalwrt"
@@ -26,24 +30,14 @@ LOCK="$(realpath "${SNAPSHOT_LOCK:?Set SNAPSHOT_LOCK to snapshot-lock.json}")"
 CACHE_ROOT="${IMMORTAL_CACHE_ROOT:-$ROOT/.build-cache}"
 CACHE_DL="$CACHE_ROOT/dl"
 CACHE_CCACHE="$CACHE_ROOT/ccache"
-HB=(python3 "$ROOT/scripts/hybrid_builder.py")
 JOBS="$(nproc)"
 mkdir -p "$WORK" "$OUT" "$CACHE_DL" "$CACHE_CCACHE"
 : > "$OUT/timings.tsv"
-
-jq -e '.schema == 2 and .target == "qualcommax/ipq60xx" and
-       .architecture == "aarch64_cortex-a53"' "$LOCK" >/dev/null || {
-  echo "::error::Not an ipq60xx snapshot lock: $LOCK" >&2; exit 1;
-}
+hybrid_check_lock "$LOCK"
 TARGET_URL="$(jq -er '.target_url' "$LOCK")"
-ARCH_URL="$(jq -er '.architecture_url' "$LOCK")"
-[[ "$TARGET_URL" == https://downloads.immortalwrt.org/snapshots/targets/qualcommax/ipq60xx &&
-   "$ARCH_URL" == https://downloads.immortalwrt.org/snapshots/packages/aarch64_cortex-a53 ]] || {
-  echo "::error::Unexpected snapshot URLs in lock" >&2; exit 1;
-}
 
-# Run one buildroot phase, record its duration, and on failure re-run only
-# that phase serially and verbosely so the first real error is visible.
+# Run one buildroot phase, record its duration; on failure re-run only that
+# phase serially and verbosely so the first real error is visible.
 phase() {
   local name="$1"; shift
   local begin; begin="$(date +%s)"
@@ -57,25 +51,22 @@ phase() {
   echo "::endgroup::"
   printf '%s\t%s\n' "$name" "$(( $(date +%s) - begin ))" >> "$OUT/timings.tsv"
 }
-# `! cmd` never trips `set -e`; fail explicitly when a forbidden match exists.
-refuse() {
-  local why="$1"; shift
-  if "$@"; then echo "::error::$why" >&2; exit 1; fi
-}
 mark() { printf '%s\t%s\n' "$1" "$(( $(date +%s) - $2 ))" >> "$OUT/timings.tsv"; }
 
-# Clone a branch, or exactly the commit the resolve job saw.
-checkout() {
+# Fetch exactly one commit (a pin from the resolve job, else the branch head).
+# Works in a directory that already holds restored build caches.
+checkout() {  # url branch sha dest
   local url="$1" branch="$2" sha="$3" dest="$4"
+  mkdir -p "$dest"
+  git init -q "$dest"
+  git -C "$dest" remote add origin "$url"
   if [[ -n "$sha" ]]; then
     [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Bad pin for $url" >&2; exit 1; }
-    git init -q "$dest"
-    git -C "$dest" remote add origin "$url"
     git -C "$dest" fetch -q --depth 1 origin "$sha"
-    git -C "$dest" -c advice.detachedHead=false checkout -q --detach FETCH_HEAD
   else
-    git clone -q --depth 1 --single-branch --branch "$branch" "$url" "$dest"
+    git -C "$dest" fetch -q --depth 1 origin "refs/heads/$branch"
   fi
+  git -C "$dest" -c advice.detachedHead=false checkout -q --detach FETCH_HEAD
   git -C "$dest" rev-parse HEAD
 }
 head_of() {
@@ -84,14 +75,9 @@ head_of() {
   [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Cannot resolve $1 $2" >&2; exit 1; }
   printf '%s\n' "$sha"
 }
-fetch_verified() {  # url dest sha256
-  curl -fsSL --retry 3 --connect-timeout 20 --max-time 300 "$1" -o "$2"
-  printf '%s  %s\n' "$3" "$2" | sha256sum -c --status || {
-    echo "::error::SHA256 mismatch for $1 (snapshot rotated? retry later)" >&2; exit 1;
-  }
-}
 
 T0="$(date +%s)"
+BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 # ---------------------------------------------------------------------------
 # 1. Sources
 # ---------------------------------------------------------------------------
@@ -105,6 +91,12 @@ printf 'ImmortalWrt=%s\nPPE/NSS=%s\nPPE builder=%s\nNSS feed=%s\nPPE QoS LuCI=%s
   "$IMM_SHA" "$PPE_SHA" "$BASE_SHA" "$NSS_SHA" "$PPE_LUCI_SHA" "$SNAPSHOT" \
   "$(git -C "$ROOT" rev-parse --short=8 HEAD)" | tee "$OUT/source-commits.txt"
 
+KERNEL_IDENTITY="$("${HB[@]}" kernel-identity --lock "$LOCK" --ppe "$PPE_SHA" --base "$BASE_SHA" \
+  --nss "$NSS_SHA" --ppe-luci "$PPE_LUCI_SHA")"
+IDENTITY="$("${HB[@]}" identity --lock "$LOCK" --ppe "$PPE_SHA" --base "$BASE_SHA" \
+  --nss "$NSS_SHA" --ppe-luci "$PPE_LUCI_SHA" \
+  --packages "$(python3 "$ROOT/scripts/immortalwrt_builder.py" package-fingerprint)")"
+
 for name in dl .ccache; do
   [[ ! -e "$IMM/$name" ]] || { echo "::error::Unexpected $name in clone" >&2; exit 1; }
 done
@@ -113,6 +105,15 @@ ln -s "$CACHE_CCACHE" "$IMM/.ccache"
 export CCACHE_DIR="$CACHE_CCACHE"
 ccache --max-size 3G >/dev/null
 ccache --zero-stats >/dev/null
+
+# Cached host tools (restored by the workflow into staging_dir/build_dir):
+# make tools/ mtimes content-derived so their stamps stay valid, and drop the
+# top-level stamps so make re-checks every tool against its own stamp.
+"${HB[@]}" normalize-mtimes --repo "$IMM" --path tools
+rm -f "$IMM"/staging_dir/host/stamp/.tools_* 2>/dev/null || true
+if [[ -d "$IMM/staging_dir/host/bin" ]]; then
+  echo "Reusing cached host tools: $(du -sh "$IMM/staging_dir/host" "$IMM/build_dir/host" 2>/dev/null | awk '{print $1}' | paste -sd/)"
+fi
 
 export IMM_SOURCE_DIR="$IMM" PPE_SOURCE_DIR="$PPE"
 bash "$ROOT/scripts/port-ppe-nss-to-immortalwrt.sh"
@@ -150,8 +151,7 @@ FEEDS_FINGERPRINT="$(
   git -C "$PPE_LUCI" rev-parse HEAD
 )"
 FEEDS_FINGERPRINT="$(printf '%s\n' "$FEEDS_FINGERPRINT" | sha256sum | cut -d' ' -f1)"
-EXPECTED_FEEDS="$("${HB[@]}" fingerprint feeds --lock "$LOCK" --nss "$NSS_SHA" --ppe-luci "$PPE_LUCI_SHA")"
-[[ "$FEEDS_FINGERPRINT" == "$EXPECTED_FEEDS" ]] || {
+[[ "$FEEDS_FINGERPRINT" == "$("${HB[@]}" fingerprint feeds --lock "$LOCK" --nss "$NSS_SHA" --ppe-luci "$PPE_LUCI_SHA")" ]] || {
   echo "::error::Feed checkouts differ from the official snapshot pins" >&2; exit 1;
 }
 printf 'Feeds=%s\n' "$FEEDS_FINGERPRINT" >> "$OUT/source-commits.txt"
@@ -222,49 +222,18 @@ APK="$IMM/staging_dir/host/bin/apk"
 test -x "$APK"
 
 # ---------------------------------------------------------------------------
-# 5. Official indexes (signature + SHA256) and the userland closure
+# 5. Official indexes and the userland closure — before the long compile
 # ---------------------------------------------------------------------------
 T1="$(date +%s)"
-IDX="$WORK/official-indexes"
 KEYS="$WORK/official-keys"
-mkdir -p "$IDX" "$KEYS"
 KEYRING_SHA="$(sed -n 's/^PKG_SOURCE_VERSION:=\([0-9a-f]\{40\}\)$/\1/p' package/system/openwrt-keyring/Makefile)"
-[[ -n "$KEYRING_SHA" ]]
-git init -q "$WORK/keyring"
-git -C "$WORK/keyring" remote add origin https://github.com/immortalwrt/keyring.git
-git -C "$WORK/keyring" fetch -q --depth 1 origin "$KEYRING_SHA"
-git -C "$WORK/keyring" -c advice.detachedHead=false checkout -q --detach FETCH_HEAD
-cp "$WORK/keyring/apk/"*.pem "$KEYS/"
-test -s "$KEYS/immortalwrt-snapshots.pem"
-
-fetch_verified "$TARGET_URL/sha256sums" "$IDX/target.sha256sums" "$(jq -er '.target_checksums_sha256' "$LOCK")"
-fetch_verified "$ARCH_URL/sha256sums" "$IDX/arch.sha256sums" "$(jq -er '.arch_checksums_sha256' "$LOCK")"
-index_args=()
-for repo in target base packages luci routing telephony; do
-  if [[ "$repo" == target ]]; then
-    rel="$(jq -er '.package_indexes.target.filename' "$LOCK")"
-    sha="$(jq -er '.package_indexes.target.sha256' "$LOCK")"
-    url="$TARGET_URL/$rel"
-  else
-    rel="$(jq -er --arg r "$repo" '.package_indexes.architecture[$r].filename' "$LOCK")"
-    sha="$(jq -er --arg r "$repo" '.package_indexes.architecture[$r].sha256' "$LOCK")"
-    url="$ARCH_URL/$rel"
-  fi
-  fetch_verified "$url" "$IDX/$repo.adb" "$sha"
-  # Trust root: the ImmortalWrt snapshot key from the pinned keyring commit.
-  "$APK" --keys-dir "$KEYS" verify "$IDX/$repo.adb" || {
-    echo "::error::Official $repo index is not signed by the ImmortalWrt keyring" >&2; exit 1;
-  }
-  "$APK" adbdump --format json "$IDX/$repo.adb" > "$IDX/$repo.json"
-  index_args+=(--index "$repo=$IDX/$repo.json")
-done
-
+hybrid_official_keys "$KEYRING_SHA" "$KEYS" "$WORK"
+hybrid_official_indexes "$LOCK" "$APK" "$KEYS" "$WORK/official-indexes"
 : > "$WORK/extra-local.txt"
 for attempt in 1 2; do
   "${HB[@]}" plan --packageinfo tmp/.packageinfo --config .config \
     --extra-local "$WORK/extra-local.txt" --output "$OUT/local-plan.json"
-  "${HB[@]}" closure --plan "$OUT/local-plan.json" --lock "$LOCK" "${index_args[@]}" \
-    --target-sums "$IDX/target.sha256sums" --arch-sums "$IDX/arch.sha256sums" \
+  "${HB[@]}" closure --plan "$OUT/local-plan.json" --lock "$LOCK" "${HYBRID_INDEX_ARGS[@]}" \
     --output "$OUT/official-apks.json"
   fallback="$(jq -r '.local_fallback[]' "$OUT/official-apks.json")"
   [[ -n "$fallback" ]] || break
@@ -282,16 +251,15 @@ mapfile -t USER_TARGETS < <(jq -r '.userland_compile_targets[]' "$OUT/local-plan
 phase kernel target/compile
 phase kmods "${KERNEL_TARGETS[@]}"
 (( ${#HOST_TARGETS[@]} == 0 )) || phase host-packages "${HOST_TARGETS[@]}"
-# NO_DEPS: these are scripts/LuCI/base files; their userland dependencies
-# come from the official repositories and must not be rebuilt here.
+# NO_DEPS: scripts/LuCI/base files; their userland dependencies come from the
+# official repositories and must not be rebuilt here.
 phase local-userland NO_DEPS=1 "${USER_TARGETS[@]}"
 
 PKG_DIR="$(make -s val.PACKAGE_DIR | tail -n1)"
 [[ "$PKG_DIR" == "$IMM/bin/targets/qualcommax/ipq60xx/packages" ]]
-local_apk() { find "$IMM/bin" -type f -name "$1-[0-9]*.apk" -print -quit; }
 not_built=()
 while IFS= read -r name; do
-  [[ -n "$(local_apk "$name")" ]] || not_built+=("$name")
+  [[ -n "$(find "$IMM/bin" -type f -name "$name-[0-9]*.apk" -print -quit)" ]] || not_built+=("$name")
 done < <(jq -r '.local_packages[].apk_name' "$OUT/local-plan.json")
 (( ${#not_built[@]} == 0 )) || { echo "::error::Not built locally: ${not_built[*]}" >&2; exit 1; }
 find "$IMM/bin" -type f -name '*.apk' -printf '%f\n' | sort > "$OUT/local-apks.txt"
@@ -300,31 +268,8 @@ find "$IMM/bin" -type f -name '*.apk' -printf '%f\n' | sort > "$OUT/local-apks.t
 # 7. Mirror the official userland into the standalone ImageBuilder repository
 # ---------------------------------------------------------------------------
 T2="$(date +%s)"
-mkdir -p "$PKG_DIR"
-: > "$WORK/mirror.tsv"
-skipped=0
-while IFS=$'\t' read -r name file url sha; do
-  # A local build of the same package always wins.
-  if [[ -n "$(local_apk "$name")" ]]; then skipped=$((skipped + 1)); continue; fi
-  printf '%s\t%s\t%s\n' "$file" "$url" "$sha" >> "$WORK/mirror.tsv"
-done < <(jq -r '.mirror[] | [.name, .filename, .url, .sha256] | @tsv' "$OUT/official-apks.json")
-export PKG_DIR
-while IFS=$'\t' read -r file url sha; do
-  printf '%s\0%s\0%s\0' "$file" "$url" "$sha"
-done < "$WORK/mirror.tsv" | xargs -0 -n3 -P8 sh -c '
-  curl -fsSL --retry 3 --connect-timeout 20 --max-time 300 "$1" -o "$PKG_DIR/$0" &&
-  printf "%s  %s\n" "$2" "$PKG_DIR/$0" | sha256sum -c --status ||
-  { echo "::error::Official APK failed SHA256: $0" >&2; exit 255; }'
-MIRRORED="$(wc -l < "$WORK/mirror.tsv")"
-# Official snapshots set SIGN_EACH_PACKAGE: every mirrored APK must carry a
-# valid ImmortalWrt signature, not only match sha256sums.
-mapfile -t MIRROR_FILES < <(cut -f1 "$WORK/mirror.tsv" | sed "s|^|$PKG_DIR/|")
-(( ${#MIRROR_FILES[@]} == 0 )) || "$APK" --keys-dir "$KEYS" verify "${MIRROR_FILES[@]}" || {
-  echo "::error::Mirrored official APKs failed signature verification" >&2; exit 1;
-}
-echo "Mirrored $MIRRORED official APKs ($skipped replaced by local builds)."
+hybrid_mirror "$OUT/official-apks.json" "$PKG_DIR" "$APK" "$KEYS" "$WORK" "$IMM/bin"
 mark official-mirror "$T2"
-
 # ImageBuilder ships the staging rootfs keyring; no package/install ran here.
 STAGING_ROOT="$(make -s val.STAGING_DIR_ROOT | tail -n1)"
 [[ "$STAGING_ROOT" == "$IMM"/staging_dir/* ]]
@@ -344,47 +289,22 @@ cp "$IB_ARCHIVE" "$SDK_ARCHIVE" "$OUT/"
 IB_ARCHIVE="$OUT/$(basename "$IB_ARCHIVE")"
 SDK_ARCHIVE="$OUT/$(basename "$SDK_ARCHIVE")"
 (( $(stat -c '%s' "$SDK_ARCHIVE") < 2147483648 ))
+hybrid_check_archive_keys "$IB_ARCHIVE"
 tar -I zstd -tf "$SDK_ARCHIVE" > "$WORK/sdk-contents.txt"
 for required in '^[^/]+/rules[.]mk$' '^[^/]+/include/kernel[.]mk$' \
   '^[^/]+/staging_dir/toolchain-[^/]+/bin/' \
   '^[^/]+/build_dir/target-[^/]+/linux-[^/]+/linux-[^/]+/Module[.]symvers$'; do
-  grep -Eq "$required" "$WORK/sdk-contents.txt" || {
-    echo "::error::SDK lacks $required" >&2; exit 1;
-  }
+  grep -Eq "$required" "$WORK/sdk-contents.txt" || { echo "::error::SDK lacks $required" >&2; exit 1; }
 done
-refuse 'SDK still contains HomeProxy' grep -Eiq '(^|/)(luci-app-homeproxy|luci-i18n-homeproxy-zh-cn)(/|$)' "$WORK/sdk-contents.txt"
+refuse 'SDK still contains HomeProxy' \
+  grep -Eiq '(^|/)(luci-app-homeproxy|luci-i18n-homeproxy-zh-cn)(/|$)' "$WORK/sdk-contents.txt"
 
-# The package list a firmware starts from: exactly what this IB resolves.
 T3="$(date +%s)"
 IB_TEST="$WORK/ib-manifest"
 mkdir -p "$IB_TEST"
 tar -I zstd -xf "$IB_ARCHIVE" -C "$IB_TEST"
 IB_DIR="$(find "$IB_TEST" -mindepth 1 -maxdepth 1 -type d -name '*imagebuilder*' -print -quit)"
-REQUEST=""
-while IFS= read -r line || [[ -n "$line" ]]; do line="${line%%#*}"; REQUEST+=" $line"; done < "$ROOT/config/add.txt"
-while IFS= read -r line || [[ -n "$line" ]]; do
-  line="${line%%#*}"; for p in $line; do REQUEST+=" -$p"; done
-done < "$ROOT/config/remove.txt"
-make -C "$IB_DIR" -s manifest PROFILE=jdcloud_re-ss-01 STRIP_ABI=1 PACKAGES="$REQUEST" \
-  > "$WORK/ib.manifest"
-awk 'NF >= 3 && $2 == "-" && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
-     $1 != "kernel" && $1 != "libc" && $1 != "base-files" { print $1 }' \
-  "$WORK/ib.manifest" | sort -u > "$OUT/imagebuilder-packages.txt"
-for required in kmod-nss-wifi-drv luci-app-sing-box sing-box luci-app-autoreboot \
-  luci-app-cpufreq default-settings-chn autocore luci-app-ddns-go kmod-fs-f2fs \
-  qca-ppe-qos luci-app-qca-ppe-qos luci-theme-aurora sqm-scripts; do
-  grep -Fxq "$required" "$OUT/imagebuilder-packages.txt" || {
-    echo "::error::ImageBuilder manifest missing $required" >&2; exit 1;
-  }
-done
-for excluded in luci-app-homeproxy luci-app-diskman luci-app-statistics; do
-  refuse "Image still includes $excluded" grep -Fxq "$excluded" "$OUT/imagebuilder-packages.txt"
-done
-# Every kmod in the image must be one we compiled for this kernel.
-awk '$1 ~ /^kmod-/ { print $1 "-" $3 ".apk" }' "$WORK/ib.manifest" | while read -r apk; do
-  grep -Fxq "$apk" "$OUT/local-apks.txt" || { echo "::error::Foreign kmod in image: $apk" >&2; exit 1; }
-done
-cp "$WORK/ib.manifest" "$OUT/imagebuilder.manifest"
+hybrid_ib_manifest "$IB_DIR" "$OUT" "$OUT/local-apks.txt"
 mark ib-manifest "$T3"
 
 # ---------------------------------------------------------------------------
@@ -396,7 +316,9 @@ rsync -a "$BUILDER/devices/common/files.ppe-nss/" "$BASE_STAGE/"
 install -D -m 0644 "$COMPAT_FILES/lib/upgrade/platform.sh" "$BASE_STAGE/lib/upgrade/platform.sh"
 tar -czf "$OUT/base-overlay.tar.gz" -C "$BASE_STAGE" .
 cd "$ROOT"
+hybrid_info "$WORK/hybrid-info.json" "$IDENTITY" "$KERNEL_IDENTITY" "$BUILT_AT" "" "$KEYRING_SHA"
 python3 scripts/immortalwrt_builder.py metadata --mode hybrid --snapshot-lock "$LOCK" \
+  --hybrid-info "$WORK/hybrid-info.json" \
   --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" --feeds "$FEEDS_FINGERPRINT" \
   --archive "$IB_ARCHIVE" --overlay "$OUT/base-overlay.tar.gz" \
   --packages "$OUT/imagebuilder-packages.txt" --output "$OUT/builder-metadata.json"
@@ -419,19 +341,7 @@ mark smoke-tests "$T4"
 
 cp "$LOCK" "$OUT/snapshot-lock.json"
 cp "$IMM/.config" "$OUT/immortalwrt.config"
-CCACHE_DIR="$CACHE_CCACHE" ccache --show-stats > "$OUT/ccache-stats.txt" || true
+ccache --show-stats > "$OUT/ccache-stats.txt" || true
 mark total "$T0"
-if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-  {
-    echo "## Hybrid Builder $(jq -r .tag "$OUT/builder-metadata.json")"
-    echo "- Official snapshot: \`$SNAPSHOT\`"
-    echo "- Local packages: $(jq '.local_packages | length' "$OUT/local-plan.json") ($(jq '.local_kmods | length' "$OUT/local-plan.json") kmods)"
-    echo "- Official APKs mirrored: $MIRRORED"
-    echo "- Image packages: $(wc -l < "$OUT/imagebuilder-packages.txt")"
-    echo ""
-    echo "| Phase | Seconds |"
-    echo "|---|---:|"
-    awk -F'\t' '{ printf "| %s | %s |\n", $1, $2 }' "$OUT/timings.tsv"
-  } >> "$GITHUB_STEP_SUMMARY"
-fi
+hybrid_summary "$OUT" "Hybrid Builder (full build)"
 echo "Hybrid Builder ready: $(jq -r .tag "$OUT/builder-metadata.json")"

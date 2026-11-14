@@ -17,9 +17,12 @@ without a buildroot.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import hashlib
 import json
+import os
 import re
+import subprocess
 import sys
 from collections import deque
 from pathlib import Path
@@ -54,15 +57,24 @@ LOCAL_SOURCES = frozenset(("package/libs/toolchain",))
 LOCAL_FEEDS = frozenset(("nss",))
 # Sources that never belong in the image repository.
 IGNORED_SOURCES = frozenset(("package/system/apk",))
-HYBRID_CORE_FILES = (
+# Inputs of the compiled kernel side (kernel, kmods, DTB, base-files, libc,
+# SDK). A change here needs a full hybrid build; anything else is a refresh.
+KERNEL_CORE_FILES = (
     "scripts/build-immortalwrt-hybrid.sh",
-    "scripts/hybrid_builder.py",
-    "scripts/resolve-immortalwrt-snapshot.py",
     "scripts/reuse-official-toolchain.sh",
     "scripts/port-ppe-nss-to-immortalwrt.sh",
     "scripts/apply-immortalwrt-compat.sh",
     "config/immortalwrt-re-ss-01.config",
 )
+HYBRID_CORE_FILES = KERNEL_CORE_FILES + (
+    "scripts/hybrid-common.sh",
+    "scripts/refresh-hybrid-builder.sh",
+    "scripts/hybrid_builder.py",
+    "scripts/resolve-immortalwrt-snapshot.py",
+)
+# A kernel built from master is reused at most this long before it is rebuilt
+# from the then-current master (security/stable updates still flow in).
+MAX_KERNEL_AGE_DAYS = 14
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -527,11 +539,106 @@ def feeds_fingerprint(lock: dict, nss_sha: str, ppe_luci_sha: str) -> str:
     return hashlib.sha256("".join(h + "\n" for h in heads).encode("ascii")).hexdigest()
 
 
-def core_fingerprint(root: Path = ROOT) -> str:
+def _files_fingerprint(names: tuple[str, ...], root: Path) -> str:
     digest = hashlib.sha256()
-    for name in HYBRID_CORE_FILES:
+    for name in names:
         digest.update(name.encode() + b"\0" + (root / name).read_bytes() + b"\0")
     return digest.hexdigest()
+
+
+def core_fingerprint(root: Path = ROOT) -> str:
+    return _files_fingerprint(HYBRID_CORE_FILES, root)
+
+
+def kernel_core_fingerprint(root: Path = ROOT) -> str:
+    return _files_fingerprint(KERNEL_CORE_FILES, root)
+
+
+def kernel_identity(lock: dict, ppe: str, base: str, nss: str, ppe_luci: str,
+                    kernel_core: str) -> str:
+    """Everything the compiled kernel side depends on, master HEAD excluded.
+
+    The official toolchain is identified by its compiler (file name) and the
+    libc version it ships, not by the archive hash that changes with every
+    snapshot: same GCC + musl means the local libc/kmods still match.
+    """
+    for value in (ppe, base, nss, ppe_luci):
+        if not GIT_SHA.fullmatch(value):
+            raise ValueError("Kernel identity inputs must be full SHAs")
+    if not HEX64.fullmatch(kernel_core):
+        raise ValueError("Kernel recipe fingerprint must be SHA256")
+    return sha256_bytes(canonical({
+        "ppe": ppe, "base": base, "nss": nss, "ppe_luci": ppe_luci,
+        "recipe": kernel_core,
+        "toolchain": lock["assets"]["toolchain"]["filename"],
+        "libc": lock["libc_version"],
+    }))
+
+
+def decide(identity_: str, kernel_identity_: str, parent: dict | None,
+           now: dt.datetime, *, force_full: bool = False,
+           max_age_days: int = MAX_KERNEL_AGE_DAYS) -> tuple[str, str]:
+    """skip / refresh / full, given the newest published hybrid Builder."""
+    info = (parent or {}).get("hybrid") or {}
+    if info.get("identity") == identity_ and not force_full:
+        return "skip", "an identical hybrid Builder is already published"
+    if force_full:
+        return "full", "full build requested"
+    if not info:
+        return "full", "no previous hybrid Builder to reuse"
+    if info.get("kernel_identity") != kernel_identity_:
+        return "full", "kernel side changed (PPE/NSS sources, recipe or toolchain)"
+    built = dt.datetime.fromisoformat(info["kernel_built_at"].replace("Z", "+00:00"))
+    age = (now - built).total_seconds() / 86400
+    if age > max_age_days:
+        return "full", f"kernel is {age:.0f} days old; rebuilding from current master"
+    return "refresh", "only official userland or package selection changed"
+
+
+def refresh_plan(parent_plan: dict, add: list[str], remove: list[str]) -> dict:
+    """Reuse the parent's local packages; recompute only the image roots."""
+    plan = json.loads(json.dumps(parent_plan))
+    local = {p["name"] for p in plan["local_packages"]}
+    roots = (set(plan["image_roots"]) | set(add)) - set(remove) - local
+    plan["image_roots"] = sorted(r for r in roots if not r.startswith("kmod-"))
+    # A newly requested kmod cannot be added without rebuilding the kernel side.
+    missing = sorted(n for n in add if n.startswith("kmod-") and n not in local)
+    if missing:
+        raise ValueError("Refresh cannot add kernel modules: " + ", ".join(missing))
+    return plan
+
+
+def package_names(text: str) -> list[str]:
+    names = []
+    for line in text.splitlines():
+        for name in line.split("#", 1)[0].split():
+            if not PKG.fullmatch(name):
+                raise ValueError(f"Bad package name: {name}")
+            names.append(name)
+    return names
+
+
+def normalize_mtimes(repo: Path, paths: list[str]) -> int:
+    """Give tracked files mtimes derived from their content.
+
+    OpenWrt names host-tool 'prepared' stamps after a hash of file paths AND
+    mtimes. A fresh checkout gets new mtimes, which would invalidate every
+    cached host tool; content-derived mtimes make the stamps reproducible
+    while still changing whenever a file's content does. They are far in the
+    past, so restored build stamps are always newer.
+    """
+    out = subprocess.run(["git", "-C", str(repo), "ls-files", "-s", "-z", "--", *paths],
+                         check=True, capture_output=True).stdout
+    count = 0
+    for entry in out.split(b"\0"):
+        if not entry:
+            continue
+        meta, _, path = entry.partition(b"\t")
+        blob = meta.split()[1].decode()
+        stamp = 1_000_000_000 + int(blob[:7], 16)
+        os.utime(repo / path.decode(), (stamp, stamp), follow_symlinks=False)
+        count += 1
+    return count
 
 
 def identity(lock: dict, ppe: str, base: str, nss: str, ppe_luci: str,
@@ -619,8 +726,38 @@ def cmd_identity(args: argparse.Namespace) -> None:
 def cmd_fingerprint(args: argparse.Namespace) -> None:
     if args.kind == "core":
         print(core_fingerprint())
+    elif args.kind == "kernel-core":
+        print(kernel_core_fingerprint())
     else:
         print(feeds_fingerprint(_read_json(args.lock), args.nss, args.ppe_luci))
+
+
+def cmd_kernel_identity(args: argparse.Namespace) -> None:
+    print(kernel_identity(_read_json(args.lock), args.ppe, args.base, args.nss,
+                          args.ppe_luci, args.kernel_core or kernel_core_fingerprint()))
+
+
+def cmd_decide(args: argparse.Namespace) -> None:
+    parent = _read_json(args.parent) if args.parent and args.parent.is_file() else None
+    mode, reason = decide(args.identity, args.kernel_identity, parent,
+                          dt.datetime.now(dt.timezone.utc), force_full=args.force_full,
+                          max_age_days=args.max_age_days)
+    print(f"mode={mode}")
+    print(f"reason={reason}")
+    print(f"parent={(parent or {}).get('tag', '') if mode == 'refresh' else ''}")
+
+
+def cmd_refresh_plan(args: argparse.Namespace) -> None:
+    plan = refresh_plan(_read_json(args.parent_plan),
+                        package_names(args.add.read_text()),
+                        package_names(args.remove.read_text()))
+    args.output.write_text(json.dumps(plan, indent=2) + "\n")
+    print(f"Refresh: {len(plan['local_packages'])} reused local packages, "
+          f"{len(plan['image_roots'])} official image roots")
+
+
+def cmd_normalize_mtimes(args: argparse.Namespace) -> None:
+    print(f"Normalized mtimes of {normalize_mtimes(args.repo, args.path)} files")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -653,8 +790,31 @@ def main(argv: list[str] | None = None) -> None:
         s.add_argument(f"--{name}", required=True)
     s.add_argument("--core")
     s.set_defaults(func=cmd_identity)
+    s = sub.add_parser("kernel-identity")
+    s.add_argument("--lock", type=Path, required=True)
+    for name in ("ppe", "base", "nss", "ppe-luci"):
+        s.add_argument(f"--{name}", required=True)
+    s.add_argument("--kernel-core")
+    s.set_defaults(func=cmd_kernel_identity)
+    s = sub.add_parser("decide")
+    s.add_argument("--identity", required=True)
+    s.add_argument("--kernel-identity", required=True)
+    s.add_argument("--parent", type=Path, help="builder-metadata.json of the newest hybrid Builder")
+    s.add_argument("--force-full", action="store_true")
+    s.add_argument("--max-age-days", type=int, default=MAX_KERNEL_AGE_DAYS)
+    s.set_defaults(func=cmd_decide)
+    s = sub.add_parser("refresh-plan")
+    s.add_argument("--parent-plan", type=Path, required=True)
+    s.add_argument("--add", type=Path, required=True)
+    s.add_argument("--remove", type=Path, required=True)
+    s.add_argument("--output", type=Path, required=True)
+    s.set_defaults(func=cmd_refresh_plan)
+    s = sub.add_parser("normalize-mtimes")
+    s.add_argument("--repo", type=Path, required=True)
+    s.add_argument("--path", action="append", required=True)
+    s.set_defaults(func=cmd_normalize_mtimes)
     s = sub.add_parser("fingerprint")
-    s.add_argument("kind", choices=("core", "feeds"))
+    s.add_argument("kind", choices=("core", "kernel-core", "feeds"))
     s.add_argument("--lock", type=Path)
     s.add_argument("--nss")
     s.add_argument("--ppe-luci")
