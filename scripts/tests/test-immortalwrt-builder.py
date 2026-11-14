@@ -211,7 +211,8 @@ assert "gh workflow run firmware-immortalwrt.yml" in builder_workflow
 assert "PUBLISH_RELEASE: \"false\"" in builder_workflow
 assert "scripts/repack-immortalwrt.sh" in firmware_workflow
 assert "run: bash scripts/build-immortalwrt.sh" not in firmware_workflow
-assert "19 4 * * *" in firmware_workflow
+assert 'workflow_call:' in firmware_workflow
+assert 'cron: "37 2 * * *"' in (ROOT / ".github/workflows/dual-device-immortalwrt.yml").read_text()
 assert 'schedule:' not in builder_workflow  # manual fallback; hybrid is scheduled
 assert "workflow_dispatch:" in builder_workflow
 assert "needs_builder" not in builder_workflow
