@@ -101,6 +101,21 @@ with tempfile.TemporaryDirectory() as d:
                    check=True, capture_output=True)
     assert (staging / "usr/sbin/ppe-update").is_file()
     assert (staging / "etc/init.d/ppe-update").is_file()
+    # Shared Arthur/MX LuCI features must not drift. MX keeps its own OTA
+    # identity and native NAND upgrade, but uses the same read-only PPE/NSS
+    # monitor, Chinese language defaults and feed retention.
+    for required in (
+        "usr/share/rpcd/ucode/luci.ppe-nss-monitor",
+        "usr/libexec/ppe-nss-telemetry",
+        "usr/share/luci/menu.d/luci-app-ppe-nss-monitor.json",
+        "www/luci-static/resources/view/status/ppe-nss-monitor-native.js",
+        "etc/uci-defaults/95-luci-preferences",
+        "etc/uci-defaults/98-keep-immortalwrt-apk-feed",
+    ):
+        assert (staging / required).is_file(), f"Missing shared feature: {required}"
+    for excluded in ("etc/config/drcom", "etc/init.d/drcom",
+                     "usr/libexec/drcom-web"):
+        assert not (staging / excluded).exists(), f"DrCOM exclusion drift: {excluded}"
     assert not (staging / "etc/uci-defaults/99-remove-ppe-update").exists()
     assert not (staging / "lib/upgrade/platform.sh").exists()
     assert not (staging / "etc/config/fstab").exists()
