@@ -88,3 +88,11 @@
 - 添加 `scripts/audit-swap-runtime-readiness.py`：比较 **官方原版 SquashFS** 与 APK-only 混合目录的 boot/board/init/upgrade 核心文件，给出缺失和哈希差异清单，不自动修复或照搬可能不兼容的内核关联配置。
 - 扫描每个 `.ko` 内的 `vermagic` 版本串是否为 Julius 6.18.60，记录缺失、错误或无法解析的模块，并检查 modules.dep、modules.alias、F2FS、NSS Wi-Fi 和 WireGuard；版本串相同仍 **不等于**完成实际符号 ABI 或硬件验证。
 - 新增独立测试和 CI 报告 `boot-runtime-static-audit.json`。审计结果尚需下一轮 CI 验证，不会自动放行镜像发布；`main`/正式 Builder/OTA 保持不变。
+
+## 2026-11-14：真实 CI 报告与 ImageBuilder finalization 排查
+
+- [#43476553612](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43476553612) **成功**：原版 133 个启动相关路径与混合 rootfs 逐个对比，缺失 **0**，相同 **131**，不同 **2**（`etc/config/firewall`、`etc/config/openssl`）；混合 rootfs 新增 `etc/config/nss-wifi`、`etc/init.d/nss-wifi`、`etc/uci-defaults/90-nss-wifi-flowtable`。
+- 全部 **103** 个实际扫描到的 `.ko` 含有与 Julius **6.18.60** 一致的 `vermagic` release 字符串，无缺失/不匹配；这是**字符串级**静态检查而非内核符号/真机运行证明。
+- scratch root 未发现 `modules.dep` 与 `modules.alias`。不能自动认为这是损坏，因为上游 OpenWrt ImageBuilder 的 `package_install` 也使用 `apk add --no-scripts`，后续 `prepare_rootfs` 负责运行提取的 `*.post-install` 脚本并创建服务启用链接。不能把当前临时 APK-only 根文件系统直接当作最终设备 rootfs。
+- 新增 `scripts/audit-swap-boot-finalization.py` 与对应单测：只读对比原版/Julius/混合系统的 `/etc/rc.d` 服务软链接、`lib/modules/<release>/modules.{dep,alias,builtin,order}`、`lib/apk/db/scripts.tar.gz` 安装后脚本数量。绝不执行 APK post-install、也不替代完整 ImageBuilder finalization。
+- 该轮新 CI 尚待验证。后续若需要执行真正后处理，应在独立隔离的 ImageBuilder 流程中，并明确处理模块索引、服务启用状态及升级钩子，不能跳过到真实可刷包。
