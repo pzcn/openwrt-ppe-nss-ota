@@ -10,6 +10,8 @@ DOWNLOAD="${2:?downloaded Actions artifact directory}"
 [[ "${GITHUB_REPOSITORY:-}" == "pzcn/openwrt-ppe-nss-ota" ]] || exit 1
 [[ "${GITHUB_SHA:-}" =~ ^[0-9a-f]{40}$ ]] || exit 1
 TAG="preview-singbox-${DEVICE}-1.15.0-alpha.13-g${GITHUB_SHA:0:12}"
+FACTORY=""
+FWTOOL_META=""
 if [[ "$DEVICE" == arthur ]]; then
   BOARD=jdcloud,re-ss-01
   CHANNEL=re-ss-01-immortal-ppe-nss
