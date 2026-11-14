@@ -423,7 +423,7 @@ assert 'if [[ "$BRANCH" != main ]]; then\n  PRERELEASE=true' in publish_sh
 # The SSH path is a strict opt-in for one trusted push branch, never PR/main.
 assert 'github.repository == \'pzcn/openwrt-ppe-nss-ota\'' in workflow
 assert 'github.ref == \'refs/heads/feat/hybrid-official-snapshot\'' in workflow
-assert "contains(github.event.head_commit.message, '[ssh]')" in workflow
+assert "startsWith(github.event.head_commit.message, '[ssh] ')" in workflow
 assert 'config/hybrid-ssh-debug.trigger' in workflow
 assert "HYBRID_SSH_DEBUG: ${{" in workflow
 assert 'uses: tailscale/github-action@v4' in workflow
