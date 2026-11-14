@@ -77,6 +77,7 @@ bash "$ROOT/mx4200v1/stage-overlay.sh" "$IMM/files"
 MX_IMM_SHA="$(git -C "$IMM" rev-parse HEAD)"
 MX_PPE_SHA="$(git -C "$PPE" rev-parse HEAD)"
 bash "$ROOT/mx4200v1/ota-artifacts.sh" prepare "$IMM/files" "$OUT" "$MX_IMM_SHA" "$MX_PPE_SHA"
+bash "$ROOT/scripts/stage-sing-box-pre.sh" "$IMM/files" "$OUT"
 
 cp "$ROOT/mx4200v1/source.config" .config
 while IFS= read -r line || [[ -n "$line" ]]; do
