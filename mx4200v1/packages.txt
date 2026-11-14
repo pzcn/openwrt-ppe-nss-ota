@@ -35,6 +35,13 @@ luci-i18n-ddns-go-zh-cn
 luci-app-autoreboot
 luci-i18n-autoreboot-zh-cn
 
+# Shared GitHub OTA requires JSON metadata parsing, HTTPS download, and
+# optional curl fallback for GitHub's multi-host Release redirects.
+jq
+uclient-fetch
+curl
+jsonfilter
+
 # Standalone sing-box GUI and daemon, no HomeProxy.
 luci-app-sing-box
 sing-box
