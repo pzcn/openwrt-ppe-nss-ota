@@ -71,7 +71,7 @@ jobs:
       - name: Shared OTA release namespaces and native sysupgrade safety
         run: |
           set -Eeuo pipefail
-          bash -n mx4200v1/stage-overlay.sh mx4200v1/ota-artifacts.sh
+          bash -n mx4200v1/stage-overlay.sh mx4200v1/ota-artifacts.sh mx4200v1/publish-release.sh
           python3 -m compileall -q scripts mx4200v1
           python3 scripts/tests/test-ota-devices.py
           python3 scripts/tests/test-immortalwrt-ota.py
@@ -89,6 +89,7 @@ jobs:
             python3 mx4200v1/test_contract.py
             python3 mx4200v1/test_hybrid_contract.py
             python3 mx4200v1/test_fast_repack.py
+            python3 mx4200v1/test_release.py
           fi
 
   arthur-builder:
