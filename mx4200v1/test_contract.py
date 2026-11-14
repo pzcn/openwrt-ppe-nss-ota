@@ -47,8 +47,9 @@ for forbidden in (
 
 assert "squashfs-factory.bin" in build and "squashfs-sysupgrade.bin" in build
 assert "imagebuilder" in build and "sdk" in build.lower()
-assert "workflow_dispatch:" in workflow and "mx4200v1/**" in workflow
-assert "schedule:" not in workflow
+assert "workflow_dispatch:" in workflow
+assert "push:" not in workflow and "schedule:" not in workflow
+assert 'uses: ./.github/workflows/mx4200v1-fast-repack.yml' in (root / ".github/workflows/dual-device-immortalwrt.yml").read_text()
 assert "luci-app-wol" in packages and "luci-proto-wireguard" in packages
 assert "kmod-fs-f2fs" not in packages
 assert all(p in packages.splitlines() for p in ("autocore", "luci-app-sing-box", "sing-box", "flock", "kmod-inet-diag", "kmod-tun"))
