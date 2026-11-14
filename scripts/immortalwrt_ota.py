@@ -89,7 +89,7 @@ LATEST=$(jq -r --arg image "$EXPECTED_IMAGE" --arg manifest "$EXPECTED_MANIFEST"
 
 def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
              manifest: Path, output: Path, builder_tag: str = "",
-             source_commit: str = "") -> None:
+             source_commit: str = "", layer_tag: str = "") -> None:
     if not TAG_PATTERN.fullmatch(tag) or build < 1:
         raise ValueError("Invalid tag/build")
     if not SHA_PATTERN.fullmatch(upstream) or not SHA_PATTERN.fullmatch(ppe):
@@ -104,6 +104,8 @@ def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
         raise ValueError("Invalid ImageBuilder tag")
     if source_commit and not SHA_PATTERN.fullmatch(source_commit):
         raise ValueError("Invalid firmware source commit")
+    if layer_tag and not re.fullmatch(r"imm-layer-[0-9a-f]{24}", layer_tag):
+        raise ValueError("Invalid userland layer tag")
     doc = {
         "schema": 1,
         "channel": CHANNEL,
@@ -127,6 +129,8 @@ def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
         doc["builder_tag"] = builder_tag
     if source_commit:
         doc["source_commit"] = source_commit
+    if layer_tag:
+        doc["layer_tag"] = layer_tag
     output.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -147,13 +151,14 @@ def main() -> None:
     b.add_argument("--output", type=Path, required=True)
     b.add_argument("--builder-tag", default="")
     b.add_argument("--source-commit", default="")
+    b.add_argument("--layer-tag", default="")
     args = parser.parse_args()
     if args.action == "prepare":
         prepare(args.overlay, args.tag, args.build)
     else:
         metadata(args.tag, args.build, args.immortal_commit, args.ppe_commit,
                  args.image, args.manifest, args.output,
-                 args.builder_tag, args.source_commit)
+                 args.builder_tag, args.source_commit, args.layer_tag)
 
 
 if __name__ == "__main__":
