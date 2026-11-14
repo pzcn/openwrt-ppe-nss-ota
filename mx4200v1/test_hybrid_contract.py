@@ -45,6 +45,7 @@ for required in (
     'CONFIG_KERNEL_CC_STACKPROTECTOR_REGULAR=y',
     'CONFIG_TARGET_DEVICE_qualcommax_ipq807x_DEVICE_linksys_mx4200v1=y',
     'FIT="$KDIR/linksys_mx4200v1-uImage.itb"',
+    'phase device-fit CONFIG_IB= -C target/linux/qualcommax/image',
     '6144 * 1024', 'linksys_mx4200v1',
     'scripts/fit_configs.py', 'scripts/test-sdk-smoke.sh',
     'hybrid_ib_manifest', 'sha256sum --check --status sha256sums',

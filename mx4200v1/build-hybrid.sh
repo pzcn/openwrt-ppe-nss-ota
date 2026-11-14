@@ -351,7 +351,12 @@ phase kernel-image -C target/linux/qualcommax "TOPDIR=$IMM" "TARGET_BUILD=1" "$L
 FIT="$KDIR/linksys_mx4200v1-uImage.itb"
 # The direct image Makefile bypasses top-level Make's host-tools PATH setup.
 # Its FIT rule invokes bare mkimage; use the matching OpenWrt host binary.
-PATH="$IMM/staging_dir/host/bin:$PATH" phase device-fit -C target/linux/qualcommax/image "TOPDIR=$IMM" "$FIT"
+# CONFIG_IB=y is needed for the later standalone ImageBuilder, but
+# include/image.mk then selects ALL ipq807x device recipes. image_prepare
+# tries to compile unrelated DTBs (e.g. MF269 stock's missing caldata label)
+# even for this single MX4200 FIT. Override CONFIG_IB only for this invocation:
+# the selected DEVICE_linksys_mx4200v1 profile remains enabled in .config.
+PATH="$IMM/staging_dir/host/bin:$PATH" phase device-fit CONFIG_IB= -C target/linux/qualcommax/image "TOPDIR=$IMM" "$FIT"
 [[ -s "$FIT" && ! -L "$FIT" ]] || {
   echo "::error::MX4200 v1 FIT was not generated from the locally compiled kernel: $FIT" >&2
   exit 1
