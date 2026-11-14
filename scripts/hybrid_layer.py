@@ -25,7 +25,7 @@ CHANNEL = "re-ss-01-hybrid-userland-layer"
 ARCHIVE_NAME = "hybrid-userland-packages.tar.zst"
 TAG = re.compile(r"^imm-layer-[0-9a-f]{24}$")
 HEX = re.compile(r"^[0-9a-f]{64}$")
-APK_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*\.apk$")
+APK_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+~-]*\.apk$")
 MAX_TOTAL_SIZE = 2 * 1024**3
 
 
