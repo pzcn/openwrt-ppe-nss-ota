@@ -447,7 +447,9 @@ assert 'startswith("Hybrid ImageBuilder")' in workflow and "Hybrid ImageBuilder 
 assert "schedule:" not in (ROOT / ".github/workflows/builder-immortalwrt.yml").read_text()
 assert "push:" not in (ROOT / ".github/workflows/builder-incremental.yml").read_text()
 hybrid_wf = (ROOT / ".github/workflows/builder-immortalwrt-hybrid.yml").read_text()
-assert 'branches: [main, "feat/hybrid-**"]' in hybrid_wf
+assert 'workflow_call:' in hybrid_wf
+assert 'uses: ./.github/workflows/builder-immortalwrt-hybrid.yml' in (
+    ROOT / ".github/workflows/dual-device-immortalwrt.yml").read_text()
 assert "contains(github.event.head_commit.message, '[full]')" in hybrid_wf
 publish_sh = (ROOT / "scripts/publish-hybrid-builder.sh").read_text()
 assert 'if [[ "$BRANCH" != main ]]; then\n  PRERELEASE=true' in publish_sh
@@ -455,7 +457,7 @@ assert 'if [[ "$BRANCH" != main ]]; then\n  PRERELEASE=true' in publish_sh
 assert 'github.repository == \'pzcn/openwrt-ppe-nss-ota\'' in workflow
 assert 'github.ref == \'refs/heads/feat/hybrid-official-snapshot\'' in workflow
 assert "startsWith(github.event.head_commit.message, '[ssh] ')" in workflow
-assert 'config/hybrid-ssh-debug.trigger' in workflow
+assert '"config/**"' in (ROOT / ".github/workflows/dual-device-immortalwrt.yml").read_text()
 assert "HYBRID_SSH_DEBUG: ${{" in workflow
 assert 'uses: tailscale/github-action@v4' in workflow
 assert 'tags: tag:gh-hybrid-debug' in workflow
