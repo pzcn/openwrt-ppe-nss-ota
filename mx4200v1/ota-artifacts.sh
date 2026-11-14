@@ -57,7 +57,8 @@ else
     --immortal-commit "$IMM" --ppe-commit "$PPE" \
     --image "$OUT/$PREFIX-squashfs-sysupgrade.bin" \
     --manifest "$OUT/$PREFIX.manifest" \
-    --source-commit "$SOURCE" --output "$OUT/ota.json"
+    --source-commit "$SOURCE" \
+    --sing-box-core "$OUT/sing-box-core.json" --output "$OUT/ota.json"
   jq -e --arg tag "$TAG" '.channel == "mx4200v1-immortal-ppe-nss" and
     .board == "linksys,mx4200v1" and .tag == $tag and
     .image_sha256 != "" and .manifest_sha256 != ""' "$OUT/ota.json" >/dev/null
