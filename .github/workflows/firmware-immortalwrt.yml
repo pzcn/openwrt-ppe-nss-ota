@@ -18,6 +18,9 @@ on:
       publish_policy:
         type: string
         default: "no"
+      sing_box_pre_version:
+        type: string
+        default: ""
   pull_request:
     paths:
       - ".github/workflows/firmware-immortalwrt.yml"
@@ -42,6 +45,11 @@ on:
         type: boolean
         required: false
         default: false
+      sing_box_pre_version:
+        description: "Optional pinned core 1.15.0-alpha.13 (testing only)"
+        type: string
+        required: false
+        default: ""
       publish_release:
         description: "Publish the firmware Release after successful repack"
         type: boolean
@@ -81,6 +89,7 @@ jobs:
           python3 scripts/tests/test-extra-apps.py
           python3 scripts/tests/test-immortalwrt-ota.py
           python3 scripts/tests/test-ota-devices.py
+          python3 scripts/tests/test-sing-box-pre.py
           python3 scripts/tests/test-firmware-inputs.py
           python3 scripts/tests/test-hybrid-layer.py
           python3 scripts/tests/test-immortalwrt-builder.py
@@ -98,6 +107,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       PUBLISH_RELEASE: ${{ github.ref == 'refs/heads/main' && (inputs.publish_policy == 'yes' || (inputs.publish_policy != 'no' && (github.event_name != 'workflow_dispatch' || inputs.publish_release))) }}
+      SING_BOX_PRE_VERSION: ${{ inputs.sing_box_pre_version || '' }}
     steps:
       - uses: actions/checkout@v4
       - name: Find a published Builder and check if firmware changed
