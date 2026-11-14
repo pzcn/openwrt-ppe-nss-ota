@@ -32,10 +32,22 @@ mapfile -t archives < <(find "$BUILDER" -type f -name '*imagebuilder*.tar.zst' -
 IB_ARCHIVE="${archives[0]}"
 IB_NAME="$(basename "$IB_ARCHIVE")"
 [[ "$IB_NAME" == immortalwrt-imagebuilder-qualcommax-ipq807x* ]]
-BASE_OVERLAY="$BUILDER/base-overlay.tar.gz"
-BASE_LOCK="$BUILDER/snapshot-lock.json"
-BASE_META="$DIAGNOSTICS/mx4200v1-hybrid-metadata.json"
-BASE_SHA_FILE="$PREVIOUS/sha256sums"
+# GitHub Actions artifact ZIPs preserve out-mx4200v1-hybrid/ prefixes.
+# Locate by verified singleton filenames instead of assuming a flat unzip.
+find_single() {
+  local folder="$1" name="$2"
+  local -a matches=()
+  mapfile -t matches < <(find "$folder" -type f -name "$name" -print)
+  [[ "${#matches[@]}" -eq 1 ]] || {
+    echo "::error::Need exactly one $name under $folder"; exit 1;
+  }
+  printf '%s\n' "${matches[0]}"
+}
+BASE_OVERLAY="$(find_single "$BUILDER" base-overlay.tar.gz)"
+BASE_LOCK="$(find_single "$BUILDER" snapshot-lock.json)"
+BASE_META="$(find_single "$DIAGNOSTICS" mx4200v1-hybrid-metadata.json)"
+BASE_SHA_FILE="$(find_single "$PREVIOUS" sha256sums)"
+DIAGNOSTICS="$(dirname "$BASE_META")"
 for file in "$IB_ARCHIVE" "$BASE_OVERLAY" "$BASE_LOCK" "$BASE_META" "$BASE_SHA_FILE"; do
   [[ -s "$file" ]] || { echo "::error::Missing immutable parent asset $file"; exit 1; }
 done
