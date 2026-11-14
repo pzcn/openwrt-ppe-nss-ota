@@ -4,12 +4,24 @@ on:
   push:
     branches: [main]
     paths:
-      # Repack from an existing Release when the Builder publish workflow is repaired.
-      - ".github/workflows/builder-immortalwrt.yml"
+      # Scope to inputs that actually change RE-SS-01 firmware.
       - ".github/workflows/firmware-immortalwrt.yml"
-      - "scripts/**"
-      - "config/**"
       - "files/**"
+      - "config/add.txt"
+      - "config/remove.txt"
+      - "config/translations/**"
+      - "scripts/repack-immortalwrt.sh"
+      - "scripts/rebuild-missing-apks.sh"
+      - "scripts/stage-firmware-overlay.sh"
+      - "scripts/exclude-drcom-from-firmware.sh"
+      - "scripts/build_luci_i18n.py"
+      - "scripts/immortalwrt_ota.py"
+      - "scripts/immortalwrt_builder.py"
+      - "scripts/immortalwrt_sdk.py"
+      - "scripts/immortalwrt_sdk_apks.py"
+      - "scripts/fit_configs.py"
+      - "scripts/prepare-sing-box-luci.sh"
+      - "scripts/firmware_inputs.py"
   pull_request:
     paths:
       - ".github/workflows/firmware-immortalwrt.yml"
@@ -70,6 +82,7 @@ jobs:
           python3 scripts/tests/test-drcom.py
           python3 scripts/tests/test-extra-apps.py
           python3 scripts/tests/test-immortalwrt-ota.py
+          python3 scripts/tests/test-firmware-inputs.py
           python3 scripts/tests/test-immortalwrt-builder.py
           python3 scripts/tests/test-immortalwrt-sdk.py
           python3 scripts/tests/test-immortalwrt-sdk-apks.py
@@ -130,12 +143,33 @@ jobs:
               if gh release download "$LATEST" -R "$GITHUB_REPOSITORY" \
                 -D "$RUNNER_TEMP/imm-last-firmware" -p ota.json >/dev/null 2>&1; then
                 OLD_META="$RUNNER_TEMP/imm-last-firmware/ota.json"
-                if jq -e --arg builder "$TAG" --arg source "$GITHUB_SHA" \
-                    '.builder_tag == $builder and .source_commit == $source' "$OLD_META" >/dev/null; then
-                  echo "needs_image=false" >> "$GITHUB_OUTPUT"
-                  echo "## No new firmware" >> "$GITHUB_STEP_SUMMARY"
-                  echo "Existing firmware matches source $GITHUB_SHA and Builder $TAG." >> "$GITHUB_STEP_SUMMARY"
-                  exit 0
+                if jq -e --arg builder "$TAG" '.builder_tag == $builder' "$OLD_META" >/dev/null; then
+                  OLD_SOURCE="$(jq -r '.source_commit // empty' "$OLD_META")"
+                  UNCHANGED=false
+                  if [[ "$OLD_SOURCE" == "$GITHUB_SHA" ]]; then
+                    UNCHANGED=true
+                  elif [[ "$OLD_SOURCE" =~ ^[a-f0-9]{40}$ ]]; then
+                    # If old commit is inaccessible or diff fails, conservatively repack.
+                    if git cat-file -e "${OLD_SOURCE}^{commit}" 2>/dev/null ||
+                       git fetch -q --depth 1 origin "$OLD_SOURCE"; then
+                      if IMPACT="$(python3 scripts/firmware_inputs.py --base "$OLD_SOURCE" --head "$GITHUB_SHA")"; then
+                        echo "$IMPACT"
+                        if grep -Fxq 'changed=false' <<< "$IMPACT"; then
+                          UNCHANGED=true
+                        fi
+                      else
+                        echo "::warning::Cannot compare firmware inputs; repacking safely."
+                      fi
+                    else
+                      echo "::warning::Previous firmware commit unavailable; repacking safely."
+                    fi
+                  fi
+                  if [[ "$UNCHANGED" == true ]]; then
+                    echo "needs_image=false" >> "$GITHUB_OUTPUT"
+                    echo "## No new firmware" >> "$GITHUB_STEP_SUMMARY"
+                    echo "Builder $TAG and RE-SS-01 firmware inputs are unchanged." >> "$GITHUB_STEP_SUMMARY"
+                    exit 0
+                  fi
                 fi
               fi
             fi
