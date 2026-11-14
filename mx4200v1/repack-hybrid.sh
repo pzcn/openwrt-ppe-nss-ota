@@ -95,6 +95,7 @@ python3 "$ROOT/scripts/fit_configs.py" "${fits[0]}" | grep -Eq '^config@[^[:spac
 # Update ONLY the userspace overlay, preserve Linksys NAND/UBI/dual-slot.
 tar -xzf "$BASE_OVERLAY" -C "$WORK/overlay"
 bash "$ROOT/mx4200v1/stage-overlay.sh" "$WORK/overlay"
+bash "$ROOT/scripts/stage-sing-box-pre.sh" "$WORK/overlay" "$OUT"
 [[ ! -e "$WORK/overlay/lib/upgrade/platform.sh" ]] || {
   echo "::error::Refusing to override upstream Linksys NAND/UBI upgrade code"; exit 1;
 }
