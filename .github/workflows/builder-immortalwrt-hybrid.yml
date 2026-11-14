@@ -1,0 +1,208 @@
+name: Hybrid Builder (official snapshot userland + local PPE/NSS kernel)
+
+on:
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: "Build even if a Builder for this snapshot/PPE/recipe exists"
+        type: boolean
+        default: false
+      prerelease:
+        description: "Publish as prerelease (firmware workflow ignores prereleases)"
+        type: boolean
+        default: true
+      publish:
+        description: "Publish the Builder Release after all smoke tests pass"
+        type: boolean
+        default: true
+  schedule:
+    # Daily check only; the build itself runs when an input really changed.
+    - cron: "37 2 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: re-ss-01-builder-hybrid
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve official snapshot and upstream heads
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      needed: ${{ steps.decide.outputs.needed }}
+      identity: ${{ steps.decide.outputs.identity }}
+      imm: ${{ steps.heads.outputs.imm }}
+      ppe: ${{ steps.heads.outputs.ppe }}
+      base: ${{ steps.heads.outputs.base }}
+      nss: ${{ steps.heads.outputs.nss }}
+      ppe_luci: ${{ steps.heads.outputs.ppe_luci }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Offline tests
+        run: |
+          python3 scripts/tests/test-hybrid-snapshot.py
+          python3 scripts/tests/test-hybrid-builder.py
+          python3 scripts/tests/test-hybrid-ppe-source-sync.py
+          python3 scripts/tests/test-immortalwrt-builder.py
+          python3 scripts/tests/test-immortalwrt-sdk.py
+          bash -n scripts/build-immortalwrt-hybrid.sh
+      - name: Lock the latest published official snapshot
+        run: python3 scripts/resolve-immortalwrt-snapshot.py --output out-snapshot/snapshot-lock.json
+      - name: Resolve upstream heads
+        id: heads
+        run: |
+          set -Eeuo pipefail
+          head_of() { git ls-remote "https://github.com/$1.git" "refs/heads/$2" | awk '{print $1}'; }
+          {
+            echo "imm=$(head_of immortalwrt/immortalwrt master)"
+            echo "ppe=$(head_of JuliusBairaktaris/openwrt-ppe-nss ppe-nss)"
+            echo "base=$(head_of JuliusBairaktaris/Qualcommax_NSS_Builder main)"
+            echo "nss=$(head_of JuliusBairaktaris/nss-packages ppe-nss)"
+            echo "ppe_luci=$(head_of JuliusBairaktaris/luci luci-app-ppe-qos)"
+          } | tee -a "$GITHUB_OUTPUT"
+      - name: Skip when an identical Builder already exists
+        id: decide
+        env:
+          FORCE: ${{ inputs.force_build || false }}
+        run: |
+          set -Eeuo pipefail
+          ID="$(python3 scripts/hybrid_builder.py identity --lock out-snapshot/snapshot-lock.json \
+            --ppe '${{ steps.heads.outputs.ppe }}' --base '${{ steps.heads.outputs.base }}' \
+            --nss '${{ steps.heads.outputs.nss }}' --ppe-luci '${{ steps.heads.outputs.ppe_luci }}' \
+            --packages "$(python3 scripts/immortalwrt_builder.py package-fingerprint)")"
+          echo "identity=$ID" >> "$GITHUB_OUTPUT"
+          EXISTING="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq "[.[] | select(.tag_name | startswith(\"imm-builder-\")) | select((.name // \"\") | contains(\"id:${ID:0:16}\"))][0].tag_name // empty")"
+          if [[ -n "$EXISTING" && "$FORCE" != true ]]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "Up to date: $EXISTING (snapshot $(jq -r .snapshot_version out-snapshot/snapshot-lock.json))" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+            echo "Build needed for identity ${ID:0:16}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-lock
+          path: out-snapshot/snapshot-lock.json
+          retention-days: 7
+
+  build:
+    name: Compile kernel/kmods/custom packages, mirror official APKs, package IB + SDK
+    needs: resolve
+    if: needs.resolve.outputs.needed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SNAPSHOT_LOCK: ${{ github.workspace }}/out-snapshot/snapshot-lock.json
+      EXPECTED_IMM_SHA: ${{ needs.resolve.outputs.imm }}
+      EXPECTED_PPE_SHA: ${{ needs.resolve.outputs.ppe }}
+      EXPECTED_BASE_SHA: ${{ needs.resolve.outputs.base }}
+      EXPECTED_NSS_SHA: ${{ needs.resolve.outputs.nss }}
+      EXPECTED_PPE_LUCI_SHA: ${{ needs.resolve.outputs.ppe_luci }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: snapshot-lock
+          path: out-snapshot
+      - name: Restore source archives
+        uses: actions/cache/restore@v4
+        with:
+          path: .build-cache/dl
+          key: hybrid-dl-v2-${{ github.run_id }}
+          restore-keys: hybrid-dl-v2-
+      - name: Restore compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .build-cache/ccache
+          key: hybrid-ccache-v2-${{ github.run_id }}
+          restore-keys: hybrid-ccache-v2-
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          df -h
+      - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            build-essential ack antlr3 asciidoc autoconf automake autopoint \
+            binutils bison bzip2 ccache clang cmake cpio curl device-tree-compiler \
+            file flex gawk gettext git gperf haveged help2man intltool jq \
+            libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+            libmpfr-dev libncurses-dev libreadline-dev libssl-dev libtool \
+            ninja-build p7zip-full patch pkgconf python3 python3-pip \
+            python3-ply python3-pyelftools qemu-utils rsync scons \
+            squashfs-tools subversion swig texinfo unzip wget xmlto xxd \
+            zlib1g-dev zstd
+      - name: Setup Node.js (sing-box LuCI dashboard)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Build hybrid Builder and SDK, with SDK + ImageBuilder smoke tests
+        id: compile
+        run: bash scripts/build-immortalwrt-hybrid.sh
+      # Save caches even when the build fails, so a retry does not start cold.
+      - name: Save source archives
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .build-cache/dl
+          key: hybrid-dl-v2-${{ github.run_id }}
+      - name: Save compiler cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .build-cache/ccache
+          key: hybrid-ccache-v2-${{ github.run_id }}
+      - name: Publish Builder + SDK release
+        if: github.event_name == 'schedule' || inputs.publish
+        env:
+          IDENTITY: ${{ needs.resolve.outputs.identity }}
+          PRERELEASE: ${{ github.event_name == 'schedule' || inputs.prerelease }}
+        run: |
+          set -Eeuo pipefail
+          DIR="$GITHUB_WORKSPACE/out-hybrid"
+          META="$DIR/builder-metadata.json"
+          SDK_META="$DIR/sdk-metadata.json"
+          TAG="$(jq -er '.tag' "$META")"
+          [[ "$TAG" == imm-builder-* ]]
+          SDK_ARCHIVE="$DIR/$(jq -er '.archive' "$SDK_META")"
+          IB_ARCHIVE="$DIR/$(jq -er '.archive' "$META")"
+          python3 scripts/immortalwrt_sdk.py verify --metadata "$SDK_META" \
+            --builder-metadata "$META" --archive "$SDK_ARCHIVE" --feed-lock "$DIR/sdk-feeds.lock.json"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::notice::$TAG already exists; keeping the immutable release."
+            exit 0
+          fi
+          flags=(--latest=false)
+          [[ "$PRERELEASE" == true ]] && flags+=(--prerelease)
+          SNAPSHOT="$(jq -r '.official_snapshot.snapshot_version' "$META")"
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" "${flags[@]}" \
+            --title "Hybrid ImageBuilder + SDK $SNAPSHOT (id:${IDENTITY:0:16})" \
+            --notes "Kernel, kmods, base-files and PPE/LuCI packages compiled from ImmortalWrt master + PPE/NSS; all other APKs mirrored from official ImmortalWrt snapshot $SNAPSHOT (signed index + SHA256). See snapshot-lock.json, local-plan.json and official-apks.json. Prereleases are not used by the firmware workflow until promoted." \
+            "$IB_ARCHIVE" "$DIR/base-overlay.tar.gz" "$DIR/imagebuilder-packages.txt" \
+            "$META" "$SDK_ARCHIVE" "$SDK_META" "$DIR/sdk-feeds.lock.json" \
+            "$DIR/source-commits.txt" "$DIR/official-toolchain-status.txt" \
+            "$DIR/snapshot-lock.json" "$DIR/local-plan.json" "$DIR/official-apks.json" \
+            "$DIR/imagebuilder.manifest"
+          echo "Published $TAG (prerelease=$PRERELEASE)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload build outputs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: immortalwrt-hybrid-builder
+          path: |
+            out-hybrid/
+            !out-hybrid/ib-smoke/*.bin
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: warn

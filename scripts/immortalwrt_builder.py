@@ -48,7 +48,16 @@ PROFILE = "jdcloud_re-ss-01"
 CHANNEL = "re-ss-01-immortal-imagebuilder"
 
 
-def fingerprint(root: Path = ROOT) -> str:
+MODES = ("full", "hybrid")
+
+
+def fingerprint(root: Path = ROOT, mode: str = "full") -> str:
+    """Core recipe digest. Hybrid Builders hash their own, separate recipe."""
+    if mode == "hybrid":
+        import hybrid_builder  # local module, same directory
+        return hybrid_builder.core_fingerprint(root)
+    if mode != "full":
+        raise ValueError(f"Unknown Builder mode: {mode}")
     digest = hashlib.sha256()
     for name in CORE_FILES:
         data = (root / name).read_bytes()
@@ -104,6 +113,8 @@ def check_metadata(path: Path) -> tuple[dict, bool]:
         raise ValueError("Wrong builder channel or schema")
     if doc.get("profile") != PROFILE or doc.get("packaging") != "standalone":
         raise ValueError("Builder target or packaging mismatch")
+    if doc.get("build_mode", "full") not in MODES:
+        raise ValueError("Unknown Builder build mode")
     for key in ("immortalwrt_commit", "ppe_nss_commit", "base_overlay_commit"):
         check_sha(doc.get(key, ""))
     recorded_core = doc.get("fingerprint")
@@ -140,9 +151,20 @@ def check_metadata(path: Path) -> tuple[dict, bool]:
 
 
 def tag(immortal: str, ppe: str, base: str, root: Path = ROOT,
-        feeds: str = "0" * 64) -> str:
-    return release_tag(immortal, ppe, base, fingerprint(root),
+        feeds: str = "0" * 64, mode: str = "full") -> str:
+    return release_tag(immortal, ppe, base, fingerprint(root, mode),
                        package_fingerprint(root), feeds)
+
+
+def snapshot_provenance(lock_path: Path) -> dict:
+    lock = json.loads(lock_path.read_text())
+    if lock.get("schema") != 2 or lock.get("target") != "qualcommax/ipq60xx":
+        raise ValueError("Not an ipq60xx official snapshot lock")
+    out = {key: lock[key] for key in (
+        "snapshot_version", "target_commit", "lock_fingerprint",
+        "kernel_fingerprint", "packages_fingerprint")}
+    out["arch_feeds"] = {k: v["commit"] for k, v in lock["arch_feeds"].items()}
+    return out
 
 
 def metadata(args: argparse.Namespace) -> None:
@@ -154,13 +176,18 @@ def metadata(args: argparse.Namespace) -> None:
     for path in (args.archive, args.overlay, args.packages):
         if not path.is_file() or path.stat().st_size < 100:
             raise ValueError(f"Missing/empty builder artifact: {path}")
+    mode = getattr(args, "mode", "full")
+    lock = getattr(args, "snapshot_lock", None)
+    if (mode == "hybrid") != (lock is not None):
+        raise ValueError("A hybrid Builder (and only one) records its official snapshot lock")
     doc = {
         "schema": 1,
         "channel": CHANNEL,
         "profile": PROFILE,
         "packaging": "standalone",
-        "tag": tag(args.immortal, args.ppe, args.base, feeds=feeds),
-        "fingerprint": fingerprint(),
+        "build_mode": mode,
+        "tag": tag(args.immortal, args.ppe, args.base, feeds=feeds, mode=mode),
+        "fingerprint": fingerprint(mode=mode),
         "feeds_fingerprint": feeds,
         "package_fingerprint": package_fingerprint(),
         "immortalwrt_commit": args.immortal,
@@ -173,6 +200,8 @@ def metadata(args: argparse.Namespace) -> None:
         "packages": args.packages.name,
         "packages_sha256": sha256(args.packages),
     }
+    if lock is not None:
+        doc["official_snapshot"] = snapshot_provenance(lock)
     args.output.write_text(json.dumps(doc, indent=2, ensure_ascii=False) + "\n")
 
 
@@ -192,15 +221,20 @@ def verify(args: argparse.Namespace) -> None:
 def main() -> None:
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="action", required=True)
-    sub.add_parser("fingerprint")
+    f = sub.add_parser("fingerprint")
+    f.add_argument("--mode", choices=MODES, default="full")
+    sub.add_parser("package-fingerprint")
     t = sub.add_parser("tag")
     for name in ("immortal", "ppe", "base"):
         t.add_argument(f"--{name}", required=True)
     t.add_argument("--feeds", default="0" * 64)
+    t.add_argument("--mode", choices=MODES, default="full")
     m = sub.add_parser("metadata")
     for name in ("immortal", "ppe", "base"):
         m.add_argument(f"--{name}", required=True)
     m.add_argument("--feeds", default="0" * 64)
+    m.add_argument("--mode", choices=MODES, default="full")
+    m.add_argument("--snapshot-lock", type=Path)
     m.add_argument("--archive", required=True, type=Path)
     m.add_argument("--overlay", required=True, type=Path)
     m.add_argument("--packages", required=True, type=Path)
@@ -212,9 +246,11 @@ def main() -> None:
         v.add_argument(f"--{name}", required=True, type=Path)
     args = p.parse_args()
     if args.action == "fingerprint":
-        print(fingerprint())
+        print(fingerprint(mode=args.mode))
+    elif args.action == "package-fingerprint":
+        print(package_fingerprint())
     elif args.action == "tag":
-        print(tag(args.immortal, args.ppe, args.base, feeds=args.feeds))
+        print(tag(args.immortal, args.ppe, args.base, feeds=args.feeds, mode=args.mode))
     elif args.action == "metadata":
         metadata(args)
     elif args.action == "check":

@@ -33,6 +33,7 @@
 | --- | --- | --- |
 | [固件打包 Firmware](../../actions/workflows/firmware-immortalwrt.yml) | `main` 的代码、LuCI、OTA、插件配置变化；每天检查一次 | 从已发布 Builder 重打包 `imm-ppe-nss-...` 固件 |
 | [源码 Builder + SDK](../../actions/workflows/builder-immortalwrt.yml) | 每周日自动完整编译一次，或随时手动触发 | 同一轮源码编译发布 `imm-builder-...` ImageBuilder、匹配 SDK 和 feed 锁定文件 |
+| [Hybrid Builder](../../actions/workflows/builder-immortalwrt-hybrid.yml)（测试中） | 每天检查官方 snapshot/PPE/配方变化，有变化才编译 | 只编内核、kmod 和定制包，其余复用官方 APK；以 prerelease 发布，见 [docs/HYBRID-BUILDER.md](docs/HYBRID-BUILDER.md) |
 
 Builder 无需预先检查上游是否更新：定时或手动触发后直接完整源码编译，成功发布后自动触发固件工作流。固件工作流始终默认选用最新发布的 Builder（可手动指定），仅校验其设备型号、发行元数据与资产 SHA256，不比较当前代码的 Builder 核心指纹。固件工作流仍会在源码和 Builder 均未变化时跳过打包，且**只进行固件打包，不涉及内核编译**。
 

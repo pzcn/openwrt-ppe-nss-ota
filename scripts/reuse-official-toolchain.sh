@@ -23,11 +23,10 @@ fi
 ARCHIVE="immortalwrt-toolchain-qualcommax-ipq60xx_gcc-14.4.0_musl.Linux-x86_64.tar.zst"
 SHA256="560d48f55910abbe3060d1c3a7140459eae010770745a498bb579ea05075238a"
 URL="https://downloads.immortalwrt.org/snapshots/targets/qualcommax/ipq60xx/$ARCHIVE"
-# Hybrid mode follows the locked official snapshot, never this script's
-# historical 2026-11-09 toolchain SHA. The full-source mode is unchanged.
+# The hybrid Builder must use the toolchain of the official snapshot whose
+# userland APKs it reuses (same libc/libgcc). Its lock pins name + SHA256.
 if [[ -n "${IMM_OFFICIAL_SNAPSHOT_LOCK:-}" ]]; then
   command -v jq >/dev/null || { echo "::error::jq required for snapshot toolchain lock"; exit 1; }
-  [[ -s "$IMM_OFFICIAL_SNAPSHOT_LOCK" ]] || { echo "::error::Missing snapshot lock"; exit 1; }
   jq -e '.schema == 2 and .target == "qualcommax/ipq60xx"' "$IMM_OFFICIAL_SNAPSHOT_LOCK" >/dev/null
   ARCHIVE="$(jq -er '.assets.toolchain.filename' "$IMM_OFFICIAL_SNAPSHOT_LOCK")"
   SHA256="$(jq -er '.assets.toolchain.sha256' "$IMM_OFFICIAL_SNAPSHOT_LOCK")"
@@ -35,18 +34,7 @@ if [[ -n "${IMM_OFFICIAL_SNAPSHOT_LOCK:-}" ]]; then
     echo "::error::Unexpected official snapshot toolchain filename"; exit 1;
   }
   [[ "$SHA256" =~ ^[a-f0-9]{64}$ ]] || { echo "::error::Invalid official toolchain digest"; exit 1; }
-  URL="$(jq -er '.target_url' "$IMM_OFFICIAL_SNAPSHOT_LOCK")/$ARCHIVE"
-  [[ "$URL" == https://downloads.immortalwrt.org/snapshots/targets/qualcommax/ipq60xx/* ]] || {
-    echo "::error::Unexpected snapshot toolchain host/path"; exit 1;
-  }
-fi
-# When the exact-Snapshot P2 profile has SDK and IB deliberately disabled,
-# keep it kernel-only. The production full-source Builder stays unchanged.
-KERNEL_ONLY=0
-if [[ -n "${IMM_OFFICIAL_SNAPSHOT_LOCK:-}" ]] &&
-   ! grep -Fqx 'CONFIG_SDK=y' "$IMM/.config" &&
-   ! grep -Fqx 'CONFIG_IB=y' "$IMM/.config"; then
-  KERNEL_ONLY=1
+  URL="https://downloads.immortalwrt.org/snapshots/targets/qualcommax/ipq60xx/$ARCHIVE"
 fi
 DEST="$CACHE_DL/$ARCHIVE"
 WORK="${RUNNER_TEMP:-/tmp}/immortal-official-toolchain"
@@ -85,11 +73,7 @@ use_official() {
   # External toolchains require explicit permission to package ImageBuilder.
   # ext-toolchain.sh appends the exact compiler paths and libraries, then
   # invokes defconfig. Reassert the required IB flags before the final pass.
-  if (( KERNEL_ONLY )); then
-    printf 'CONFIG_DEVEL=y\n# CONFIG_EXTERNAL_TOOLCHAIN_IB is not set\n# CONFIG_EXTERNAL_TOOLCHAIN_SDK is not set\n' >> "$IMM/.config"
-  else
-    printf 'CONFIG_DEVEL=y\nCONFIG_EXTERNAL_TOOLCHAIN_IB=y\nCONFIG_EXTERNAL_TOOLCHAIN_SDK=y\n' >> "$IMM/.config"
-  fi
+  printf 'CONFIG_DEVEL=y\nCONFIG_EXTERNAL_TOOLCHAIN_IB=y\nCONFIG_EXTERNAL_TOOLCHAIN_SDK=y\n' >> "$IMM/.config"
   # The official script derives the buildroot from its argv[0], using
   # "${0%/scripts/*}". A relative "scripts/ext-toolchain.sh" invocation
   # silently writes to "scripts/ext-toolchain.sh/.config" instead of .config.
@@ -104,18 +88,7 @@ use_official() {
     cp "$ORIGINAL_CONFIG" "$IMM/.config"
     return 1
   fi
-  if (( KERNEL_ONLY )); then
-    cat >> "$IMM/.config" <<'CONFIG'
-CONFIG_EXTERNAL_TOOLCHAIN=y
-# CONFIG_EXTERNAL_TOOLCHAIN_IB is not set
-# CONFIG_EXTERNAL_TOOLCHAIN_SDK is not set
-# CONFIG_IB is not set
-# CONFIG_IB_STANDALONE is not set
-# CONFIG_SDK is not set
-CONFIG_CCACHE=y
-CONFIG
-  else
-    cat >> "$IMM/.config" <<'CONFIG'
+  cat >> "$IMM/.config" <<'CONFIG'
 CONFIG_EXTERNAL_TOOLCHAIN=y
 CONFIG_EXTERNAL_TOOLCHAIN_IB=y
 CONFIG_EXTERNAL_TOOLCHAIN_SDK=y
@@ -124,16 +97,14 @@ CONFIG_IB_STANDALONE=y
 CONFIG_SDK=y
 CONFIG_CCACHE=y
 CONFIG
-  fi
-  local required_flags=('CONFIG_EXTERNAL_TOOLCHAIN=y' "CONFIG_TOOLCHAIN_ROOT=\"$toolchain\"")
-  if (( ! KERNEL_ONLY )); then
-    required_flags+=('CONFIG_EXTERNAL_TOOLCHAIN_IB=y'
-                     'CONFIG_EXTERNAL_TOOLCHAIN_SDK=y'
-                     'CONFIG_SDK=y')
-  fi
-  for required in "${required_flags[@]}"; do
+  for required in \
+    'CONFIG_EXTERNAL_TOOLCHAIN=y' \
+    'CONFIG_EXTERNAL_TOOLCHAIN_IB=y' \
+    'CONFIG_EXTERNAL_TOOLCHAIN_SDK=y' \
+    'CONFIG_SDK=y' \
+    "CONFIG_TOOLCHAIN_ROOT=\"$toolchain\""; do
     if ! grep -Fqx "$required" "$IMM/.config"; then
-      echo "::warning::Official toolchain setup missing $required; reverting to source compilation" >&2
+      echo "::warning::Official toolchain setup missing $required; falling back to source compilation" >&2
       cp "$ORIGINAL_CONFIG" "$IMM/.config"
       return 1
     fi
