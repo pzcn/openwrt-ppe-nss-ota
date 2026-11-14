@@ -177,4 +177,6 @@ assert 'cp "$SDK_ARCHIVE"' not in refresh and "tar -I 'zstd -T0 -12'" not in ref
 assert 'scripts/hybrid_layer.py" install' in repack
 assert "layer_tag" in firmware and 'imm-layer-' in firmware
 assert 'gh release create "$TAG"' in publish and 'publish-hybrid-builder.sh' not in publish
+assert 'Only main can publish immutable userland-layer tags' in publish
+assert "github.ref == 'refs/heads/main' && (github.event_name" in full
 print("PASS thin hybrid userland layer verified + installed without repacking IB/SDK")
