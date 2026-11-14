@@ -440,6 +440,7 @@ BASE_STAGE="$WORK/base-overlay"
 mkdir -p "$BASE_STAGE"
 rsync -a "$BUILDER/devices/common/files.ppe-nss/" "$BASE_STAGE/"
 bash "$ROOT/mx4200v1/stage-overlay.sh" "$BASE_STAGE"
+bash "$ROOT/mx4200v1/ota-artifacts.sh" prepare "$BASE_STAGE" "$OUT" "$IMM_SHA" "$PPE_SHA"
 # Never override Linksys' upstream NAND/UBI and dual-slot upgrade logic.
 test ! -e "$BASE_STAGE/lib/upgrade/platform.sh" || {
   echo "::error::Refusing unexpected platform.sh in MX4200 overlay" >&2
@@ -485,6 +486,7 @@ if find "$IMAGES" -maxdepth 1 -name '*linksys_mx4200v2*' | grep -q .; then
   exit 1
 fi
 cp "$OUT/imagebuilder.manifest" "$OUT/$PREFIX.manifest"
+bash "$ROOT/mx4200v1/ota-artifacts.sh" metadata "$OUT" "$IMM_SHA" "$PPE_SHA"
 mark smoke-tests "$T4"
 
 # Metadata is MX-only; no Arthur Builder tag, OTA or public Release.
@@ -507,6 +509,7 @@ jq -n --arg target "$HYBRID_TARGET" --arg profile "$HYBRID_IMAGE_PROFILE" \
     "$PREFIX.manifest" "$PREFIX-squashfs-sysupgrade.metadata.json" \
     "$(basename "$IB_ARCHIVE")" "$(basename "$SDK_ARCHIVE")" \
     base-overlay.tar.gz snapshot-lock.json mx4200v1-hybrid-metadata.json \
+    ota.json mx4200v1-ota-identity.json \
     > sha256sums
   sha256sum --check --status sha256sums
 )
