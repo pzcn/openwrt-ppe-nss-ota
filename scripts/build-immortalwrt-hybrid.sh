@@ -349,7 +349,7 @@ PATH="$IMM/staging_dir/host/bin:$PATH" phase device-fit -C target/linux/qualcomm
   echo "::error::RE-SS-01 FIT exceeds its 6144 KiB kernel partition" >&2
   exit 1
 }
-if ! fdtget -l "$FIT" /configurations | tr "[:space:]" "\n" | grep -Fxq "config@cp03-c2"; then
+if ! python3 "$ROOT/scripts/fit_configs.py" "$FIT" | grep -Fxq "config@cp03-c2"; then
   echo "::error::RE-SS-01 FIT lacks the required config@cp03-c2 boot configuration" >&2
   exit 1
 fi

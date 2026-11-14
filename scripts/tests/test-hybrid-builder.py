@@ -462,7 +462,7 @@ assert full_script.index("ib-archive-contents.txt") < full_script.index("hybrid_
 assert 'cmp -s "$FIT" "$IB_DIR/$FIT_REL"' in full_script
 assert "jdcloud_re-ss-01-uImage.itb" in (ROOT / "scripts/repack-immortalwrt.sh").read_text()
 assert "config@cp03-c2" in (ROOT / "scripts/repack-immortalwrt.sh").read_text()
-assert 'FDTGET_BIN="$IB/staging_dir/host/bin/fdtget"' in (ROOT / "scripts/repack-immortalwrt.sh").read_text()
+assert 'scripts/fit_configs.py' in (ROOT / "scripts/repack-immortalwrt.sh").read_text()
 # A subject-only trigger must not fire on ordinary commit bodies describing debug.
 assert workflow.count("startsWith(github.event.head_commit.message, '[ssh] ')") == 2
 assert "contains(github.event.head_commit.message, '[ssh]')" not in workflow

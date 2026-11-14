@@ -44,17 +44,9 @@ mapfile -t fit_files < <(find "$IB/build_dir" -type f \
   echo "::error::RE-SS-01 FIT exceeds the 6144 KiB kernel partition" >&2
   exit 1
 }
-# ImageBuilder archives bundle their own host tools. Prefer its fdtget so
-# the standalone firmware repack workflow does not need a system dtc package.
-FDTGET_BIN="$IB/staging_dir/host/bin/fdtget"
-if [[ ! -x "$FDTGET_BIN" ]]; then
-  FDTGET_BIN="$(command -v fdtget || true)"
-fi
-[[ -n "$FDTGET_BIN" && -x "$FDTGET_BIN" ]] || {
-  echo "::error::No fdtget available to verify RE-SS-01 FIT configuration" >&2
-  exit 1
-}
-if ! "$FDTGET_BIN" -l "${fit_files[0]}" /configurations | tr "[:space:]" "\n" | grep -Fxq "config@cp03-c2"; then
+# Parsed with a stdlib script: the firmware workflow installs no dtc tools,
+# and the ImageBuilder does not ship them either.
+if ! python3 "$ROOT/scripts/fit_configs.py" "${fit_files[0]}" | grep -Fxq "config@cp03-c2"; then
   echo "::error::RE-SS-01 ImageBuilder FIT lacks config@cp03-c2" >&2
   exit 1
 fi

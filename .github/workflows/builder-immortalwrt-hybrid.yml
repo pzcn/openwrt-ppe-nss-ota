@@ -32,6 +32,7 @@ on:
       - "scripts/tests/test-hybrid-builder.py"
       - "scripts/hybrid-prefetch-host-sources.sh"
       - "scripts/hybrid_builder.py"
+      - "scripts/fit_configs.py"
       - "scripts/resolve-immortalwrt-snapshot.py"
       - "scripts/port-ppe-nss-to-immortalwrt.sh"
       - "scripts/apply-immortalwrt-compat.sh"
@@ -99,6 +100,7 @@ jobs:
           python3 scripts/tests/test-hybrid-ppe-source-sync.py
           python3 scripts/tests/test-immortalwrt-builder.py
           python3 scripts/tests/test-immortalwrt-sdk.py
+          python3 scripts/tests/test-fit-configs.py
       - name: Lock the latest published official snapshot
         run: python3 scripts/resolve-immortalwrt-snapshot.py --output out-snapshot/snapshot-lock.json
       - name: Resolve upstream heads and the host-tools cache key
