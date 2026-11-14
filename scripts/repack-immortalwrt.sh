@@ -82,6 +82,7 @@ rm -f "$WORK/overlay/www/luci-static/resources/view/system/ppe-update.js" \
       "$WORK/overlay/etc/uci-defaults/96-migrate-legacy-extroot"
 # Exclude the optional Dr.COM app from matched Builder and user files.
 sh "$ROOT/scripts/stage-firmware-overlay.sh" "$WORK/overlay"
+bash "$ROOT/scripts/stage-sing-box-pre.sh" "$WORK/overlay" "$OUT"
 # Refuse an old Builder without the matching eMMC config-preservation hook.
 test -s "$WORK/overlay/lib/upgrade/platform.sh"
 grep -Fq 'platform_copy_config()' "$WORK/overlay/lib/upgrade/platform.sh"
