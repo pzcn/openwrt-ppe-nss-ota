@@ -6,6 +6,13 @@ DEST="${1:?Usage: stage-overlay.sh <existing-overlay-directory>}"
 [[ -d "$DEST" && "$DEST" != / ]] || { echo "Invalid MX4200 overlay: $DEST" >&2; exit 1; }
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
+# Match Arthur's common user-facing customizations: PPE/NSS monitoring,
+# LuCI appearance/language, the updated flash/OTA page and shared helper
+# scripts. Apply the SAME optional-app selection as Arthur. No kernel,
+# eMMC/F2FS or Linksys platform.sh is copied from here.
+rsync -a "$ROOT/files/" "$DEST/"
+sh "$ROOT/scripts/exclude-drcom-from-firmware.sh" "$DEST"
+
 # The old MX-only experiment removed this updater on first boot. Never
 # include its stale cleanup script in a firmware that has shared OTA enabled.
 rm -f -- "$DEST/etc/uci-defaults/99-remove-ppe-update"
