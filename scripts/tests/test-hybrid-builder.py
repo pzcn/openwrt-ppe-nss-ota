@@ -285,6 +285,7 @@ now = dt.datetime(2026, 11, 14, tzinfo=dt.timezone.utc)
 parent = {"tag": "imm-builder-parent", "hybrid": {
     "identity": "a" * 64, "kernel_identity": kid, "kernel_built_at": "2026-11-10T00:00:00Z"}}
 assert h.decide("a" * 64, kid, parent, now)[0] == "skip"
+assert h.decide("a" * 64, kid, parent, now, max_age_days=2)[0] == "full"  # old kernel even if exact identity
 assert h.decide("b" * 64, kid, parent, now)[0] == "refresh"
 assert h.decide("b" * 64, "c" * 64, parent, now)[0] == "full"
 assert h.decide("b" * 64, kid, None, now)[0] == "full"
@@ -405,7 +406,7 @@ for script in (full_script, refresh_script):
     assert "\n! " not in script and "  ! " not in script  # `!` never trips set -e
 assert "make " not in refresh_script.replace("make -C", "")  # refresh never compiles
 assert 'cp -a "$IB" "$WORK/ib-manifest"' in refresh_script  # keys from the manifest run never ship
-assert "hybrid_check_archive_keys" in refresh_script and "hybrid_check_archive_keys" in full_script
+assert "hybrid_layer.py" in refresh_script and "hybrid_check_archive_keys" in full_script
 assert 'verify "${files[@]}"' in common and "--keys-dir" in common
 # Keys exist (in the throwaway copy) before the visible index build.
 assert common.index('make -C "$ib" -s _check_keys') < common.index('mkndx "${sign_args[@]}"')
