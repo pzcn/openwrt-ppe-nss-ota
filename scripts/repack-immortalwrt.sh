@@ -32,6 +32,32 @@ mapfile -t IB_DIRS < <(find "$WORK/builder" -mindepth 1 -maxdepth 1 -type d -nam
 [[ "${#IB_DIRS[@]}" -eq 1 ]] || { echo "::error::Unexpected ImageBuilder archive layout" >&2; exit 1; }
 IB="${IB_DIRS[0]}"
 test -f "$IB/Makefile"
+# ImageBuilder cannot rebuild a device kernel FIT: verify it was included
+# with the source kernel before spending time reinstalling 300+ APKs.
+mapfile -t fit_files < <(find "$IB/build_dir" -type f \
+  -path "*/linux-qualcommax_ipq60xx/jdcloud_re-ss-01-uImage.itb" -print | sort)
+(( ${#fit_files[@]} == 1 )) && [[ -s "${fit_files[0]}" ]] || {
+  echo "::error::ImageBuilder archive lacks jdcloud_re-ss-01-uImage.itb. Rebuild Hybrid Builder with the device-fit phase; do not borrow an official FIT." >&2
+  exit 1
+}
+(( $(stat -c %s "${fit_files[0]}") <= 6144 * 1024 )) || {
+  echo "::error::RE-SS-01 FIT exceeds the 6144 KiB kernel partition" >&2
+  exit 1
+}
+# ImageBuilder archives bundle their own host tools. Prefer its fdtget so
+# the standalone firmware repack workflow does not need a system dtc package.
+FDTGET_BIN="$IB/staging_dir/host/bin/fdtget"
+if [[ ! -x "$FDTGET_BIN" ]]; then
+  FDTGET_BIN="$(command -v fdtget || true)"
+fi
+[[ -n "$FDTGET_BIN" && -x "$FDTGET_BIN" ]] || {
+  echo "::error::No fdtget available to verify RE-SS-01 FIT configuration" >&2
+  exit 1
+}
+if ! "$FDTGET_BIN" -l "${fit_files[0]}" /configurations | tr "[:space:]" "\n" | grep -Fxq "config@cp03-c2"; then
+  echo "::error::RE-SS-01 ImageBuilder FIT lacks config@cp03-c2" >&2
+  exit 1
+fi
 # Only if requested packages are missing, use the exact matching SDK to
 # compile APKs and augment this extracted ImageBuilder's local repository.
 bash "$ROOT/scripts/rebuild-missing-apks.sh" "$IB" "$META"

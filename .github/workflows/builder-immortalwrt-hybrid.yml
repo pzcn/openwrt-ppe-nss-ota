@@ -139,7 +139,7 @@ jobs:
       - name: Decide skip / refresh / full
         id: decide
         env:
-          FORCE_FULL: ${{ inputs.build_mode == 'full' || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[full]') || (github.repository == 'pzcn/openwrt-ppe-nss-ota' && github.ref == 'refs/heads/feat/hybrid-official-snapshot' && contains(github.event.head_commit.message, '[ssh]')))) }}
+          FORCE_FULL: ${{ inputs.build_mode == 'full' || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[full]') || (github.repository == 'pzcn/openwrt-ppe-nss-ota' && github.ref == 'refs/heads/feat/hybrid-official-snapshot' && startsWith(github.event.head_commit.message, '[ssh] ')))) }}
           MAX_AGE: ${{ inputs.max_kernel_age_days || 14 }}
         run: |
           set -Eeuo pipefail
@@ -228,7 +228,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     env:
-      HYBRID_SSH_DEBUG: ${{ github.event_name == 'push' && github.repository == 'pzcn/openwrt-ppe-nss-ota' && github.ref == 'refs/heads/feat/hybrid-official-snapshot' && contains(github.event.head_commit.message, '[ssh]') }}
+      HYBRID_SSH_DEBUG: ${{ github.event_name == 'push' && github.repository == 'pzcn/openwrt-ppe-nss-ota' && github.ref == 'refs/heads/feat/hybrid-official-snapshot' && startsWith(github.event.head_commit.message, '[ssh] ') }}
       GH_TOKEN: ${{ github.token }}
       SNAPSHOT_LOCK: ${{ github.workspace }}/out-snapshot/snapshot-lock.json
       EXPECTED_IMM_SHA: ${{ needs.resolve.outputs.imm }}

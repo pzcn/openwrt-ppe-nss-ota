@@ -437,6 +437,21 @@ assert 'timeout-minutes: 45' in workflow
 assert "env.HYBRID_SSH_DEBUG != 'true'" in workflow
 assert workflow.index('id: enable_debug_ssh') < workflow.index('id: hybrid_build') < workflow.index('Hold failed hybrid runner')
 assert 'touch $done_file' in workflow
+# Device FIT is compiled by the selected target image makefile after the
+# kernel and custom package phases, before packaging standalone ImageBuilder.
+assert "phase device-fit -C target/linux/qualcommax/image" in full_script
+assert "jdcloud_re-ss-01-uImage.itb" in full_script
+assert "config@cp03-c2" in full_script
+assert full_script.index("phase kmods") < full_script.index("phase device-fit") < full_script.index("phase imagebuilder")
+assert full_script.index("ib-archive-contents.txt") < full_script.index("hybrid_check_archive_keys")
+assert 'cmp -s "$FIT" "$IB_DIR/$FIT_REL"' in full_script
+assert "jdcloud_re-ss-01-uImage.itb" in (ROOT / "scripts/repack-immortalwrt.sh").read_text()
+assert "config@cp03-c2" in (ROOT / "scripts/repack-immortalwrt.sh").read_text()
+assert 'FDTGET_BIN="$IB/staging_dir/host/bin/fdtget"' in (ROOT / "scripts/repack-immortalwrt.sh").read_text()
+# A subject-only trigger must not fire on ordinary commit bodies describing debug.
+assert workflow.count("startsWith(github.event.head_commit.message, '[ssh] ')") == 2
+assert "contains(github.event.head_commit.message, '[ssh]')" not in workflow
+
 
 
 print("PASS hybrid plan, closure, mirror, identities, skip/refresh/full, host cache, metadata, workflow")

@@ -297,8 +297,32 @@ mkdir -p "$STAGING_ROOT/etc/apk/keys"
 cp "$IMM/public-key.pem" "$KEYS/"*.pem "$STAGING_ROOT/etc/apk/keys/"
 
 # ---------------------------------------------------------------------------
-# 8. Standalone ImageBuilder + SDK from this exact tree
+# 8. Device kernel FIT -> standalone ImageBuilder + SDK
 # ---------------------------------------------------------------------------
+# ImageBuilder only copies existing $(KERNEL_BUILD_DIR)/* files. target/compile
+# builds the raw kernel but does NOT install the per-device FIT (uImage.itb).
+# Build the RE-SS-01 FIT from THIS kernel + DTS before packaging the IB.
+mapfile -t fit_dirs < <(find "$IMM/build_dir" -mindepth 2 -maxdepth 2 -type d \
+  -name linux-qualcommax_ipq60xx -print | sort)
+(( ${#fit_dirs[@]} == 1 )) || {
+  echo "::error::Expected one qualcommax/ipq60xx kernel build directory, got ${#fit_dirs[@]}" >&2
+  exit 1
+}
+FIT="${fit_dirs[0]}/jdcloud_re-ss-01-uImage.itb"
+phase device-fit -C target/linux/qualcommax/image "TOPDIR=$IMM" "$FIT"
+[[ -s "$FIT" && ! -L "$FIT" ]] || {
+  echo "::error::RE-SS-01 FIT was not generated from the locally compiled kernel: $FIT" >&2
+  exit 1
+}
+(( $(stat -c %s "$FIT") <= 6144 * 1024 )) || {
+  echo "::error::RE-SS-01 FIT exceeds its 6144 KiB kernel partition" >&2
+  exit 1
+}
+if ! fdtget -l "$FIT" /configurations | tr "[:space:]" "\n" | grep -Fxq "config@cp03-c2"; then
+  echo "::error::RE-SS-01 FIT lacks the required config@cp03-c2 boot configuration" >&2
+  exit 1
+fi
+printf "RE-SS-01 FIT: %s (%s bytes)\n" "$FIT" "$(stat -c %s "$FIT")"
 phase imagebuilder NO_DEPS=1 target/imagebuilder/install
 phase sdk NO_DEPS=1 target/sdk/install
 TARGET_BIN="$IMM/bin/targets/qualcommax/ipq60xx"
@@ -308,6 +332,15 @@ test -s "$IB_ARCHIVE" && test -s "$SDK_ARCHIVE"
 cp "$IB_ARCHIVE" "$SDK_ARCHIVE" "$OUT/"
 IB_ARCHIVE="$OUT/$(basename "$IB_ARCHIVE")"
 SDK_ARCHIVE="$OUT/$(basename "$SDK_ARCHIVE")"
+# Ensure the releasable ImageBuilder actually contains the exact device FIT
+# we generated, rather than merely succeeding at package installation.
+FIT_REL="${FIT#"$IMM"/}"
+IB_TOP="$(basename "$IB_ARCHIVE" .tar.zst)"
+tar -I zstd -tf "$IB_ARCHIVE" > "$WORK/ib-archive-contents.txt"
+if ! grep -Fxq "$IB_TOP/$FIT_REL" "$WORK/ib-archive-contents.txt"; then
+  echo "::error::ImageBuilder archive omitted $FIT_REL" >&2
+  exit 1
+fi
 (( $(stat -c '%s' "$SDK_ARCHIVE") < 2147483648 ))
 hybrid_check_archive_keys "$IB_ARCHIVE"
 tar -I zstd -tf "$SDK_ARCHIVE" > "$WORK/sdk-contents.txt"
@@ -324,6 +357,10 @@ IB_TEST="$WORK/ib-manifest"
 mkdir -p "$IB_TEST"
 tar -I zstd -xf "$IB_ARCHIVE" -C "$IB_TEST"
 IB_DIR="$(find "$IB_TEST" -mindepth 1 -maxdepth 1 -type d -name '*imagebuilder*' -print -quit)"
+[[ -s "$IB_DIR/$FIT_REL" ]] && cmp -s "$FIT" "$IB_DIR/$FIT_REL" || {
+  echo "::error::Unpacked ImageBuilder FIT differs from locally generated RE-SS-01 FIT" >&2
+  exit 1
+}
 hybrid_ib_manifest "$IB_DIR" "$OUT" "$OUT/local-apks.txt"
 mark ib-manifest "$T3"
 

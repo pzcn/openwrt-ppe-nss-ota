@@ -2,7 +2,7 @@
 
 ## 适用范围与边界
 
-此功能仅在仓库 `pzcn/openwrt-ppe-nss-ota` 的 `feat/hybrid-official-snapshot` 分支上，通过带有 `[ssh]` 的 **push 提交信息** 显式触发。触发后始终选择 full 构建；一旦构建脚本失败，Runner 在同一个临时环境里保留最多 45 分钟。构建正常时不会等待。此调试模式一律禁止自动发布，即使构建成功。
+此功能仅在仓库 `pzcn/openwrt-ppe-nss-ota` 的 `feat/hybrid-official-snapshot` 分支上，通过**提交标题以 `[ssh] ` 开头**的 push 显式触发（正文提到该字符串不会启用）。触发后始终选择 full 构建；一旦构建脚本失败，Runner 在同一个临时环境里保留最多 45 分钟。构建正常时不会等待。此调试模式一律禁止自动发布，即使构建成功。
 
 旧的已结束 Actions 不能 SSH 重连；必须使用新一轮启用此模式的构建。实验分支上的 workflow_dispatch 按钮可能不可用，因为 GitHub 要求 workflow 在默认分支存在；因此本分支提供专用触发文件。
 
@@ -48,11 +48,11 @@
 git switch feat/hybrid-official-snapshot
 date -u +%FT%TZ > config/hybrid-ssh-debug.trigger
 git add config/hybrid-ssh-debug.trigger
-git commit -m "debug: investigate Hybrid Builder [ssh]"
+git commit -m "[ssh] debug: investigate Hybrid Builder"
 git push origin feat/hybrid-official-snapshot
 ```
 
-**为什么需要修改触发文件？** 此 workflow 设置了 push paths 过滤，单独创建空提交不一定能启动构建。`[ssh]` 仅触发调试，触发文件本身不含密钥、不修改固件内容。
+**为什么需要修改触发文件？** 此 workflow 设置了 push paths 过滤，单独创建空提交不一定能启动构建。只有提交标题以 `[ssh] ` 开头才启用调试，触发文件本身不含密钥、不修改固件内容。
 
 打开 GitHub Actions 的 Hybrid Builder 运行页面。在步骤 `Enable Tailscale SSH on temporary runner` 中记录 Tailscale 私有 IP。构建失败后，步骤 `Hold failed hybrid runner for SSH` 会显示登录指令，也会写入 Actions Summary。
 

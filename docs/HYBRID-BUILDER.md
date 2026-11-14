@@ -74,3 +74,9 @@
 仅在 `feat/hybrid-official-snapshot` 分支的提交信息包含 `[ssh]` 时，强制 full 构建并启用临时 Tailscale SSH；失败后最多保留 45 分钟。正常构建、主分支、PR 检查和定时任务不受影响，SSH 调试运行禁止发布。
 
 详细配置、Tailnet ACL、触发与结束命令：见 [Hybrid SSH 调试操作说明](HYBRID-SSH-DEBUG.md)。
+
+## RE-SS-01 FIT 与 ImageBuilder 同步
+
+`target/compile` 只确保内核编译；上游 `target/imagebuilder/Makefile` 仅复制当时 `KERNEL_BUILD_DIR` 已存在的文件。full 模式在打包 ImageBuilder 前对选中的 RE-SS-01 执行 `target/linux/qualcommax/image` 的专属 FIT 目标，生成 `jdcloud_re-ss-01-uImage.itb`；检查 FIT 大小不超过 6144 KiB、包含 `config@cp03-c2`，并在打包后验证该文件进入 ImageBuilder 且字节一致。Repack 阶段同样提前检查 FIT，绝不借用不同内核 ABI 的官方 FIT。
+
+SSH 调试只有提交标题以 `[ssh] ` 开头才启用，避免普通修复提交的正文引用该字符串时触发并因未配置 OAuth 密钥而失败。
