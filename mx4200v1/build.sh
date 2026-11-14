@@ -74,6 +74,9 @@ bash "$ROOT/scripts/prepare-sing-box-luci.sh" "$IMM/package/luci-app-sing-box"
 mkdir -p files
 rsync -a "$BUILDER/devices/common/files.ppe-nss/" files/
 bash "$ROOT/mx4200v1/stage-overlay.sh" "$IMM/files"
+MX_IMM_SHA="$(git -C "$IMM" rev-parse HEAD)"
+MX_PPE_SHA="$(git -C "$PPE" rev-parse HEAD)"
+bash "$ROOT/mx4200v1/ota-artifacts.sh" prepare "$IMM/files" "$OUT" "$MX_IMM_SHA" "$MX_PPE_SHA"
 
 cp "$ROOT/mx4200v1/source.config" .config
 while IFS= read -r line || [[ -n "$line" ]]; do
@@ -160,6 +163,7 @@ if [[ ! -s "$MANIFEST" ]]; then
 fi
 test -s "$MANIFEST"
 cp "$MANIFEST" "$OUT/$PREFIX.manifest"
+bash "$ROOT/mx4200v1/ota-artifacts.sh" metadata "$OUT" "$MX_IMM_SHA" "$MX_PPE_SHA"
 
 IB="$(find "$TARGET" -maxdepth 1 -type f -name '*imagebuilder*.tar.zst' -print -quit)"
 SDK="$(find "$TARGET" -maxdepth 1 -type f -name '*sdk*.tar.zst' -print -quit)"
@@ -173,7 +177,8 @@ cp "$IB" "$SDK" "$OUT/"
 (
   cd "$OUT"
   sha256sum "$PREFIX-squashfs-factory.bin" "$PREFIX-squashfs-sysupgrade.bin" \
-    "$PREFIX.manifest" "$(basename "$IB")" "$(basename "$SDK")" > sha256sums
+    "$PREFIX.manifest" "$(basename "$IB")" "$(basename "$SDK")" \
+    ota.json mx4200v1-ota-identity.json > sha256sums
   sha256sum -c sha256sums
 )
 echo "MX4200 v1 test artifacts: $OUT"
