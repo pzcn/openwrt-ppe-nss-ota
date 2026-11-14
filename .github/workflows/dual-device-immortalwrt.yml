@@ -4,7 +4,7 @@ name: Unified PPE/NSS - Arthur and MX4200 v1
 # Any failure stays isolated to its device; no automatic MX4200 flashing.
 on:
   push:
-    branches: [main, feat/unified-ota-multidevice]
+    branches: [main, feat/unified-ota-multidevice, feat/dual-device-feature-parity]
     paths:
       - ".github/workflows/dual-device-immortalwrt.yml"
       - ".github/workflows/builder-immortalwrt-hybrid.yml"
@@ -74,6 +74,7 @@ jobs:
           bash -n mx4200v1/stage-overlay.sh mx4200v1/ota-artifacts.sh mx4200v1/publish-release.sh
           python3 -m compileall -q scripts mx4200v1
           python3 scripts/tests/test-ota-devices.py
+          python3 scripts/tests/test-device-package-parity.py
           python3 scripts/tests/test-immortalwrt-ota.py
           node --check files/www/luci-static/resources/view/system/flash.js
       - name: Per-device regression contracts
@@ -115,6 +116,7 @@ jobs:
       always() && github.event_name != 'pull_request' &&
       (inputs.device == '' || inputs.device == 'both' || inputs.device == 'arthur') &&
       needs.validate.result == 'success' &&
+      (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') &&
       (needs.arthur-builder.result == 'skipped' || needs.arthur-builder.result == 'success')
     uses: ./.github/workflows/firmware-immortalwrt.yml
     with:
@@ -147,6 +149,7 @@ jobs:
         github.event_name == 'push' &&
         contains(github.event.head_commit.message, '[mx full]')) &&
       needs.validate.result == 'success' &&
+      (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') &&
       (inputs.device == '' || inputs.device == 'both' || inputs.device == 'mx4200v1')
     uses: ./.github/workflows/mx4200v1-fast-repack.yml
     with:
