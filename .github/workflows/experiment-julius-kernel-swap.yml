@@ -1,0 +1,282 @@
+name: Experiment - ImmortalWrt userland with Julius prebuilt PPE/NSS kernel
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - experiment/immortalwrt-julius-kernel-swap
+    paths:
+      - .github/workflows/experiment-julius-kernel-swap.yml
+      - scripts/inspect-prebuilt-kernel-swap.sh
+      - scripts/probe-prebuilt-kernel-swap.py
+      - scripts/tests/test-prebuilt-kernel-swap-probe.py
+      - scripts/build-research-prebuilt-kernel-swap.py
+      - scripts/tests/test-research-prebuilt-kernel-swap.py
+      - scripts/compare-swap-userspace-packages.py
+      - scripts/tests/test-swap-userspace-packages.py
+      - scripts/inspect-julius-apk-repository.sh
+      - scripts/plan-swap-mixed-apk-roots.py
+      - scripts/tests/test-swap-mixed-apk-roots.py
+      - scripts/audit-swap-resolved-apks.py
+      - scripts/tests/test-swap-resolved-apks.py
+      - scripts/inspect-swap-official-world.sh
+      - scripts/audit-swap-official-world.py
+      - scripts/tests/test-swap-official-world.py
+      - scripts/plan-swap-full-installed-world.py
+      - scripts/tests/test-swap-full-installed-world.py
+      - scripts/solve-swap-full-stock-world.sh
+      - scripts/install-swap-disposable-apk-root.sh
+      - scripts/audit-swap-extracted-root.py
+      - scripts/tests/test-swap-extracted-root.py
+      - scripts/solve-swap-mixed-apks.sh
+      - scripts/pack-swap-research-rootfs.py
+      - scripts/tests/test-swap-rootfs-packaging.py
+      - scripts/audit-swap-runtime-readiness.py
+      - scripts/tests/test-swap-runtime-readiness.py
+      - scripts/audit-swap-boot-finalization.py
+      - scripts/tests/test-swap-boot-finalization.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: immortalwrt-julius-kernel-swap-readonly
+  cancel-in-progress: true
+
+jobs:
+  inspect:
+    name: Compare RE-SS-01 FIT images, rootfs and kernel-module ABI
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate swap parser and shell
+        run: |
+          bash -n scripts/inspect-prebuilt-kernel-swap.sh
+          bash -n scripts/inspect-julius-apk-repository.sh
+          bash -n scripts/solve-swap-mixed-apks.sh
+          bash -n scripts/inspect-swap-official-world.sh
+          bash -n scripts/solve-swap-full-stock-world.sh
+          bash -n scripts/install-swap-disposable-apk-root.sh
+          python3 scripts/tests/test-swap-extracted-root.py
+          python3 scripts/tests/test-swap-rootfs-packaging.py
+          python3 scripts/tests/test-swap-runtime-readiness.py
+          python3 scripts/tests/test-swap-boot-finalization.py
+          python3 scripts/tests/test-swap-mixed-apk-roots.py
+          python3 scripts/tests/test-swap-resolved-apks.py
+          python3 scripts/tests/test-swap-official-world.py
+          python3 scripts/tests/test-swap-full-installed-world.py
+          python3 -m py_compile scripts/probe-prebuilt-kernel-swap.py
+          python3 scripts/tests/test-prebuilt-kernel-swap-probe.py
+          python3 scripts/tests/test-research-prebuilt-kernel-swap.py
+          python3 scripts/tests/test-swap-userspace-packages.py
+          python3 scripts/tests/test-hybrid-snapshot.py
+      - name: Install FIT and squashfs inspection tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq jq squashfs-tools u-boot-tools zstd
+      - name: Pin official ImmortalWrt Snapshot
+        run: |
+          python3 scripts/resolve-immortalwrt-snapshot.py \
+            --output out-snapshot/snapshot-lock.json
+      - name: Verify and compare two published RE-SS-01 sysupgrade images
+        run: |
+          bash scripts/inspect-prebuilt-kernel-swap.sh \
+            out-snapshot/snapshot-lock.json out-julius-swap
+      - name: Decode native Julius ImageBuilder package repository and ABI metadata
+        run: |
+          bash scripts/inspect-julius-apk-repository.sh out-julius-swap
+      - name: Extract pinned official ImageBuilder with trusted APK signing keys
+        run: |
+          bash scripts/inspect-hybrid-official-ib.sh out-snapshot/snapshot-lock.json
+      - name: Try native APK3 core dependency solver on mixed repositories (test only)
+        run: |
+          bash scripts/solve-swap-mixed-apks.sh \
+            out-snapshot/snapshot-lock.json out-julius-swap
+          jq -e '.publishable == false and
+                  .imagebuilder_assembled == false and
+                  .complete_world_solved == false' \
+            out-julius-swap/mixed-apk-native-solver-report.json >/dev/null
+      - name: Inspect ALL APK world/installed packages in original ImmortalWrt rootfs
+        run: |
+          bash scripts/inspect-swap-official-world.sh out-julius-swap
+      - name: Native APK3 dry-run for entire installed ImmortalWrt world (missing kmods explicit)
+        run: |
+          bash scripts/solve-swap-full-stock-world.sh out-julius-swap
+          jq -e '.publishable == false and
+                  .complete_world_solver_passed == false and
+                  .exact_world_preserved == false' \
+            out-julius-swap/full-stock-native-solver-result.json >/dev/null
+      - name: Install full mixed APK closure into disposable runner root without scripts
+        run: |
+          bash scripts/install-swap-disposable-apk-root.sh \
+            out-snapshot/snapshot-lock.json out-julius-swap
+          jq -e '.publishable == false and
+                  .secure_sysupgrade_produced == false and
+                  .ephemeral_root_only == true' \
+            out-julius-swap/disposable-apk-payload-install-result.json >/dev/null
+      - name: Audit boot and sysupgrade file drift plus kernel module vermagic (report only)
+        run: |
+          set -Eeuo pipefail
+          WORK="$RUNNER_TEMP/immortal-julius-swap"
+          python3 scripts/audit-swap-runtime-readiness.py \
+            --official-squashfs "$WORK/extracted/immortalwrt.squashfs" \
+            --mixed-rootfs "$WORK/disposable-apk-root" \
+            --report out-julius-swap/boot-runtime-static-audit.json
+          jq -e '.publishable == false and
+                  .target_postinstall_scripts_executed == false and
+                  .readiness_for_flash_proven == false' \
+            out-julius-swap/boot-runtime-static-audit.json >/dev/null
+      - name: Compare stock/donor boot services and pending ImageBuilder finalization
+        run: |
+          set -Eeuo pipefail
+          WORK="$RUNNER_TEMP/immortal-julius-swap"
+          python3 scripts/audit-swap-boot-finalization.py \
+            --official-squashfs "$WORK/extracted/immortalwrt.squashfs" \
+            --julius-squashfs "$WORK/extracted/julius.squashfs" \
+            --mixed-rootfs "$WORK/disposable-apk-root" \
+            --report out-julius-swap/boot-finalization-inventory.json
+          jq -e '.publishable == false and
+                  .imagebuilder_prepare_rootfs_executed == false and
+                  .service_enablement_executed == false' \
+            out-julius-swap/boot-finalization-inventory.json >/dev/null
+      - name: Repack disposable APK root into SquashFS, reextract and check research-only TAR
+        run: |
+          set -Eeuo pipefail
+          WORK="$RUNNER_TEMP/immortal-julius-swap"
+          python3 scripts/pack-swap-research-rootfs.py \
+            --rootfs "$WORK/disposable-apk-root" \
+            --julius-fit "$WORK/extracted/julius.fit" \
+            --plan out-julius-swap/full-installed-world-swap-plan.json \
+            --report out-julius-swap/nonflashable-packaging-smoke.json
+          jq -e '.disposable_rootfs_file_roundtrip_passed == true and
+                  .exact_plan_versions_survived_roundtrip == true and
+                  .tar_has_intentionally_invalid_board_identity == true and
+                  .fwtool_metadata_added == false and
+                  .firmware_artifacts_retained == false and
+                  .publishable == false' \
+            out-julius-swap/nonflashable-packaging-smoke.json >/dev/null
+          echo "Research-only image was deleted; no flashable artifact produced."
+      - name: Prove kernel member substitution with untouched official rootfs (never publish)
+        run: |
+          set -Eeuo pipefail
+          WORK="$RUNNER_TEMP/immortal-julius-swap"
+          RESEARCH="$RUNNER_TEMP/research-julius-kernel-replacement.tar"
+          python3 scripts/build-research-prebuilt-kernel-swap.py \
+            --immortalwrt "$WORK/immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin" \
+            --julius "$WORK/openwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin" \
+            --research-tar "$RESEARCH" \
+            --report out-julius-swap/research-swap-proof.json
+          jq -e '.official_immortalwrt_userland_retained == true and
+                  .julius_module_abi_migrated == false and .publishable == false' \
+            out-julius-swap/research-swap-proof.json >/dev/null
+          # Never upload or preserve an unsafe kernel-only sysupgrade specimen.
+          rm -f "$RESEARCH"
+      - name: Publish read-only assessment
+        if: always()
+        run: |
+          {
+            echo "## ImmortalWrt + Julius prebuilt kernel experiment"
+            echo "This job **never** creates a flashable image."
+            echo "Official ImmortalWrt rootfs is preserved as reference."
+            if [ -s out-julius-swap/swap-compatibility-report.json ]; then
+              echo ""
+              jq -r '"FIT layout compatible: " + (.same_layout|tostring) +
+                "\nJulius profile: " + .donor_memory_profile +
+                "\nOfficial kernel module release(s): " + .official_kernel_module_directories +
+                "\nJulius kernel module release(s): " + .donor_kernel_module_directories +
+                "\nJulius compiled module files: " + (.donor_module_file_count|tostring) +
+                "\nHas Julius f2fs module: " + (.donor_f2fs_module_found|tostring) +
+                "\nHas Julius NSS Wi-Fi module: " + (.donor_nss_wifi_module_found|tostring) +
+                "\nJulius IB has F2FS APK: " + (.donor_imagebuilder_f2fs_apk_found|tostring) +
+                "\nJulius IB has NSS APK: " + (.donor_imagebuilder_nss_wifi_apk_found|tostring) +
+                "\nJulius IB has WireGuard APK: " + (.donor_imagebuilder_wireguard_apk_found|tostring)' \
+                out-julius-swap/swap-compatibility-report.json
+            else
+              echo "Image boundary or provenance validation failed; inspect logs."
+            fi
+            echo ""
+            if [ -s out-julius-swap/core-userspace-version-comparison.json ]; then
+              jq -r '"Official vs Julius base APK versions: " +
+                     (.matching_versions|tostring) + " matching; " +
+                     (.different_versions|tostring) + " different"' \
+                out-julius-swap/core-userspace-version-comparison.json
+            fi
+            if [ -s out-julius-swap/mixed-apk-native-solver-report.json ]; then
+              jq -r '"Official APK signatures: " + (.official_indexes_signature_verified|tostring) +
+                     "\nMixed APK indexes loaded: " + (.mixed_indexes_updated|tostring) +
+                     "\nPinned core APK simulation: " + (.pinned_core_simulation_succeeded|tostring) +
+                     "\nResolved package provenance audit: " + (.resolved_package_provenance_audited|tostring) +
+                     "\nComplete firmware solver: NOT DONE"' \
+                out-julius-swap/mixed-apk-native-solver-report.json
+            fi
+            if [ -s out-julius-swap/official-rootfs-world-availability.json ]; then
+              jq -r '"Official installed APKs: " + (.installed_package_count|tostring) +
+                     "\nOfficial userland APKs: " + (.installed_userland_count|tostring) +
+                     "\nExactly available in current signed indexes: " +
+                     (.counts["exact-official-snapshot-archive"]|tostring) +
+                     "\nOlder or missing official binary versions: " +
+                     ((.counts["official-name-version-rotated"] +
+                       .counts["absent-from-current-official-index"])|tostring)' \
+                out-julius-swap/official-rootfs-world-availability.json
+            fi
+            if [ -s out-julius-swap/full-installed-world-swap-plan.json ]; then
+              jq -r '"Stock installed world: " + (.stock_installed_count|tostring) +
+                     "\nExact official userspace pins: " + (.exact_official_userland_pinned_count|tostring) +
+                     "\nJulius kmod/Kernel pins: " + (.julius_kernel_kmod_pinned_count|tostring) +
+                     "\nMissing stock modules in donor: " + (.missing_stock_kernel_or_kmods|length|tostring)' \
+                out-julius-swap/full-installed-world-swap-plan.json
+            fi
+            if [ -s out-julius-swap/full-stock-native-solver-result.json ]; then
+              jq -r '"Full stock world dry-run (with missing modules): " + (.native_partial_world_solved|tostring) +
+                     "\nMissing original kmod packages: " + (.donor_missing_original_kmods|join(", ")) +
+                     "\nFull world approved: NO"' \
+                out-julius-swap/full-stock-native-solver-result.json
+            fi
+            if [ -s out-julius-swap/disposable-apk-payload-install-result.json ]; then
+              jq -r '"Scratch APK payload installation (no scripts): " +
+                     (.scratch_payload_install_succeeded|tostring) +
+                     "\nFlashable firmware created: NO"' \
+                out-julius-swap/disposable-apk-payload-install-result.json
+            fi
+            if [ -s out-julius-swap/disposable-root-file-audit.json ]; then
+              jq -r '"Actual package version pins verified: " + (.exact_plan_pins_verified|tostring) +
+                     "\nKernel modules from single 6.18.60 tree: " + (.module_tree_structure_verified|tostring) +
+                     "\nF2FS early boot autoload entries: " + (.f2fs_boot_autoload_files|length|tostring) +
+                     "\nActual device boot verified: NO"' \
+                out-julius-swap/disposable-root-file-audit.json
+            fi
+            if [ -s out-julius-swap/nonflashable-packaging-smoke.json ]; then
+              jq -r '"Ephemeral SquashFS rootfs round-trip: " + (.disposable_rootfs_file_roundtrip_passed|tostring) +
+                     "\nResearch TAR was intentionally nonflashable and deleted: " + (.tar_has_intentionally_invalid_board_identity|tostring)' \
+                out-julius-swap/nonflashable-packaging-smoke.json
+            fi
+            if [ -s out-julius-swap/boot-runtime-static-audit.json ]; then
+              jq -r '"Missing stock boot files: " + (.comparison.missing_boot_path_count|tostring) +
+                     "\nChanged stock boot files: " + (.comparison.different_boot_path_count|tostring) +
+                     "\nAll scanned .ko vermagic release strings match Julius: " +
+                     (.kernel_abi_string_inspection.matching_module_version_strings|tostring)' \
+                out-julius-swap/boot-runtime-static-audit.json
+            fi
+            if [ -s out-julius-swap/boot-finalization-inventory.json ]; then
+              jq -r '"Stock/Julius/mixed service links: " +
+                     ([.stock_rc_symlink_count,.julius_rc_symlink_count,.mixed_rc_symlink_count]|map(tostring)|join("/")) +
+                     "\nMixed APK post-install script count: " + (.mixed.apk_postinstall.post_install_script_count|tostring) +
+                     "\nImageBuilder finalization run: NO"' \
+                out-julius-swap/boot-finalization-inventory.json
+            fi
+            echo "Official kernel modules cannot be retained after Julius FIT substitution."
+            echo "Matching Julius module/firmware migration, F2FS and boot testing are still required."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload analysis only (no firmware, modules or private keys)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: re-ss-01-immortalwrt-julius-kernel-compatibility
+          path: |
+            out-snapshot/snapshot-lock.json
+            out-julius-swap/
+          if-no-files-found: warn
+          retention-days: 14
