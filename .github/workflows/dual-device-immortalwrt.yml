@@ -1,0 +1,158 @@
+name: Unified PPE/NSS - Arthur and MX4200 v1
+
+# One entry point, two independent ABIs, two OTA channels.
+# Any failure stays isolated to its device; no automatic MX4200 flashing.
+on:
+  push:
+    branches: [main, feat/unified-ota-multidevice, feat/dual-device-feature-parity]
+    paths:
+      - ".github/workflows/dual-device-immortalwrt.yml"
+      - ".github/workflows/builder-immortalwrt-hybrid.yml"
+      - ".github/workflows/firmware-immortalwrt.yml"
+      - ".github/workflows/mx4200v1-hybrid.yml"
+      - ".github/workflows/mx4200v1-fast-repack.yml"
+      - "scripts/**"
+      - "config/**"
+      - "files/**"
+      - "mx4200v1/**"
+  pull_request:
+    paths:
+      - ".github/workflows/dual-device-immortalwrt.yml"
+      - "scripts/**"
+      - "config/**"
+      - "files/**"
+      - "mx4200v1/**"
+  schedule:
+    - cron: "37 2 * * *"
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "Device"
+        type: choice
+        options: [both, arthur, mx4200v1]
+        default: both
+      mode:
+        description: "auto = refresh as needed; repack = reuse previous Builder; full = compile"
+        type: choice
+        options: [auto, repack, full]
+        default: auto
+      publish_arthur:
+        description: "Permit verified Arthur releases (main only)"
+        type: boolean
+        default: false
+      mx_source_run_id:
+        description: "Verified MX4200 Builder run ID (temporary until immutable Builder Release)"
+        type: string
+        default: "43602206711"
+      mx_source_commit:
+        description: "Source commit for the verified MX4200 Builder"
+        type: string
+        default: "5afd6581438af59b3392c35e82322ab41b09acb2"
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: dual-ppe-nss-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  validate:
+    name: Offline contracts - ${{ matrix.device }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [arthur, mx4200v1]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shared OTA release namespaces and native sysupgrade safety
+        run: |
+          set -Eeuo pipefail
+          bash -n mx4200v1/stage-overlay.sh mx4200v1/ota-artifacts.sh mx4200v1/publish-release.sh
+          python3 -m compileall -q scripts mx4200v1
+          python3 scripts/tests/test-ota-devices.py
+          python3 scripts/tests/test-device-package-parity.py
+          python3 scripts/tests/test-immortalwrt-ota.py
+          node --check files/www/luci-static/resources/view/system/flash.js
+      - name: Per-device regression contracts
+        env:
+          TARGET_DEVICE: ${{ matrix.device }}
+        run: |
+          set -Eeuo pipefail
+          if [[ "$TARGET_DEVICE" == arthur ]]; then
+            python3 scripts/tests/test-hybrid-builder.py
+            python3 scripts/tests/test-hybrid-layer.py
+            python3 scripts/tests/test-firmware-inputs.py
+          else
+            python3 mx4200v1/test_contract.py
+            python3 mx4200v1/test_hybrid_contract.py
+            python3 mx4200v1/test_fast_repack.py
+            python3 mx4200v1/test_release.py
+          fi
+
+  arthur-builder:
+    name: Arthur - skip/refresh/full (independent ABI)
+    needs: validate
+    if: >-
+      github.event_name != 'pull_request' &&
+      (inputs.device == '' || inputs.device == 'both' || inputs.device == 'arthur') &&
+      inputs.mode != 'repack' &&
+      (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch')
+    uses: ./.github/workflows/builder-immortalwrt-hybrid.yml
+    with:
+      build_mode: ${{ inputs.mode == 'full' && 'full' || 'auto' }}
+      channel: auto
+      max_kernel_age_days: 14
+      publish: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.publish_arthur) }}
+    secrets: inherit
+
+  arthur-firmware:
+    name: Arthur - isolated OTA firmware
+    needs: [validate, arthur-builder]
+    if: >-
+      always() && github.event_name != 'pull_request' &&
+      (inputs.device == '' || inputs.device == 'both' || inputs.device == 'arthur') &&
+      needs.validate.result == 'success' &&
+      (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') &&
+      (needs.arthur-builder.result == 'skipped' || needs.arthur-builder.result == 'success')
+    uses: ./.github/workflows/firmware-immortalwrt.yml
+    with:
+      builder_tag: ""
+      layer_tag: ""
+      force_firmware: ${{ inputs.mode == 'repack' }}
+      publish_release: false
+      publish_policy: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.publish_arthur) && 'yes' || 'no' }}
+    secrets: inherit
+
+  mx4200v1-full:
+    name: MX4200 v1 - full PPE/NSS Builder + OTA factory/sysupgrade
+    needs: validate
+    if: >-
+      github.event_name != 'pull_request' &&
+      (inputs.mode == 'full' ||
+       (github.ref == 'refs/heads/feat/unified-ota-multidevice' &&
+        github.event_name == 'push' &&
+        contains(github.event.head_commit.message, '[mx full]'))) &&
+      (inputs.device == '' || inputs.device == 'both' || inputs.device == 'mx4200v1')
+    uses: ./.github/workflows/mx4200v1-hybrid.yml
+    secrets: inherit
+
+  mx4200v1-firmware:
+    name: MX4200 v1 - fast OTA factory/sysupgrade (no kernel compile)
+    needs: validate
+    if: >-
+      github.event_name != 'pull_request' && inputs.mode != 'full' &&
+      !(github.ref == 'refs/heads/feat/unified-ota-multidevice' &&
+        github.event_name == 'push' &&
+        contains(github.event.head_commit.message, '[mx full]')) &&
+      needs.validate.result == 'success' &&
+      (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') &&
+      (inputs.device == '' || inputs.device == 'both' || inputs.device == 'mx4200v1')
+    uses: ./.github/workflows/mx4200v1-fast-repack.yml
+    with:
+      source_run_id: ${{ inputs.mx_source_run_id || '43602206711' }}
+      source_commit: ${{ inputs.mx_source_commit || '5afd6581438af59b3392c35e82322ab41b09acb2' }}
+    secrets: inherit

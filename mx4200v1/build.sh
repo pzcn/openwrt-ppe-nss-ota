@@ -67,11 +67,17 @@ test -e package/feeds/luci/luci-app-qca-ppe-qos
 
 git clone --quiet --depth 1 --branch v1.4.0 \
   https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora
+bash "$ROOT/scripts/prepare-sing-box-luci.sh" "$IMM/package/luci-app-sing-box"
 
 # Apply only Julius' generic PPE defaults. Never copy Arthur's F2FS,
 # eMMC sysupgrade platform.sh, firmware overlay, or OTA device identity.
 mkdir -p files
 rsync -a "$BUILDER/devices/common/files.ppe-nss/" files/
+bash "$ROOT/mx4200v1/stage-overlay.sh" "$IMM/files"
+MX_IMM_SHA="$(git -C "$IMM" rev-parse HEAD)"
+MX_PPE_SHA="$(git -C "$PPE" rev-parse HEAD)"
+bash "$ROOT/mx4200v1/ota-artifacts.sh" prepare "$IMM/files" "$OUT" "$MX_IMM_SHA" "$MX_PPE_SHA"
+bash "$ROOT/scripts/stage-sing-box-pre.sh" "$IMM/files" "$OUT"
 
 cp "$ROOT/mx4200v1/source.config" .config
 while IFS= read -r line || [[ -n "$line" ]]; do
@@ -112,6 +118,10 @@ for option in \
   CONFIG_PACKAGE_kmod-nss-wifi-drv=y \
   CONFIG_PACKAGE_qca-ppe-qos=y \
   CONFIG_PACKAGE_luci-theme-aurora=y \
+  CONFIG_PACKAGE_autocore=y \
+  CONFIG_PACKAGE_luci-app-sing-box=y \
+  CONFIG_PACKAGE_sing-box=y \
+  CONFIG_PACKAGE_kmod-tun=y \
   CONFIG_IB=y CONFIG_IB_STANDALONE=y CONFIG_SDK=y; do
   grep -Fqx "$option" .config || {
     echo "::error::Required MX4200 v1 configuration was dropped: $option" >&2
@@ -154,6 +164,7 @@ if [[ ! -s "$MANIFEST" ]]; then
 fi
 test -s "$MANIFEST"
 cp "$MANIFEST" "$OUT/$PREFIX.manifest"
+bash "$ROOT/mx4200v1/ota-artifacts.sh" metadata "$OUT" "$MX_IMM_SHA" "$MX_PPE_SHA"
 
 IB="$(find "$TARGET" -maxdepth 1 -type f -name '*imagebuilder*.tar.zst' -print -quit)"
 SDK="$(find "$TARGET" -maxdepth 1 -type f -name '*sdk*.tar.zst' -print -quit)"
@@ -167,7 +178,8 @@ cp "$IB" "$SDK" "$OUT/"
 (
   cd "$OUT"
   sha256sum "$PREFIX-squashfs-factory.bin" "$PREFIX-squashfs-sysupgrade.bin" \
-    "$PREFIX.manifest" "$(basename "$IB")" "$(basename "$SDK")" > sha256sums
+    "$PREFIX.manifest" "$(basename "$IB")" "$(basename "$SDK")" \
+    ota.json mx4200v1-ota-identity.json > sha256sums
   sha256sum -c sha256sums
 )
 echo "MX4200 v1 test artifacts: $OUT"

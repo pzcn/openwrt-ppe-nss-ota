@@ -1,0 +1,107 @@
+name: Firmware preview - sing-box 1.15.0-alpha.13 (Arthur and MX4200 v1)
+
+# Build experimental firmware from ABI-matched existing ImageBuilders. New
+# releases are prerelease-only with preview-* tags, invisible to stable OTA.
+on:
+  push:
+    branches: [feat/sing-box-v1.15.0-alpha.13]
+    paths: [".github/workflows/sing-box-pre-firmware.yml"]
+  workflow_dispatch:
+    inputs:
+      mx_source_run_id:
+        type: string
+        description: "Successful MX4200 v1 Hybrid Builder run with OTA dependencies"
+        default: "43611524129"
+        required: true
+      mx_source_commit:
+        type: string
+        description: "Exact MX4200 Builder source commit"
+        default: "2f7fc8c7b2e8e9b7edea066e42b9fd57f7d64610"
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: sing-box-alpha13-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Verify pinned upstream prerelease and staging contracts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify source changes and archive validation tests
+        run: |
+          set -Eeuo pipefail
+          bash -n scripts/stage-sing-box-pre.sh scripts/publish-sing-box-preview.sh
+          python3 scripts/tests/test-sing-box-pre.py
+          python3 scripts/tests/test-ota-devices.py
+          python3 -m compileall -q scripts
+      - name: Validate real official ARM64 musl asset with upstream SHA256
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/core-check/overlay"
+          export SING_BOX_PRE_VERSION=1.15.0-alpha.13
+          bash scripts/stage-sing-box-pre.sh "$RUNNER_TEMP/core-check/overlay" "$RUNNER_TEMP/core-check"
+          test -s "$RUNNER_TEMP/core-check/overlay/usr/bin/sing-box"
+          test -s "$RUNNER_TEMP/core-check/overlay/etc/sing-box-core.json"
+          jq -e '.version == "1.15.0-alpha.13" and .architecture == "aarch64"' "$RUNNER_TEMP/core-check/sing-box-core.json" >/dev/null
+
+  arthur:
+    name: Arthur - rebuild read-only SquashFS from released Builder
+    needs: preflight
+    uses: ./.github/workflows/firmware-immortalwrt.yml
+    with:
+      force_firmware: true
+      layer_tag: ""
+      sing_box_pre_version: "1.15.0-alpha.13"
+      publish_release: false
+      publish_policy: "no"
+    secrets: inherit
+
+  mx4200v1:
+    name: MX4200 v1 - rebuild firmware from verified ipq807x Builder
+    needs: preflight
+    uses: ./.github/workflows/mx4200v1-fast-repack.yml
+    with:
+      source_run_id: ${{ inputs.mx_source_run_id || '43611524129' }}
+      source_commit: ${{ inputs.mx_source_commit || '2f7fc8c7b2e8e9b7edea066e42b9fd57f7d64610' }}
+      sing_box_pre_version: "1.15.0-alpha.13"
+    secrets: inherit
+
+  release-arthur:
+    name: Release Arthur experimental firmware (not stable OTA)
+    needs: [preflight, arthur]
+    if: needs.arthur.result == 'success'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: immortalwrt-repacked-firmware
+          path: ${{ runner.temp }}/alpha-arthur
+      - name: SHA256 and OTA board verification; create prerelease
+        run: |
+          bash scripts/publish-sing-box-preview.sh arthur "$RUNNER_TEMP/alpha-arthur"
+
+  release-mx4200v1:
+    name: Release MX4200 v1 experimental firmware (not stable OTA)
+    needs: [preflight, mx4200v1]
+    if: needs.mx4200v1.result == 'success'
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mx4200v1-fast-repacked-firmware-test
+          path: ${{ runner.temp }}/alpha-mx4200
+      - name: SHA256, Linksys NAND and OTA metadata verification; create prerelease
+        run: |
+          bash scripts/publish-sing-box-preview.sh mx4200v1 "$RUNNER_TEMP/alpha-mx4200"

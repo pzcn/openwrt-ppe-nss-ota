@@ -1,0 +1,6 @@
+#!/bin/sh
+# Enable image-overlay service; it is not installed as an APK package.
+/etc/init.d/ppe-update enable
+[ -s /etc/ppe-update/packages ] &&
+    (/usr/sbin/ppe-update restore </dev/null >/dev/null 2>&1 &)
+exit 0

@@ -1,0 +1,133 @@
+name: MX4200 v1 - fast firmware repack (reuse verified Hybrid ImageBuilder)
+
+# Independent experiment: reassemble MX4200 v1 factory/sysupgrade from the
+# successful MX-only Hybrid run. No kernel compilation, OTA or Release.
+on:
+  push:
+    branches: ["feat/mx4200v1-fast-repack"]
+    paths:
+      - "mx4200v1/repack-hybrid.sh"
+      - "mx4200v1/test_fast_repack.py"
+      - ".github/workflows/mx4200v1-fast-repack.yml"
+  workflow_call:
+    inputs:
+      source_run_id:
+        type: string
+        default: "43602206711"
+      source_commit:
+        type: string
+        default: "5afd6581438af59b3392c35e82322ab41b09acb2"
+      sing_box_pre_version:
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Successful MX4200 v1 Hybrid Builder run with matching artifacts"
+        default: "43602206711"
+        required: true
+        type: string
+      source_commit:
+        description: "Exact source commit of that Hybrid Builder run"
+        default: "5afd6581438af59b3392c35e82322ab41b09acb2"
+        required: true
+        type: string
+      sing_box_pre_version:
+        description: "Opt-in sing-box 1.15.0-alpha.13 core in SquashFS"
+        default: ""
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: mx4200v1-fast-repack-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline:
+    name: Verify fast-repack and target-isolation contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax and offline checks
+        run: |
+          set -Eeuo pipefail
+          bash -n mx4200v1/repack-hybrid.sh
+          bash -n mx4200v1/stage-overlay.sh
+          python3 mx4200v1/test_fast_repack.py
+          python3 mx4200v1/test_contract.py
+          python3 mx4200v1/test_hybrid_contract.py
+          python3 scripts/tests/test-ota-devices.py
+          python3 scripts/tests/test-sing-box-pre.py
+
+  repack:
+    name: Reuse MX4200 v1 kernel and create verified factory/sysupgrade
+    needs: offline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BASE_RUN_ID: ${{ inputs.source_run_id || '43602206711' }}
+      BASE_SOURCE_SHA: ${{ inputs.source_commit || '5afd6581438af59b3392c35e82322ab41b09acb2' }}
+      SING_BOX_PRE_VERSION: ${{ inputs.sing_box_pre_version || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install minimal ImageBuilder runtime (no compiler or SDK)
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+            jq zstd rsync make file python3 gawk
+      - name: Download immutable matching MX Hybrid ImageBuilder
+        uses: actions/download-artifact@v4
+        with:
+          name: mx4200v1-hybrid-builder-sdk-test
+          run-id: ${{ env.BASE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/mx4200-parent/builder
+      - name: Download parent firmware SHA256sums
+        uses: actions/download-artifact@v4
+        with:
+          name: mx4200v1-hybrid-firmware-test
+          run-id: ${{ env.BASE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/mx4200-parent/firmware
+      - name: Download source and local kmod provenance
+        uses: actions/download-artifact@v4
+        with:
+          name: mx4200v1-hybrid-diagnostics
+          run-id: ${{ env.BASE_RUN_ID }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/mx4200-parent/diagnostics
+      - name: Repack without rebuilding kernel, PPE/NSS, SDK or toolchain
+        run: |
+          set -Eeuo pipefail
+          bash mx4200v1/repack-hybrid.sh \
+            "$RUNNER_TEMP/mx4200-parent/builder" \
+            "$RUNNER_TEMP/mx4200-parent/firmware" \
+            "$RUNNER_TEMP/mx4200-parent/diagnostics"
+      - name: Upload MX4200 v1 fast-repacked firmware (manual testing only)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mx4200v1-fast-repacked-firmware-test
+          path: |
+            out-mx4200v1-fast-repack/*-squashfs-factory.bin
+            out-mx4200v1-fast-repack/*-squashfs-sysupgrade.bin
+            out-mx4200v1-fast-repack/*.manifest
+            out-mx4200v1-fast-repack/*.metadata.json
+            out-mx4200v1-fast-repack/repack-metadata.json
+            out-mx4200v1-fast-repack/ota.json
+            out-mx4200v1-fast-repack/sing-box-core.json
+            out-mx4200v1-fast-repack/mx4200v1-ota-identity.json
+            out-mx4200v1-fast-repack/sha256sums
+            out-mx4200v1-fast-repack/source-commits.txt
+            out-mx4200v1-fast-repack/snapshot-lock.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

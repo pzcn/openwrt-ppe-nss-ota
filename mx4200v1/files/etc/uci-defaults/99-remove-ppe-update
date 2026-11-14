@@ -1,0 +1,13 @@
+#!/bin/sh
+# Clear obsolete updater state that a previous MX4200 sysupgrade may preserve.
+/etc/init.d/ppe-update stop >/dev/null 2>&1 || true
+/etc/init.d/ppe-update disable >/dev/null 2>&1 || true
+rm -f /etc/config/ppe-update \
+  /etc/init.d/ppe-update \
+  /etc/uci-defaults/zz-ppe-update \
+  /lib/upgrade/keep.d/ppe-update \
+  /usr/sbin/ppe-update \
+  /usr/share/luci/menu.d/luci-app-ppe-update.json \
+  /usr/share/rpcd/acl.d/luci-app-ppe-update.json \
+  /www/luci-static/resources/view/system/ppe-update.js
+exit 0

@@ -1,0 +1,13 @@
+# Shared package exclusions, same as Arthur's config/remove.txt.
+ip-tiny
+libopenssl-oqsprovider
+liboqs
+
+
+luci-app-homeproxy
+luci-i18n-homeproxy-zh-cn
+
+luci-app-diskman
+luci-i18n-diskman-zh-cn
+luci-app-statistics
+luci-i18n-statistics-zh-cn

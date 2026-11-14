@@ -228,6 +228,36 @@ newer = json.loads(json.dumps(LOCK))
 newer["packages_fingerprint"] = "4" * 64
 assert ident != h.identity(newer, SHA("a"), SHA("b"), SHA("c"), SHA("d"), core, packages_fp)
 assert core != ib.fingerprint(mode="full") and core == ib.fingerprint(mode="hybrid")
+# MX-only package policy must not invalidate Arthur's Builder.
+with tempfile.TemporaryDirectory() as tmp:
+    scoped = Path(tmp)
+    for name in h.HYBRID_CORE_FILES:
+        dest = scoped / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes((ROOT / name).read_bytes())
+    original = h.core_fingerprint(scoped)
+    planner_file = scoped / "scripts/hybrid_builder.py"
+    planner = planner_file.read_text()
+    marker = 'LOCAL_FEEDS = frozenset(("nss",))'
+    assert planner.count(marker) == 1
+    for value in ('LOCAL_PACKAGES', 'LOCAL_PACKAGES - {"luci-app-sing-box"}'):
+        planner_file.write_text(planner.replace(
+            marker, 'MX4200_LOCAL_PACKAGES = ' + value + '\n' + marker))
+        assert h.core_fingerprint(scoped) == original
+    planner_file.write_text(planner + "\n# comment only\n")
+    assert h.core_fingerprint(scoped) == original
+    planner_file.write_text(planner.replace(
+        marker, 'MX4200_LOCAL_PACKAGES = update_arthur_state()\n' + marker))
+    assert h.core_fingerprint(scoped) != original
+    planner_file.write_text(planner.replace(
+        '"qca-ppe-qos", "ppe-help", "sqm-scripts",',
+        '"qca-ppe-qos", "ppe-help", "sqm-scripts", "new-arthur-package",'))
+    assert h.core_fingerprint(scoped) != original
+    planner_file.write_text(planner)
+    shared = scoped / "scripts/hybrid-common.sh"
+    shared.write_text(shared.read_text() + "\n# shared recipe changed\n")
+    assert h.core_fingerprint(scoped) != original
+
 
 # --- Kernel identity and the skip / refresh / full decision -----------------
 import datetime as dt  # noqa: E402
@@ -255,6 +285,7 @@ now = dt.datetime(2026, 11, 14, tzinfo=dt.timezone.utc)
 parent = {"tag": "imm-builder-parent", "hybrid": {
     "identity": "a" * 64, "kernel_identity": kid, "kernel_built_at": "2026-11-10T00:00:00Z"}}
 assert h.decide("a" * 64, kid, parent, now)[0] == "skip"
+assert h.decide("a" * 64, kid, parent, now, max_age_days=2)[0] == "full"  # old kernel even if exact identity
 assert h.decide("b" * 64, kid, parent, now)[0] == "refresh"
 assert h.decide("b" * 64, "c" * 64, parent, now)[0] == "full"
 assert h.decide("b" * 64, kid, None, now)[0] == "full"
@@ -375,7 +406,7 @@ for script in (full_script, refresh_script):
     assert "\n! " not in script and "  ! " not in script  # `!` never trips set -e
 assert "make " not in refresh_script.replace("make -C", "")  # refresh never compiles
 assert 'cp -a "$IB" "$WORK/ib-manifest"' in refresh_script  # keys from the manifest run never ship
-assert "hybrid_check_archive_keys" in refresh_script and "hybrid_check_archive_keys" in full_script
+assert "hybrid_layer.py" in refresh_script and "hybrid_check_archive_keys" in full_script
 assert 'verify "${files[@]}"' in common and "--keys-dir" in common
 # Keys exist (in the throwaway copy) before the visible index build.
 assert common.index('make -C "$ib" -s _check_keys') < common.index('mkndx "${sign_args[@]}"')
@@ -416,7 +447,9 @@ assert 'startswith("Hybrid ImageBuilder")' in workflow and "Hybrid ImageBuilder 
 assert "schedule:" not in (ROOT / ".github/workflows/builder-immortalwrt.yml").read_text()
 assert "push:" not in (ROOT / ".github/workflows/builder-incremental.yml").read_text()
 hybrid_wf = (ROOT / ".github/workflows/builder-immortalwrt-hybrid.yml").read_text()
-assert 'branches: [main, "feat/hybrid-**"]' in hybrid_wf
+assert 'workflow_call:' in hybrid_wf
+assert 'uses: ./.github/workflows/builder-immortalwrt-hybrid.yml' in (
+    ROOT / ".github/workflows/dual-device-immortalwrt.yml").read_text()
 assert "contains(github.event.head_commit.message, '[full]')" in hybrid_wf
 publish_sh = (ROOT / "scripts/publish-hybrid-builder.sh").read_text()
 assert 'if [[ "$BRANCH" != main ]]; then\n  PRERELEASE=true' in publish_sh
@@ -424,7 +457,7 @@ assert 'if [[ "$BRANCH" != main ]]; then\n  PRERELEASE=true' in publish_sh
 assert 'github.repository == \'pzcn/openwrt-ppe-nss-ota\'' in workflow
 assert 'github.ref == \'refs/heads/feat/hybrid-official-snapshot\'' in workflow
 assert "startsWith(github.event.head_commit.message, '[ssh] ')" in workflow
-assert 'config/hybrid-ssh-debug.trigger' in workflow
+assert '"config/**"' in (ROOT / ".github/workflows/dual-device-immortalwrt.yml").read_text()
 assert "HYBRID_SSH_DEBUG: ${{" in workflow
 assert 'uses: tailscale/github-action@v4' in workflow
 assert 'tags: tag:gh-hybrid-debug' in workflow

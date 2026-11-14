@@ -66,6 +66,10 @@ with tempfile.TemporaryDirectory() as d:
     assert data["ppe_nss_commit"] == commit2
     assert data["builder_tag"] == "imm-builder-test"
     assert data["source_commit"] == "c" * 40
+    assert "layer_tag" not in data
+    mod.metadata(tag, 71, commit1, commit2, image, manifest, output,
+                 "imm-builder-test", "c" * 40, "imm-layer-" + "a" * 24)
+    assert json.loads(output.read_text())["layer_tag"] == "imm-layer-" + "a" * 24
 
     # Cross-channel tags and wrong image names must be rejected.
     try:

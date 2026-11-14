@@ -4,13 +4,18 @@
 luci-i18n-base-zh-cn
 luci-i18n-firewall-zh-cn
 luci-i18n-package-manager-zh-cn
+# LuCI temperature RPC needs autocore /sbin/tempinfo.
+autocore
 luci-i18n-sqm-zh-cn
+luci-i18n-bcp38-zh-cn
 luci-app-filemanager
 luci-i18n-filemanager-zh-cn
 luci-app-ttyd
 luci-i18n-ttyd-zh-cn
 luci-app-nlbwmon
 luci-i18n-nlbwmon-zh-cn
+luci-app-wifihistory
+luci-i18n-wifihistory-zh-cn
 luci-app-irqbalance
 luci-i18n-irqbalance-zh-cn
 luci-app-lldpd
@@ -32,6 +37,25 @@ luci-app-ddns-go
 luci-i18n-ddns-go-zh-cn
 luci-app-autoreboot
 luci-i18n-autoreboot-zh-cn
+
+# Same user-visible CPU/initial-settings features as Arthur.
+luci-app-cpufreq
+luci-i18n-cpufreq-zh-cn
+cpufreq
+default-settings-chn
+
+# Shared GitHub OTA requires JSON metadata parsing, HTTPS download, and
+# optional curl fallback for GitHub's multi-host Release redirects.
+jq
+uclient-fetch
+curl
+jsonfilter
+
+# Standalone sing-box GUI and daemon, no HomeProxy.
+luci-app-sing-box
+sing-box
+flock
+kmod-inet-diag
 
 tcpdump
 ip-full

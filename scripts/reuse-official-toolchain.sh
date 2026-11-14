@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Reuse the officially packaged ImmortalWrt ipq60xx cross toolchain where it
+# Reuse the matching official ImmortalWrt qualcommax cross toolchain where it
 # matches our GCC/musl/arch requirements; keep kernel, DTB and NSS source-built.
 set -Eeuo pipefail
 
@@ -25,16 +25,23 @@ SHA256="560d48f55910abbe3060d1c3a7140459eae010770745a498bb579ea05075238a"
 URL="https://downloads.immortalwrt.org/snapshots/targets/qualcommax/ipq60xx/$ARCHIVE"
 # The hybrid Builder must use the toolchain of the official snapshot whose
 # userland APKs it reuses (same libc/libgcc). Its lock pins name + SHA256.
+TOOLCHAIN_TARGET="qualcommax/ipq60xx"
 if [[ -n "${IMM_OFFICIAL_SNAPSHOT_LOCK:-}" ]]; then
   command -v jq >/dev/null || { echo "::error::jq required for snapshot toolchain lock"; exit 1; }
-  jq -e '.schema == 2 and .target == "qualcommax/ipq60xx"' "$IMM_OFFICIAL_SNAPSHOT_LOCK" >/dev/null
+  TOOLCHAIN_TARGET="$(jq -er '.target' "$IMM_OFFICIAL_SNAPSHOT_LOCK")"
+  case "$TOOLCHAIN_TARGET" in
+    qualcommax/ipq60xx|qualcommax/ipq807x) ;;
+    *) echo "::error::Unsupported official toolchain target: $TOOLCHAIN_TARGET" >&2; exit 1 ;;
+  esac
+  jq -e '.schema == 2 and .architecture == "aarch64_cortex-a53"' "$IMM_OFFICIAL_SNAPSHOT_LOCK" >/dev/null
   ARCHIVE="$(jq -er '.assets.toolchain.filename' "$IMM_OFFICIAL_SNAPSHOT_LOCK")"
   SHA256="$(jq -er '.assets.toolchain.sha256' "$IMM_OFFICIAL_SNAPSHOT_LOCK")"
-  [[ "$ARCHIVE" =~ ^immortalwrt-toolchain-qualcommax-ipq60xx[A-Za-z0-9._+~-]*[.]tar[.]zst$ ]] || {
-    echo "::error::Unexpected official snapshot toolchain filename"; exit 1;
+  short="${TOOLCHAIN_TARGET#qualcommax/}"
+  [[ "$ARCHIVE" =~ ^immortalwrt-toolchain-qualcommax-${short}[A-Za-z0-9._+~-]*[.]tar[.]zst$ ]] || {
+    echo "::error::Unexpected official snapshot toolchain filename for $TOOLCHAIN_TARGET"; exit 1;
   }
   [[ "$SHA256" =~ ^[a-f0-9]{64}$ ]] || { echo "::error::Invalid official toolchain digest"; exit 1; }
-  URL="https://downloads.immortalwrt.org/snapshots/targets/qualcommax/ipq60xx/$ARCHIVE"
+  URL="https://downloads.immortalwrt.org/snapshots/targets/$TOOLCHAIN_TARGET/$ARCHIVE"
 fi
 DEST="$CACHE_DL/$ARCHIVE"
 WORK="${RUNNER_TEMP:-/tmp}/immortal-official-toolchain"
@@ -79,7 +86,7 @@ use_official() {
   # silently writes to "scripts/ext-toolchain.sh/.config" instead of .config.
   # Always supply the absolute path, then prove it configured THIS buildroot.
   if ! (cd "$IMM" && bash "$IMM/scripts/ext-toolchain.sh" \
-      --toolchain "$toolchain" --overwrite-config --config qualcommax/ipq60xx); then
+      --toolchain "$toolchain" --overwrite-config --config "$TOOLCHAIN_TARGET"); then
     cp "$ORIGINAL_CONFIG" "$IMM/.config"
     return 1
   fi

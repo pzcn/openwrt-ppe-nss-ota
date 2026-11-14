@@ -14,10 +14,13 @@ f2fs-tools
 # one-time credentials from a private tmpfs file (no daemon required).
 curl
 jsonfilter
+jq
+uclient-fetch
 
 # WireGuard and diagnostics.
 luci-proto-wireguard
 wireguard-tools
+kmod-wireguard
 tcpdump
 ip-full
 conntrack

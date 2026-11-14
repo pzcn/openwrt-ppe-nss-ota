@@ -32,6 +32,23 @@ mapfile -t IB_DIRS < <(find "$WORK/builder" -mindepth 1 -maxdepth 1 -type d -nam
 [[ "${#IB_DIRS[@]}" -eq 1 ]] || { echo "::error::Unexpected ImageBuilder archive layout" >&2; exit 1; }
 IB="${IB_DIRS[0]}"
 test -f "$IB/Makefile"
+# Optional immutable userland layer: verify parent binding, mirror removal
+# list, snapshot SHA256 and every APK hash before touching the ImageBuilder.
+LAYER_TAG=""
+if [[ -n "${HYBRID_LAYER_META:-}" ]]; then
+  : "${HYBRID_LAYER_ARCHIVE:?Layer archive required}"
+  : "${HYBRID_LAYER_OFFICIAL:?Layer APK plan required}"
+  : "${HYBRID_PARENT_OFFICIAL:?Parent APK plan required}"
+  : "${HYBRID_LAYER_PACKAGES:?Layer package list required}"
+  : "${HYBRID_LAYER_SNAPSHOT:?Layer snapshot lock required}"
+  python3 "$ROOT/scripts/hybrid_layer.py" install \
+    --base-metadata "$META" --base-official "$HYBRID_PARENT_OFFICIAL" \
+    --metadata "$HYBRID_LAYER_META" --archive "$HYBRID_LAYER_ARCHIVE" \
+    --official "$HYBRID_LAYER_OFFICIAL" --packages "$HYBRID_LAYER_PACKAGES" \
+    --snapshot "$HYBRID_LAYER_SNAPSHOT" --imagebuilder "$IB"
+  LAYER_TAG="$(jq -er .tag "$HYBRID_LAYER_META")"
+  PACKAGES_FILE="$HYBRID_LAYER_PACKAGES"
+fi
 # ImageBuilder cannot rebuild a device kernel FIT: verify it was included
 # with the source kernel before spending time reinstalling 300+ APKs.
 mapfile -t fit_files < <(find "$IB/build_dir" -type f \
@@ -65,6 +82,7 @@ rm -f "$WORK/overlay/www/luci-static/resources/view/system/ppe-update.js" \
       "$WORK/overlay/etc/uci-defaults/96-migrate-legacy-extroot"
 # Exclude the optional Dr.COM app from matched Builder and user files.
 sh "$ROOT/scripts/stage-firmware-overlay.sh" "$WORK/overlay"
+bash "$ROOT/scripts/stage-sing-box-pre.sh" "$WORK/overlay" "$OUT"
 # Refuse an old Builder without the matching eMMC config-preservation hook.
 test -s "$WORK/overlay/lib/upgrade/platform.sh"
 grep -Fq 'platform_copy_config()' "$WORK/overlay/lib/upgrade/platform.sh"
@@ -151,6 +169,8 @@ python3 "$ROOT/scripts/immortalwrt_ota.py" metadata \
   --immortal-commit "$IMM_SHA" --ppe-commit "$PPE_SHA" \
   --image "$OUT/$IMAGE" --manifest "$OUT/$MANIFEST" \
   --builder-tag "$BUILDER_TAG" --source-commit "$(git -C "$ROOT" rev-parse HEAD)" \
+  --layer-tag "$LAYER_TAG" \
+  --sing-box-core "$OUT/sing-box-core.json" \
   --output "$OUT/ota.json"
 cp "$META" "$OUT/builder-metadata.json"
 
@@ -165,6 +185,7 @@ if [[ "$PUBLISH_RELEASE" == true ]]; then
 - ImmortalWrt source: $IMM_SHA
 - Julius PPE/NSS source: $PPE_SHA
 - ABI-matched reusable ImageBuilder: $BUILDER_TAG
+- Optional verified userland layer: ${LAYER_TAG:-none}
 - Customized source: $SOURCE_REV
 - Image: $IMAGE
 - F2FS overlay (p18) and separate ext4 storage (p27).

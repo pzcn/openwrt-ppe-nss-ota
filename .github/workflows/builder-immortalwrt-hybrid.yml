@@ -15,29 +15,20 @@ name: Hybrid Builder (official snapshot userland + local PPE/NSS kernel)
 # On PR #16's exact experiment branch, [ssh] forces full and enables a
 # bounded Tailscale SSH debugging window on failure (never auto-publish).
 on:
-  schedule:
-    - cron: "37 2 * * *"
-  push:
-    branches: [main, "feat/hybrid-**"]
-    paths:
-      - "config/add.txt"
-      - "config/remove.txt"
-      - "config/immortalwrt-re-ss-01.config"
-      - "config/hybrid-ssh-debug.trigger"
-      - "scripts/build-immortalwrt-hybrid.sh"
-      - "scripts/repack-immortalwrt.sh"
-      - "scripts/refresh-hybrid-builder.sh"
-      - "scripts/publish-hybrid-builder.sh"
-      - "scripts/hybrid-common.sh"
-      - "scripts/tests/test-hybrid-builder.py"
-      - "scripts/hybrid-prefetch-host-sources.sh"
-      - "scripts/hybrid_builder.py"
-      - "scripts/fit_configs.py"
-      - "scripts/resolve-immortalwrt-snapshot.py"
-      - "scripts/port-ppe-nss-to-immortalwrt.sh"
-      - "scripts/apply-immortalwrt-compat.sh"
-      - "scripts/reuse-official-toolchain.sh"
-      - ".github/workflows/builder-immortalwrt-hybrid.yml"
+  workflow_call:
+    inputs:
+      build_mode:
+        type: string
+        default: auto
+      channel:
+        type: string
+        default: auto
+      max_kernel_age_days:
+        type: number
+        default: 14
+      publish:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       build_mode:
@@ -64,8 +55,10 @@ permissions:
   actions: write
 
 concurrency:
-  group: re-ss-01-builder
-  cancel-in-progress: false
+  # Main stays serialized with manual full/incremental Builders. Branch CI is
+  # isolated and newer pushes cancel stale branch runs instead of burning CPU.
+  group: ${{ github.ref == 'refs/heads/main' && 're-ss-01-builder' || format('re-ss-01-builder-{0}', github.ref_name) }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   resolve:
@@ -77,7 +70,7 @@ jobs:
     outputs:
       mode: ${{ steps.decide.outputs.mode }}
       parent: ${{ steps.decide.outputs.parent }}
-      parent_prerelease: ${{ steps.parent.outputs.prerelease }}
+      parent_prerelease: ${{ steps.layer.outputs.prerelease || steps.parent.outputs.prerelease }}
       identity: ${{ steps.decide.outputs.identity }}
       kernel_identity: ${{ steps.decide.outputs.kernel_identity }}
       imm: ${{ steps.heads.outputs.imm }}
@@ -93,10 +86,11 @@ jobs:
         run: |
           set -Eeuo pipefail
           for script in scripts/build-immortalwrt-hybrid.sh scripts/refresh-hybrid-builder.sh \
-            scripts/publish-hybrid-builder.sh scripts/hybrid-common.sh \
+            scripts/publish-hybrid-builder.sh scripts/publish-hybrid-layer.sh scripts/hybrid-common.sh \
             scripts/hybrid-prefetch-host-sources.sh; do bash -n "$script"; done
           python3 scripts/tests/test-hybrid-snapshot.py
           python3 scripts/tests/test-hybrid-builder.py
+          python3 scripts/tests/test-hybrid-layer.py
           python3 scripts/tests/test-hybrid-ppe-source-sync.py
           python3 scripts/tests/test-immortalwrt-builder.py
           python3 scripts/tests/test-immortalwrt-sdk.py
@@ -140,6 +134,35 @@ jobs:
             [[ "$(jq -r .tag out-parent/builder-metadata.json)" == "$TAG" ]]
           fi
           echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+      - name: Find latest compatible userland layer, if any
+        id: layer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p out-layer
+          [[ -s out-parent/builder-metadata.json ]] || exit 0
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '
+            [.[] | select(.draft == false and
+                          (.tag_name | startswith("imm-layer-")) and
+                          ((.name // "") | startswith("Hybrid Userland Layer")))]
+            | sort_by(.published_at) | reverse | .[0:25][]
+            | [.tag_name, (.prerelease | tostring)] | @tsv
+          ' > out-layer/candidates.tsv
+          while IFS=$'\t' read -r candidate pre; do
+            mkdir -p "out-layer/$candidate"
+            if gh release download "$candidate" -R "$GITHUB_REPOSITORY" \
+                -D "out-layer/$candidate" -p layer-metadata.json >/dev/null 2>&1 &&
+               python3 scripts/hybrid_layer.py check-header \
+                 --base-metadata out-parent/builder-metadata.json \
+                 --metadata "out-layer/$candidate/layer-metadata.json" >/dev/null 2>&1; then
+              cp "out-layer/$candidate/layer-metadata.json" out-parent/identity.json
+              echo "prerelease=$pre" >> "$GITHUB_OUTPUT"
+              echo "Latest compatible thin layer: $candidate"
+              exit 0
+            fi
+          done < out-layer/candidates.tsv
+          cp out-parent/builder-metadata.json out-parent/identity.json
       - name: Decide skip / refresh / full
         id: decide
         env:
@@ -153,11 +176,12 @@ jobs:
           ID="$(python3 scripts/hybrid_builder.py identity --lock "$LOCK" "${heads[@]}" \
             --packages "$(python3 scripts/immortalwrt_builder.py package-fingerprint)")"
           KID="$(python3 scripts/hybrid_builder.py kernel-identity --lock "$LOCK" "${heads[@]}")"
-          args=(--identity "$ID" --kernel-identity "$KID" --parent out-parent/builder-metadata.json
+          args=(--identity "$ID" --kernel-identity "$KID" --parent out-parent/identity.json
                 --max-age-days "$MAX_AGE")
           [[ "$FORCE_FULL" == true ]] && args+=(--force-full)
           python3 scripts/hybrid_builder.py decide "${args[@]}" | tee decision.txt
-          { cat decision.txt; echo "identity=$ID"; echo "kernel_identity=$KID"; } >> "$GITHUB_OUTPUT"
+          { grep -v '^parent=' decision.txt; echo "parent=$(jq -r '.tag // ""' out-parent/builder-metadata.json 2>/dev/null || true)"; \
+            echo "identity=$ID"; echo "kernel_identity=$KID"; } >> "$GITHUB_OUTPUT"
           {
             echo "## Hybrid Builder: $(sed -n 's/^mode=//p' decision.txt)"
             echo "- Reason: $(sed -n 's/^reason=//p' decision.txt)"
@@ -180,6 +204,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       SNAPSHOT_LOCK: ${{ github.workspace }}/out-snapshot/snapshot-lock.json
       EXPECTED_KERNEL_IDENTITY: ${{ needs.resolve.outputs.kernel_identity }}
+      EXPECTED_IDENTITY: ${{ needs.resolve.outputs.identity }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -199,11 +224,18 @@ jobs:
         run: |
           set -Eeuo pipefail
           [[ "$PARENT" =~ ^imm-builder-[a-zA-Z0-9._-]+$ ]]
-          gh release download "$PARENT" -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/parent"
-      - name: Swap official userland, reissue IB + SDK, repack smoke test
+          # No 58 MB SDK or unchanged Builder repack in refresh mode.
+          gh release download "$PARENT" -R "$GITHUB_REPOSITORY" -D "$RUNNER_TEMP/parent" \
+            -p "*imagebuilder*.tar.zst" -p builder-metadata.json \
+            -p base-overlay.tar.gz -p imagebuilder-packages.txt \
+            -p local-plan.json -p official-apks.json \
+            -p sdk-metadata.json -p sdk-feeds.lock.json \
+            -p source-commits.txt -p official-toolchain-status.txt
+      - name: Produce verified official APK layer and real firmware smoke test
         run: bash scripts/refresh-hybrid-builder.sh "$RUNNER_TEMP/parent"
       - name: Publish
-        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        # Test branches never occupy a stable content-addressed layer tag.
+        if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish)
         env:
           CHANNEL: ${{ inputs.channel || 'auto' }}
           PARENT_PRERELEASE: ${{ needs.resolve.outputs.parent_prerelease }}
@@ -211,15 +243,14 @@ jobs:
           case "$CHANNEL" in
             prerelease) PRE=true ;; release) PRE=false ;; *) PRE="$PARENT_PRERELEASE" ;;
           esac
-          bash scripts/publish-hybrid-builder.sh out-hybrid "$PRE"
+          bash scripts/publish-hybrid-layer.sh out-hybrid "$RUNNER_TEMP/parent" "$PRE"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: immortalwrt-hybrid-refresh
-          path: |
-            out-hybrid/
-            !out-hybrid/*.tar.zst
+          path: out-hybrid/
           retention-days: 14
+          compression-level: 0
           if-no-files-found: warn
 
   full:
@@ -228,7 +259,7 @@ jobs:
     if: >-
       always() && needs.resolve.result == 'success' &&
       (needs.resolve.outputs.mode == 'full' ||
-       (needs.resolve.outputs.mode == 'refresh' && needs.refresh.result == 'failure'))
+       (github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'refresh' && needs.refresh.result == 'failure'))
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     env:
@@ -379,7 +410,7 @@ jobs:
           key: ${{ needs.resolve.outputs.host_key }}
       - name: Publish
         # Debug runs are never published, even if the initial build succeeds.
-        if: ${{ success() && env.HYBRID_SSH_DEBUG != 'true' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
+        if: ${{ success() && github.ref == 'refs/heads/main' && env.HYBRID_SSH_DEBUG != 'true' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
         env:
           CHANNEL: ${{ inputs.channel || 'auto' }}
         run: |

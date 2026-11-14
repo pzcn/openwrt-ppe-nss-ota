@@ -11,6 +11,8 @@ import urllib.request
 from pathlib import Path
 
 TARGET = "qualcommax/ipq60xx"
+PROFILES = {"qualcommax/ipq60xx": "jdcloud_re-ss-01",
+            "qualcommax/ipq807x": "linksys_mx4200v1"}
 ARCH = "aarch64_cortex-a53"
 ROOT = "https://downloads.immortalwrt.org/snapshots"
 GITHUB_COMMITS_API = "https://api.github.com/repos/immortalwrt/immortalwrt/commits/"
@@ -146,7 +148,7 @@ def libc_version(checksums: dict[str, str]) -> str:
 
 
 def choose_asset(checksums: dict[str, str], kind: str) -> dict[str, str]:
-    names = [name for name in checksums if name.startswith("immortalwrt-" + kind + "-qualcommax-ipq60xx")
+    names = [name for name in checksums if name.startswith("immortalwrt-" + kind + "-" + TARGET.replace("/", "-"))
              and name.endswith(".tar.zst") and "/" not in name]
     if len(names) != 1:
         raise ValueError(f"Expected exactly one {kind} archive, got {len(names)}")
@@ -168,10 +170,11 @@ def resolve(fixture: Path | None = None) -> dict:
         sha = checked(blob, sums, filename)
         source_files[filename] = {"sha256": sha}
         blobs[filename] = blob
-    if (b"CONFIG_TARGET_qualcommax_ipq60xx=y" not in blobs["config.buildinfo"]
-            or b"CONFIG_TARGET_DEVICE_qualcommax_ipq60xx_DEVICE_jdcloud_re-ss-01=y"
-            not in blobs["config.buildinfo"]):
-        raise ValueError("Official config lacks the JDCloud target profile")
+    subtarget = TARGET.split("/")[1]
+    target_flag = f"CONFIG_TARGET_qualcommax_{subtarget}=y".encode()
+    device_flag = f"CONFIG_TARGET_DEVICE_qualcommax_{subtarget}_DEVICE_{PROFILES[TARGET]}=y".encode()
+    if target_flag not in blobs["config.buildinfo"] or device_flag not in blobs["config.buildinfo"]:
+        raise ValueError(f"Official config lacks the {PROFILES[TARGET]} target profile")
     version = blobs["version.buildinfo"].decode().strip()
     match = VERSION.fullmatch(version)
     if not match:
@@ -276,7 +279,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--previous", type=Path)
     parser.add_argument("--fixture-dir", type=Path)
+    parser.add_argument("--target", choices=tuple(PROFILES), default="qualcommax/ipq60xx")
     args = parser.parse_args()
+    global TARGET
+    TARGET = args.target
     current = resolve(args.fixture_dir)
     previous = json.loads(args.previous.read_text()) if args.previous else None
     change = classify(previous, current)

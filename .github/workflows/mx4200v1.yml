@@ -27,6 +27,7 @@ jobs:
           python3 mx4200v1/test_contract.py
           bash -n mx4200v1/build.sh
           bash -n mx4200v1/port-ppe-nss.sh
+          bash -n mx4200v1/stage-overlay.sh
       - name: Restore source archive cache
         uses: actions/cache@v4
         with:
@@ -73,6 +74,9 @@ jobs:
         with:
           go-version: "1.26"
           cache: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - name: Compile and verify v1 images
         run: bash mx4200v1/build.sh
       - name: Upload MX4200 v1 firmware for manual testing

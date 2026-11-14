@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Hybrid Builder, refresh mode: no compilation at all.
+# Hybrid userland refresh: reuse the immutable parent IB/SDK and publish
+# only a verified set of official APKs plus the new image manifest.
 #
 # Reuse the previous hybrid Builder's ImageBuilder + SDK (kernel, kmods,
 # base-files, libc and custom packages unchanged) and replace only the
@@ -33,8 +34,7 @@ META="$PARENT/builder-metadata.json"
 SDK_META="$PARENT/sdk-metadata.json"
 FEED_LOCK="$PARENT/sdk-feeds.lock.json"
 IB_ARCHIVE="$PARENT/$(jq -er '.archive' "$META")"
-SDK_ARCHIVE="$PARENT/$(jq -er '.archive' "$SDK_META")"
-for file in "$META" "$SDK_META" "$FEED_LOCK" "$IB_ARCHIVE" "$SDK_ARCHIVE" \
+for file in "$META" "$SDK_META" "$FEED_LOCK" "$IB_ARCHIVE" \
   "$PARENT/base-overlay.tar.gz" "$PARENT/imagebuilder-packages.txt" \
   "$PARENT/local-plan.json" "$PARENT/official-apks.json" "$PARENT/official-toolchain-status.txt"; do
   test -s "$file" || { echo "::error::Parent Builder lacks $(basename "$file")" >&2; exit 1; }
@@ -42,8 +42,12 @@ done
 python3 "$ROOT/scripts/immortalwrt_builder.py" verify --metadata "$META" \
   --archive "$IB_ARCHIVE" --overlay "$PARENT/base-overlay.tar.gz" \
   --packages "$PARENT/imagebuilder-packages.txt"
-python3 "$ROOT/scripts/immortalwrt_sdk.py" verify --metadata "$SDK_META" \
-  --builder-metadata "$META" --archive "$SDK_ARCHIVE" --feed-lock "$FEED_LOCK"
+jq -e --arg tag "$(jq -er .tag "$META")" \
+  --arg sha "$(sha256sum "$META" | cut -d" " -f1)" \
+  '.builder_tag == $tag and .builder_metadata_sha256 == $sha and
+   (.archive_sha256 | test("^[0-9a-f]{64}$"))' "$SDK_META" >/dev/null
+jq -e --arg tag "$(jq -er .tag "$META")" \
+  '.builder_tag == $tag and .schema == 1' "$FEED_LOCK" >/dev/null
 jq -e '.build_mode == "hybrid" and (.hybrid | type == "object")' "$META" >/dev/null || {
   echo "::error::Parent is not a hybrid Builder" >&2; exit 1;
 }
@@ -65,8 +69,8 @@ KERNEL_IDENTITY="$("${HB[@]}" kernel-identity --lock "$LOCK" --ppe "$PPE_SHA" --
 IDENTITY="$("${HB[@]}" identity --lock "$LOCK" --ppe "$PPE_SHA" --base "$BASE_SHA" \
   --nss "$NSS_SHA" --ppe-luci "$PPE_LUCI_SHA" \
   --packages "$(python3 "$ROOT/scripts/immortalwrt_builder.py" package-fingerprint)")"
-[[ "$IDENTITY" != "$(jq -er '.hybrid.identity' "$META")" ]] || {
-  echo "::error::Nothing changed since $PARENT_TAG" >&2; exit 1;
+[[ -z "${EXPECTED_IDENTITY:-}" || "$EXPECTED_IDENTITY" == "$IDENTITY" ]] || {
+  echo "::error::Layer identity changed since workflow resolution" >&2; exit 1;
 }
 
 tar -I zstd -xf "$IB_ARCHIVE" -C "$WORK"
@@ -120,54 +124,56 @@ T3="$(date +%s)"
 cp -a "$IB" "$WORK/ib-manifest"
 hybrid_ib_manifest "$WORK/ib-manifest" "$OUT" "$OUT/local-apks.txt"
 rm -rf "$WORK/ib-manifest"
-NEW_IB="$OUT/$(basename "$IB_ARCHIVE")"
-tar -I 'zstd -T0 -12' -cf "$NEW_IB" -C "$WORK" "$(basename "$IB")"
-hybrid_check_archive_keys "$NEW_IB"
-cp "$SDK_ARCHIVE" "$OUT/"
-NEW_SDK="$OUT/$(basename "$SDK_ARCHIVE")"
-cp "$PARENT/base-overlay.tar.gz" "$PARENT/official-toolchain-status.txt" "$OUT/"
-mark repack "$T3"
+# Archive only official APK payloads; kernel, kmods, host tools and SDK are
+# still referenced by immutable parent release and never re-tarred here.
+NEW_LAYER="$OUT/hybrid-userland-packages.tar.zst"
+mkdir -p "$WORK/layer/packages"
+while IFS= read -r file; do
+  [[ "$file" != */* && "$file" == *.apk && -s "$IB/packages/$file" ]] || {
+    echo "::error::Bad verified official APK: $file" >&2; exit 1;
+  }
+  ln "$IB/packages/$file" "$WORK/layer/packages/$file"
+done < <(jq -r '.mirrored[]' "$OUT/official-apks.json")
+tar -I 'zstd -T0 -4' -cf "$NEW_LAYER" -C "$WORK/layer" packages
+mark layer-archive "$T3"
 
-# ---------------------------------------------------------------------------
-# 4. Metadata: same kernel lineage, new snapshot/feeds/package selection
-# ---------------------------------------------------------------------------
-FEEDS_FINGERPRINT="$("${HB[@]}" fingerprint feeds --lock "$LOCK" --nss "$NSS_SHA" --ppe-luci "$PPE_LUCI_SHA")"
-jq -n --argjson lock "$(cat "$LOCK")" --arg nss "$NSS_SHA" --arg luci "$PPE_LUCI_SHA" \
-  '{packages: $lock.arch_feeds.packages.commit, luci: $lock.arch_feeds.luci.commit,
-    routing: $lock.arch_feeds.routing.commit, telephony: $lock.arch_feeds.telephony.commit,
-    nss: $nss, ppe_qos_luci: $luci}' > "$WORK/feeds.json"
-hybrid_info "$WORK/hybrid-info.json" "$IDENTITY" "$KERNEL_IDENTITY" \
-  "$(jq -er '.hybrid.kernel_built_at' "$META")" \
-  "$(jq -r '.hybrid.kernel_parent // .tag' "$META")" "$KEYRING_SHA"
-cd "$ROOT"
-python3 scripts/immortalwrt_builder.py metadata --mode hybrid --snapshot-lock "$LOCK" \
-  --hybrid-info "$WORK/hybrid-info.json" \
-  --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" --feeds "$FEEDS_FINGERPRINT" \
-  --archive "$NEW_IB" --overlay "$OUT/base-overlay.tar.gz" \
-  --packages "$OUT/imagebuilder-packages.txt" --output "$OUT/builder-metadata.json"
-[[ "$(jq -r .tag "$OUT/builder-metadata.json")" != "$PARENT_TAG" ]]
-python3 scripts/immortalwrt_sdk.py reissue --parent-metadata "$SDK_META" \
-  --builder-metadata "$OUT/builder-metadata.json" --archive "$NEW_SDK" \
-  --feeds "$WORK/feeds.json" --feed-lock "$OUT/sdk-feeds.lock.json" \
-  --output "$OUT/sdk-metadata.json"
+cp "$LOCK" "$OUT/snapshot-lock.json"
+python3 "$ROOT/scripts/hybrid_layer.py" create \
+  --base-metadata "$META" --base-official "$PARENT/official-apks.json" \
+  --archive "$NEW_LAYER" --official "$OUT/official-apks.json" \
+  --packages "$OUT/imagebuilder-packages.txt" \
+  --snapshot "$OUT/snapshot-lock.json" --identity "$IDENTITY" \
+  --metadata "$OUT/layer-metadata.json"
 {
   grep -v '^Official snapshot=\|^Feeds=' "$PARENT/source-commits.txt" 2>/dev/null || true
   echo "Official snapshot=$(jq -er '.snapshot_version' "$LOCK")"
-  echo "Feeds=$FEEDS_FINGERPRINT"
   echo "Refreshed from=$PARENT_TAG"
 } > "$OUT/source-commits.txt"
-cp "$LOCK" "$OUT/snapshot-lock.json"
-
 # ---------------------------------------------------------------------------
 # 5. Smoke test: build the real firmware image from the refreshed Builder
 # ---------------------------------------------------------------------------
 T4="$(date +%s)"
-BUILDER_META="$OUT/builder-metadata.json" BUILDER_ARCHIVE="$NEW_IB" \
-BASE_OVERLAY="$OUT/base-overlay.tar.gz" BUILDER_PACKAGES="$OUT/imagebuilder-packages.txt" \
+BUILDER_META="$META" BUILDER_ARCHIVE="$IB_ARCHIVE" \
+BASE_OVERLAY="$PARENT/base-overlay.tar.gz" BUILDER_PACKAGES="$PARENT/imagebuilder-packages.txt" \
+HYBRID_LAYER_META="$OUT/layer-metadata.json" HYBRID_LAYER_ARCHIVE="$NEW_LAYER" \
+HYBRID_LAYER_OFFICIAL="$OUT/official-apks.json" \
+HYBRID_LAYER_PACKAGES="$OUT/imagebuilder-packages.txt" \
+HYBRID_LAYER_SNAPSHOT="$OUT/snapshot-lock.json" \
+HYBRID_PARENT_OFFICIAL="$PARENT/official-apks.json" \
 IMMORTAL_OUT_DIR="$OUT/ib-smoke" PUBLISH_RELEASE=false \
   bash scripts/repack-immortalwrt.sh
 test -s "$OUT/ib-smoke/immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
 mark smoke-test "$T4"
 mark total "$T0"
-hybrid_summary "$OUT" "Hybrid Builder (userland refresh of $PARENT_TAG)"
-echo "Refreshed hybrid Builder: $(jq -r .tag "$OUT/builder-metadata.json")"
+{
+  echo "## Thin Hybrid userland layer $(jq -er .tag "$OUT/layer-metadata.json")"
+  echo "- Base Builder: $PARENT_TAG (unchanged IB and SDK)"
+  echo "- Official mirrored APKs: $(jq '.mirrored | length' "$OUT/layer-metadata.json")"
+  echo "- Layer size: $(du -h "$NEW_LAYER" | cut -f1)"
+  echo "- Real firmware smoke test: passed"
+  echo ""
+  echo "| Phase | Seconds |"
+  echo "|---|---:|"
+  awk -F"\t" '{ printf "| %s | %s |\n", $1, $2 }' "$OUT/timings.tsv"
+} >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+echo "Verified thin userland layer: $(jq -er .tag "$OUT/layer-metadata.json")"

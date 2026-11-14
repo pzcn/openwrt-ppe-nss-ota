@@ -1,0 +1,4 @@
+config ppe-update 'main'
+    option auto '0'
+    option hour '4'
+    option delay '1'
