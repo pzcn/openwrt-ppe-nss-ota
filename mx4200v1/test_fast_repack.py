@@ -5,7 +5,8 @@ root = Path(__file__).resolve().parents[1]
 script = (root / "mx4200v1/repack-hybrid.sh").read_text()
 workflow = (root / ".github/workflows/mx4200v1-fast-repack.yml").read_text()
 must = (
-    "BASE_SOURCE_SHA", 'mx4200v1/source.config mx4200v1/port-ppe-nss.sh',
+    "BASE_SOURCE_SHA", "mx4200v1/source.config", "mx4200v1/port-ppe-nss.sh",
+    "mx4200v1/packages.txt mx4200v1/remove.txt",
     "mx4200v1-hybrid-metadata.json", "check_parent_sum",
     "linux-qualcommax_ipq807x/linksys_mx4200v1-uImage.itb",
     "python3 \"$ROOT/scripts/fit_configs.py\"",
@@ -22,10 +23,11 @@ for forbidden in ("sysupgrade -F", "gh release create", "gh workflow run",
                   "make -C \"$IB\" target/compile", "make -C \"$IB\" toolchain/install",
                   "config/immortalwrt-re-ss-01.config", "scripts/repack-immortalwrt.sh"):
     assert forbidden not in script, f"Unsafe MX repack behavior: {forbidden}"
-for needed in ("actions/download-artifact@v4", "43602206711",
+for needed in ("actions/download-artifact@v4", "required: true",
                "mx4200v1-hybrid-builder-sdk-test", "mx4200v1-hybrid-firmware-test",
                "mx4200v1-hybrid-diagnostics", "actions/upload-artifact@v4",
                "contents: read", "actions: read", "compression-level: 0"):
     assert needed in workflow, f"Missing CI contract: {needed}"
+assert "43602206711" not in workflow and "5afd6581438af59b3392c35e82322ab41b09acb2" not in workflow
 assert "gh release" not in workflow and "schedule:" not in workflow
 print("MX4200 v1 fast-repack offline contracts: PASS")
