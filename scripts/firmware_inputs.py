@@ -23,6 +23,7 @@ IMAGE_FILES = frozenset({
     "scripts/immortalwrt_sdk.py",
     "scripts/immortalwrt_sdk_apks.py",
     "scripts/fit_configs.py",
+    "scripts/hybrid_layer.py",
     "scripts/prepare-sing-box-luci.sh",
 })
 IMAGE_PREFIXES = ("files/", "config/translations/")
