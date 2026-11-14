@@ -24,6 +24,13 @@ for expected in (
 for expected in (
     "ipq8074-ess.dtsi",
     "ipq8074-nss.dtsi",
+    "qca_ppe_vlan.c",
+    "qca_ppe_acl.c",
+    "qca_ppe_debugfs.c",
+    "qca_ppe_flow_offload.c",
+    "0952-net-ethernet-qca-add-ppe.patch",
+    "0953-net-ethernet-qca-add-EDMA.patch",
+    "files/include/linux/qca_edma.h",
     "ipq8174-mx4x00.dtsi",
     "0931-arm64-dts-ipq8074-rename-nss-region.patch",
     "KERNEL_SIZE := 6144k",

@@ -55,3 +55,21 @@ script is pinned specifically to `ipq60xx` and must not be used here).
 **Do not use unattended upgrades or overwrite both stock boot slots during
 early testing.** Keep a known-good recovery route and backup configuration
 and flash calibration data before changing firmware.
+
+## Hybrid Builder (experimental)
+
+The new [MX4200 v1 Hybrid test workflow](../.github/workflows/mx4200v1-hybrid.yml)
+uses official ImmortalWrt `qualcommax/ipq807x` Snapshot APKs and its own
+SHA256-pinned toolchain while compiling PPE/NSS kernel, kmods and custom
+packages locally. The target profile is `linksys_mx4200v1` only; it never
+mixes with Arthur's `qualcommax/ipq60xx` kernel or ImageBuilder.
+
+Push to `feat/mx4200v1-hybrid-builder` for a test run. On success the workflow
+uploads factory/sysupgrade binaries and the matching standalone ImageBuilder/
+SDK as separate testing artifacts. It **does not publish a Release, generate
+OTA metadata, or flash the router**. The original
+[full-source workflow](../.github/workflows/mx4200v1.yml) stays as fallback.
+
+Gates: 6 MiB FIT limit, FIT boot configuration, exact v1 package manifest,
+both factory and sysupgrade images, and SDK compile smoke. Successful CI is
+**not** proof that the router can boot or safely sysupgrade.
