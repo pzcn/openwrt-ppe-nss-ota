@@ -111,89 +111,86 @@ hybrid_mirror() {  # official_json pkg_dir apk keys_dir work_dir [local_search_d
 }
 
 # Resolve the firmware package set with the ImageBuilder itself and enforce
-# the image contract: required packages present, excluded ones absent, and
+# the image contract: everything requested present, excluded ones absent, and
 # every kmod one we compiled for this kernel.
-# Package selections in the buildroot .config are NOT automatically included
-# by a standalone ImageBuilder. Request the locally compiled PPE/NSS UI and
-# helper baseline explicitly, in full and refresh runs alike.
+#
+# A standalone ImageBuilder only installs profile defaults plus PACKAGES; the
+# buildroot .config selections are not carried over. The full-source Builder
+# took its list from the buildroot image, so request the same set here: every
+# package the RE-SS-01 config selects (=y), add.txt, minus the config's
+# "is not set" packages and remove.txt.
 hybrid_image_request() {
-  local request="" line p
-  for p in qca-ppe-qos luci-app-qca-ppe-qos luci-theme-aurora ppe-help; do
-    request+=" $p"
-  done
+  local line p
+  local -a want=() drop=()
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^CONFIG_PACKAGE_([A-Za-z0-9._+-]+)=y$ ]]; then
+      want+=("${BASH_REMATCH[1]}")
+    elif [[ "$line" =~ ^#\ CONFIG_PACKAGE_([A-Za-z0-9._+-]+)\ is\ not\ set$ ]]; then
+      drop+=("${BASH_REMATCH[1]}")
+    fi
+  done < "$ROOT/config/immortalwrt-re-ss-01.config"
   while IFS= read -r line || [[ -n "$line" ]]; do
-    line="${line%%#*}"; request+=" $line"
+    line="${line%%#*}"; for p in $line; do want+=("$p"); done
   done < "$ROOT/config/add.txt"
   while IFS= read -r line || [[ -n "$line" ]]; do
-    line="${line%%#*}"; for p in $line; do request+=" -$p"; done
+    line="${line%%#*}"; for p in $line; do drop+=("$p"); done
   done < "$ROOT/config/remove.txt"
-  printf '%s\n' "$request"
+  {
+    printf '%s\n' "${want[@]}" | sort -u | grep -Fvx -f <(printf '%s\n' "${drop[@]}" "")
+    printf -- '-%s\n' "${drop[@]}" | sort -u
+  } | tr '\n' ' '
 }
 
 hybrid_ib_manifest() {  # ib_dir out_dir local_apks_file
   local ib="$1" out="$2" local_list="$3" request p apk
   request="$(hybrid_image_request)"
-  # The upstream manifest target runs _check_keys before package_index.
-  # Do so only in this disposable manifest-test ImageBuilder copy.
   local apk_bin="$ib/staging_dir/host/bin/apk" apk_dir="$ib/packages"
-  local signing_key="$ib/keys/local-private-key.pem" apk_count
   [[ -x "$apk_bin" && -d "$apk_dir" ]] || {
     echo "::error::ImageBuilder missing host apk or packages directory" >&2
     exit 1
   }
-  apk_count="$(find "$apk_dir" -maxdepth 1 -type f -name '*.apk' | wc -l)"
-  echo "ImageBuilder staged $apk_count local + mirrored APK files"
-  (( apk_count > 0 )) || {
-    echo "::error::Empty ImageBuilder package directory; check PACKAGE_SUBDIRS" >&2
+  local missing=()
+  for p in apk-openssl kernel base-files libc; do
+    compgen -G "$apk_dir/$p-[0-9]*.apk" >/dev/null || missing+=("$p")
+  done
+  (( ${#missing[@]} == 0 )) || {
+    echo "::error::ImageBuilder did not stage: ${missing[*]}" >&2
     exit 1
   }
-  for p in apk-openssl kernel base-files libc; do
-    if ! find "$apk_dir" -maxdepth 1 -type f -name "$p-[0-9]*.apk" -print -quit |
-         grep -q .; then
-      echo "::error::ImageBuilder did not stage required package: $p" >&2
-      exit 1
-    fi
-  done
+  echo "ImageBuilder staged $(compgen -G "$apk_dir/*.apk" | wc -l) APK files"
+  # Upstream package_index runs apk mkndx with all output and the exit status
+  # discarded. Build the index once visibly, with the same arguments, so a
+  # broken APK fails here with its real error. Keys are generated only in this
+  # disposable copy (the caller never ships it).
   make -C "$ib" -s _check_keys
   local sign_args=()
   if grep -Fqx 'CONFIG_SIGNATURE_CHECK=y' "$ib/.config"; then
-    [[ -s "$signing_key" && -s "$ib/keys/local-public-key.pem" ]] || {
-      echo "::error::Temporary ImageBuilder signing keys are missing" >&2
-      exit 1
-    }
-    sign_args=(--keys-dir "$ib/keys" --sign "$signing_key")
+    sign_args=(--keys-dir "$ib/keys" --sign "$ib/keys/local-private-key.pem")
   fi
-  # package_index hides apk mkndx stderr and exit status in upstream Makefile.
-  make -C "$ib" -s package_index
-  if [[ ! -s "$apk_dir/packages.adb" ]]; then
-    echo "::warning::ImageBuilder package_index failed silently; trying visible mkndx" >&2
-    if ! (cd "$apk_dir" && "$apk_bin" mkndx "${sign_args[@]}" \
-          --allow-untrusted --output packages.adb ./*.apk) \
-          > "$out/imagebuilder-mkndx.log" 2>&1; then
-      echo "::error::ImageBuilder apk mkndx failed; see imagebuilder-mkndx.log" >&2
-      tail -n 120 "$out/imagebuilder-mkndx.log" >&2
-      exit 1
-    fi
-  fi
-  [[ -s "$apk_dir/packages.adb" ]] || {
-    echo "::error::ImageBuilder index remains missing after explicit mkndx" >&2
+  if ! (cd "$apk_dir" && "$apk_bin" mkndx "${sign_args[@]}" --allow-untrusted \
+        --output packages.adb ./*.apk) > "$out/imagebuilder-mkndx.log" 2>&1; then
+    echo "::error::apk mkndx failed in the ImageBuilder; see imagebuilder-mkndx.log" >&2
+    tail -n 120 "$out/imagebuilder-mkndx.log" >&2
     exit 1
-  }
+  fi
   make -C "$ib" -s manifest PROFILE=jdcloud_re-ss-01 STRIP_ABI=1 PACKAGES="$request" \
     > "$out/imagebuilder.manifest"
   awk 'NF >= 3 && $2 == "-" && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
        $1 != "kernel" && $1 != "libc" && $1 != "base-files" { print $1 }' \
     "$out/imagebuilder.manifest" | sort -u > "$out/imagebuilder-packages.txt"
-  local missing_required=()
-  for p in kmod-nss-wifi-drv luci-app-sing-box sing-box luci-app-autoreboot \
-    luci-app-cpufreq default-settings-chn autocore luci-app-ddns-go kmod-fs-f2fs \
-    qca-ppe-qos luci-app-qca-ppe-qos luci-theme-aurora ppe-help sqm-scripts; do
-    if ! grep -Fxq "$p" "$out/imagebuilder-packages.txt"; then
-      missing_required+=("$p")
-    fi
+  # Every requested package must really be in the image (apk would
+  # otherwise satisfy a name through some other provider silently).
+  missing=()
+  for p in $request; do
+    [[ "$p" == -* ]] && continue
+    grep -Fxq "$p" "$out/imagebuilder-packages.txt" || missing+=("$p")
   done
-  if (( ${#missing_required[@]} )); then
-    echo "::error::ImageBuilder manifest missing required packages: ${missing_required[*]}" >&2
+  for p in kmod-nss-wifi-drv luci-app-sing-box sing-box qca-ppe-qos ppe-help \
+    luci-app-qca-ppe-qos luci-theme-aurora sqm-scripts kmod-fs-f2fs; do
+    grep -Fxq "$p" "$out/imagebuilder-packages.txt" || missing+=("$p")
+  done
+  if (( ${#missing[@]} )); then
+    echo "::error::ImageBuilder manifest missing requested packages: $(printf '%s\n' "${missing[@]}" | sort -u | tr '\n' ' ')" >&2
     exit 1
   fi
   for p in luci-app-homeproxy luci-i18n-homeproxy-zh-cn luci-app-diskman \

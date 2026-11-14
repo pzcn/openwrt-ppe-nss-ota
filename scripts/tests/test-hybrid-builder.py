@@ -277,6 +277,7 @@ expect_error(lambda: h.package_names("bad;name\n"), "Bad package name")
 
 # --- Deterministic mtimes for cached host tools ------------------------------
 import os  # noqa: E402
+import re
 import subprocess  # noqa: E402
 with tempfile.TemporaryDirectory() as tmp:
     repo = Path(tmp)
@@ -376,9 +377,8 @@ assert "make " not in refresh_script.replace("make -C", "")  # refresh never com
 assert 'cp -a "$IB" "$WORK/ib-manifest"' in refresh_script  # keys from the manifest run never ship
 assert "hybrid_check_archive_keys" in refresh_script and "hybrid_check_archive_keys" in full_script
 assert 'verify "${files[@]}"' in common and "--keys-dir" in common
-# Index initialization must run before the first package index attempt.
-assert common.index('make -C "$ib" -s _check_keys') < common.index('make -C "$ib" -s package_index')
-assert "ImageBuilder staged $apk_count" in common
+# Keys exist (in the throwaway copy) before the visible index build.
+assert common.index('make -C "$ib" -s _check_keys') < common.index('mkndx "${sign_args[@]}"')
 assert "imagebuilder-mkndx.log" in common
 assert "for p in apk-openssl kernel base-files libc; do" in common
 
@@ -389,14 +389,23 @@ req = subprocess.run(
      'set -Eeuo pipefail; ROOT="$PWD"; source scripts/hybrid-common.sh; hybrid_image_request'],
     cwd=ROOT, check=True, capture_output=True, text=True,
 ).stdout.split()
-for package in ("qca-ppe-qos", "luci-app-qca-ppe-qos",
-                "luci-theme-aurora", "ppe-help", "luci-app-sing-box",
-                "luci-app-wol", "kmod-fs-f2fs"):
+# The full buildroot selection, not a hand-picked subset: every =y package
+# of the RE-SS-01 config and add.txt, minus "is not set" and remove.txt.
+cfg = (ROOT / "config/immortalwrt-re-ss-01.config").read_text()
+config_y = set(re.findall(r"^CONFIG_PACKAGE_(\S+)=y$", cfg, re.M))
+removed = {w for l in (ROOT / "config/remove.txt").read_text().splitlines()
+           for w in l.split("#")[0].split()}
+assert config_y - removed <= set(req), sorted(config_y - removed - set(req))
+for package in ("qca-ppe-qos", "luci-app-qca-ppe-qos", "luci-theme-aurora", "ppe-help",
+                "luci-app-sing-box", "luci-app-wol", "kmod-fs-f2fs", "wpad-openssl",
+                "kmod-sched-flower", "tc-tiny", "dcb", "luci-app-sqm"):
     assert req.count(package) == 1, (package, req)
-for excluded in ("luci-app-homeproxy", "luci-app-diskman", "luci-app-statistics"):
-    assert "-" + excluded in req
+for excluded in ("luci-app-homeproxy", "luci-app-diskman", "luci-app-statistics",
+                 "wpad-basic-mbedtls"):
+    assert "-" + excluded in req and excluded not in req
+assert len(req) == len(set(req))
 assert 'request="$(hybrid_image_request)"' in common
-assert 'missing_required+=("$p")' in common
+assert 'for p in $request; do' in common  # every requested package is verified
 
 assert "normalize-mtimes --repo" in full_script and ".tools_*" in full_script
 assert "refresh-hybrid-builder.sh" in workflow and "build-immortalwrt-hybrid.sh" in workflow

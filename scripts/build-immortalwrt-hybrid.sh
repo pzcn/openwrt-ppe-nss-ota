@@ -256,13 +256,6 @@ for attempt in 1 2; do
   (( attempt == 1 )) || { echo "::error::Unresolved after local fallback: $fallback" >&2; exit 1; }
   printf '%s\n' $fallback >> "$WORK/extra-local.txt"
 done
-if grep -Fqx "CONFIG_PACKAGE_apk-openssl=y" .config; then
-  if ! jq -e 'any(.mirror[]; .name == "apk-openssl")' "$OUT/official-apks.json" >/dev/null \
-     && ! jq -e 'any(.local_packages[]; .name == "apk-openssl")' "$OUT/local-plan.json" >/dev/null; then
-    echo "::error::Selected apk-openssl is missing from the official closure and local build." >&2
-    exit 1
-  fi
-fi
 mark official-closure "$T1"
 
 # ---------------------------------------------------------------------------
