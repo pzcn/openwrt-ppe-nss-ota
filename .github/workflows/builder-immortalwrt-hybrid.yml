@@ -66,8 +66,10 @@ permissions:
   actions: write
 
 concurrency:
-  group: re-ss-01-builder
-  cancel-in-progress: false
+  # Main stays serialized with manual full/incremental Builders. Branch CI is
+  # isolated and newer pushes cancel stale branch runs instead of burning CPU.
+  group: ${{ github.ref == 'refs/heads/main' && 're-ss-01-builder' || format('re-ss-01-builder-{0}', github.ref_name) }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   resolve:
@@ -268,7 +270,7 @@ jobs:
     if: >-
       always() && needs.resolve.result == 'success' &&
       (needs.resolve.outputs.mode == 'full' ||
-       (needs.resolve.outputs.mode == 'refresh' && needs.refresh.result == 'failure'))
+       (github.ref == 'refs/heads/main' && needs.resolve.outputs.mode == 'refresh' && needs.refresh.result == 'failure'))
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     env:
