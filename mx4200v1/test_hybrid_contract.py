@@ -83,5 +83,9 @@ assert 'stage-overlay.sh' in (root / "mx4200v1/build.sh").read_text()
 assert 'prepare-sing-box-luci.sh' in (root / "mx4200v1/build.sh").read_text()
 assert 'CONFIG_PACKAGE_autocore=y' in (root / "mx4200v1/source.config").read_text()
 assert 'CONFIG_PACKAGE_luci-app-sing-box=y' in (root / "mx4200v1/source.config").read_text()
+for p in ("jq", "curl", "uclient-fetch", "jsonfilter"):
+    assert f"CONFIG_PACKAGE_{p}=y" in (root / "mx4200v1/source.config").read_text()
+    assert p in (root / "mx4200v1/packages.txt").read_text().splitlines()
+    assert p in script.split("HYBRID_REQUIRED_IMAGE_PKGS=")[1].splitlines()[0]
 assert all(p in (root / "mx4200v1/packages.txt").read_text().splitlines() for p in ("autocore", "luci-app-sing-box", "sing-box", "kmod-inet-diag", "kmod-tun"))
 print("MX4200 v1 Hybrid offline contracts: OK; compilation and real hardware unverified")
