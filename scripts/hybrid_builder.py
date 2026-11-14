@@ -613,8 +613,6 @@ def decide(identity_: str, kernel_identity_: str, parent: dict | None,
            max_age_days: int = MAX_KERNEL_AGE_DAYS) -> tuple[str, str]:
     """skip / refresh / full, given the newest published hybrid Builder."""
     info = (parent or {}).get("hybrid") or {}
-    if info.get("identity") == identity_ and not force_full:
-        return "skip", "an identical hybrid Builder is already published"
     if force_full:
         return "full", "full build requested"
     if not info:
@@ -623,8 +621,12 @@ def decide(identity_: str, kernel_identity_: str, parent: dict | None,
         return "full", "kernel side changed (PPE/NSS sources, recipe or toolchain)"
     built = dt.datetime.fromisoformat(info["kernel_built_at"].replace("Z", "+00:00"))
     age = (now - built).total_seconds() / 86400
+    # Periodic kernel security updates must not be skipped just because
+    # snapshot and package selections happen to be unchanged.
     if age > max_age_days:
         return "full", f"kernel is {age:.0f} days old; rebuilding from current master"
+    if info.get("identity") == identity_:
+        return "skip", "matching Builder or userland layer already published"
     return "refresh", "only official userland or package selection changed"
 
 
