@@ -111,11 +111,25 @@ verify temperature readings, sing-box routing or upgrade behavior.
 
 ## Fast firmware repack from a verified MX4200 Hybrid ImageBuilder
 
-The independent [fast-repack workflow](../.github/workflows/mx4200v1-fast-repack.yml)
-uses the immutable ImageBuilder from successful [Hybrid run #43602206711](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43602206711).
-It downloads that run's ImageBuilder, original SHA256 manifest, base overlay
-and local kmod provenance, then produces MX4200 v1 factory/sysupgrade files
-**without recompiling kernel, PPE/NSS, SDK, or the toolchain**.
+The [unified firmware workflow](../.github/workflows/dual-device-immortalwrt.yml)
+now selects an ImageBuilder dynamically for MX4200 v1: it scans successful
+Hybrid runs, validates that the three parent Actions artifacts are present and
+not expired, and checks the original source commit against the **current**
+kernel configuration, PPE/NSS port, package list and exclusions.
+
+- Exact match: reuse that MX4200 v1 ImageBuilder and rebuild factory/sysupgrade
+  **without compiling kernel, PPE/NSS, SDK or toolchain**.
+- No match (including expired parent artifacts): automatically invoke the
+  MX4200-only full Hybrid Builder. Do not quietly reuse incompatible kernel
+  or silently omit a newly requested LuCI feature.
+- Explicit `mode=repack` fails early if no compatible parent exists.
+  The standalone fast-repack workflow requires the caller to supply an
+  explicit validated source run ID and corresponding source commit.
+
+The base ImageBuilder, original SHA256 manifest, base overlay and local kmod
+provenance are still checked after downloading. This implements safe automatic
+Builder selection; a proper official-APK delta layer is a separate future
+optimization for software-only package additions.
 
 - Successful reference repack: [Actions #43609137873](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43609137873),
   artifact `mx4200v1-fast-repacked-firmware-test`. The actual sysupgrade
@@ -129,11 +143,10 @@ and local kmod provenance, then produces MX4200 v1 factory/sysupgrade files
   MX4200 Builder. For userspace package additions, the requested APK must
   already exist in the pinned offline ImageBuilder; missing packages cannot
   silently fall back to another target or kernel ABI.
-- Run on `feat/mx4200v1-fast-repack` pushes. The workflow also accepts
-  `source_run_id` and `source_commit` inputs when manually dispatched after
-  the workflow has been made available on the default branch. Source
-  artifacts currently retain for 14 days, so a durable long-term cache or
-  independently retained immutable base Builder is still needed.
+- The unified scheduler and main pushes decide whether to repack or build
+  from scratch; the standalone workflow remains a manual troubleshooting tool.
+  Parent Actions artifacts currently retain for 14 days; an immutable
+  long-term MX Builder Release still needs to replace temporary artifacts.
 - This workflow is a **zero-delta reuse of the already pinned official APK
   set**, not yet a new MX4200 official-APK delta layer. It does not publish
   Release/OTA or flash any router. The prior full-source and full Hybrid
