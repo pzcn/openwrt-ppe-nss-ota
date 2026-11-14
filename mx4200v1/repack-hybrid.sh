@@ -13,16 +13,17 @@ OUT="${MX4200V1_REPACK_OUT:-$ROOT/out-mx4200v1-fast-repack}"
 BUILDER="$(realpath "${1:?Builder artifact directory is required}")"
 PREVIOUS="$(realpath "${2:?Prior firmware artifact directory is required}")"
 DIAGNOSTICS="$(realpath "${3:?Diagnostic artifact directory is required}")"
-BASE_RUN_ID="${BASE_RUN_ID:-43602206711}"
-BASE_SOURCE_SHA="${BASE_SOURCE_SHA:-5afd6581438af59b3392c35e82322ab41b09acb2}"
+BASE_RUN_ID="${BASE_RUN_ID:?MX4200 Builder resolver must supply BASE_RUN_ID}"
+BASE_SOURCE_SHA="${BASE_SOURCE_SHA:?MX4200 Builder resolver must supply BASE_SOURCE_SHA}"
 
 # The IB is tied to the original kernel recipe. Repack-only changes to packages
 # and userspace files are allowed; a new kernel config/port needs a new Builder.
 [[ "$BASE_SOURCE_SHA" =~ ^[a-f0-9]{40}$ && "$BASE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
 git -C "$ROOT" cat-file -e "${BASE_SOURCE_SHA}^{commit}"
 if ! git -C "$ROOT" diff --quiet "$BASE_SOURCE_SHA" HEAD -- \
-    mx4200v1/source.config mx4200v1/port-ppe-nss.sh; then
-  echo "::error::MX4200 kernel/port changed since Builder source; rebuild MX-only Hybrid Builder." >&2
+    mx4200v1/source.config mx4200v1/port-ppe-nss.sh \
+    mx4200v1/packages.txt mx4200v1/remove.txt; then
+  echo "::error::MX4200 kernel, port, or package closure changed since Builder source; rebuild MX-only Hybrid Builder or create a verified APK layer." >&2
   exit 1
 fi
 
