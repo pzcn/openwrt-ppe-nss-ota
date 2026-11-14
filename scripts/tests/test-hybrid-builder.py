@@ -420,6 +420,24 @@ assert 'branches: [main, "feat/hybrid-**"]' in hybrid_wf
 assert "contains(github.event.head_commit.message, '[full]')" in hybrid_wf
 publish_sh = (ROOT / "scripts/publish-hybrid-builder.sh").read_text()
 assert 'if [[ "$BRANCH" != main ]]; then\n  PRERELEASE=true' in publish_sh
+# The SSH path is a strict opt-in for one trusted push branch, never PR/main.
+assert 'github.repository == \'pzcn/openwrt-ppe-nss-ota\'' in workflow
+assert 'github.ref == \'refs/heads/feat/hybrid-official-snapshot\'' in workflow
+assert "contains(github.event.head_commit.message, '[ssh]')" in workflow
+assert 'config/hybrid-ssh-debug.trigger' in workflow
+assert "HYBRID_SSH_DEBUG: ${{" in workflow
+assert 'uses: tailscale/github-action@v4' in workflow
+assert 'tags: tag:gh-hybrid-debug' in workflow
+assert 'secrets.TS_DEBUG_OAUTH_CLIENT_ID' in workflow
+assert 'secrets.TS_DEBUG_OAUTH_SECRET' in workflow
+assert 'id: hybrid_build' in workflow
+assert 'steps.hybrid_build.outcome == \'failure\'' in workflow
+assert 'steps.enable_debug_ssh.outcome == \'success\'' in workflow
+assert 'timeout-minutes: 45' in workflow
+assert "env.HYBRID_SSH_DEBUG != 'true'" in workflow
+assert workflow.index('id: enable_debug_ssh') < workflow.index('id: hybrid_build') < workflow.index('Hold failed hybrid runner')
+assert 'touch $done_file' in workflow
+
 
 print("PASS hybrid plan, closure, mirror, identities, skip/refresh/full, host cache, metadata, workflow")
 

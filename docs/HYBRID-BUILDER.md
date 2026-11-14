@@ -68,3 +68,9 @@
 - `sha256sums.sig`（usign）未验证；信任根是固定提交 keyring 中的官方公钥（索引签名 + 每个 APK 签名）。
 - refresh 期间 base-files 与 libc 来自上一次内核构建；官方 GCC/musl 版本变化会强制 full。
 - 开发沙箱无法完整运行 OpenWrt 构建；规划与闭包逻辑已在真实 master + 官方 feeds 元数据上验证（111 个本地包，其中 97 个 kmod；183 个官方包，无缺失），完整流程以首次 Actions 运行为准。
+
+## PR #16 SSH 调试（按需开启）
+
+仅在 `feat/hybrid-official-snapshot` 分支的提交信息包含 `[ssh]` 时，强制 full 构建并启用临时 Tailscale SSH；失败后最多保留 45 分钟。正常构建、主分支、PR 检查和定时任务不受影响，SSH 调试运行禁止发布。
+
+详细配置、Tailnet ACL、触发与结束命令：见 [Hybrid SSH 调试操作说明](HYBRID-SSH-DEBUG.md)。

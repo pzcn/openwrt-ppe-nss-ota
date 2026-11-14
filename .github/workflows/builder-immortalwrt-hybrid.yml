@@ -12,6 +12,8 @@ name: Hybrid Builder (official snapshot userland + local PPE/NSS kernel)
 # Run-workflow button for files on the default branch). Branch builds are
 # always prereleases and never dispatch the firmware workflow. Put "[full]"
 # in the commit message to force a full build from a push.
+# On PR #16's exact experiment branch, [ssh] forces full and enables a
+# bounded Tailscale SSH debugging window on failure (never auto-publish).
 on:
   schedule:
     - cron: "37 2 * * *"
@@ -21,6 +23,7 @@ on:
       - "config/add.txt"
       - "config/remove.txt"
       - "config/immortalwrt-re-ss-01.config"
+      - "config/hybrid-ssh-debug.trigger"
       - "scripts/build-immortalwrt-hybrid.sh"
       - "scripts/refresh-hybrid-builder.sh"
       - "scripts/publish-hybrid-builder.sh"
@@ -136,7 +139,7 @@ jobs:
       - name: Decide skip / refresh / full
         id: decide
         env:
-          FORCE_FULL: ${{ inputs.build_mode == 'full' || (github.event_name == 'push' && contains(github.event.head_commit.message, '[full]')) }}
+          FORCE_FULL: ${{ inputs.build_mode == 'full' || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[full]') || (github.repository == 'pzcn/openwrt-ppe-nss-ota' && github.ref == 'refs/heads/feat/hybrid-official-snapshot' && contains(github.event.head_commit.message, '[ssh]')))) }}
           MAX_AGE: ${{ inputs.max_kernel_age_days || 14 }}
         run: |
           set -Eeuo pipefail
@@ -225,6 +228,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 300
     env:
+      HYBRID_SSH_DEBUG: ${{ github.event_name == 'push' && github.repository == 'pzcn/openwrt-ppe-nss-ota' && github.ref == 'refs/heads/feat/hybrid-official-snapshot' && contains(github.event.head_commit.message, '[ssh]') }}
       GH_TOKEN: ${{ github.token }}
       SNAPSHOT_LOCK: ${{ github.workspace }}/out-snapshot/snapshot-lock.json
       EXPECTED_IMM_SHA: ${{ needs.resolve.outputs.imm }}
@@ -234,6 +238,18 @@ jobs:
       EXPECTED_PPE_LUCI_SHA: ${{ needs.resolve.outputs.ppe_luci }}
     steps:
       - uses: actions/checkout@v4
+      # Validate opt-in credentials before downloading caches or installing tools.
+      - name: Validate SSH debug credentials (opt-in)
+        if: env.HYBRID_SSH_DEBUG == 'true'
+        env:
+          TS_DEBUG_OAUTH_CLIENT_ID: ${{ secrets.TS_DEBUG_OAUTH_CLIENT_ID }}
+          TS_DEBUG_OAUTH_SECRET: ${{ secrets.TS_DEBUG_OAUTH_SECRET }}
+        run: |
+          set -Eeuo pipefail
+          if [[ -z "$TS_DEBUG_OAUTH_CLIENT_ID" || -z "$TS_DEBUG_OAUTH_SECRET" ]]; then
+            echo "::error::SSH debug requires TS_DEBUG_OAUTH_CLIENT_ID and TS_DEBUG_OAUTH_SECRET GitHub repository secrets." >&2
+            exit 1
+          fi
       - uses: actions/download-artifact@v4
         with:
           name: snapshot-lock
@@ -284,8 +300,57 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      # This is deliberately restricted to this repository's PR #16 branch
+      # and is NOT active on scheduled/main/PR builds.
+      - name: Join Tailscale for interactive debug
+        if: env.HYBRID_SSH_DEBUG == 'true'
+        uses: tailscale/github-action@v4
+        with:
+          oauth-client-id: ${{ secrets.TS_DEBUG_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_DEBUG_OAUTH_SECRET }}
+          tags: tag:gh-hybrid-debug
+      - name: Enable Tailscale SSH on temporary runner
+        id: enable_debug_ssh
+        if: env.HYBRID_SSH_DEBUG == 'true'
+        run: |
+          set -Eeuo pipefail
+          sudo tailscale set --ssh
+          ip="$(tailscale ip -4 | head -n 1)"
+          [[ "$ip" =~ ^100\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::No private Tailnet IPv4 address was assigned" >&2
+            exit 1
+          }
+          echo "::notice title=Hybrid SSH ready::Use tailscale ssh runner@$ip from a permitted Tailnet device"
+          echo "Build directory: $RUNNER_TEMP/immortal-hybrid/immortalwrt"
       - name: Build hybrid Builder and SDK with SDK + ImageBuilder smoke tests
+        id: hybrid_build
         run: bash scripts/build-immortalwrt-hybrid.sh
+      # A failing build retains its original failure result; this step merely
+      # keeps the same runner and files alive for hands-on diagnosis.
+      - name: Hold failed hybrid runner for SSH (up to 45 min)
+        if: ${{ failure() && env.HYBRID_SSH_DEBUG == 'true' && steps.hybrid_build.outcome == 'failure' && steps.enable_debug_ssh.outcome == 'success' }}
+        timeout-minutes: 45
+        run: |
+          set -Eeuo pipefail
+          ip="$(tailscale ip -4 | head -n 1)"
+          done_file="$RUNNER_TEMP/hybrid-ssh-debug-done"
+          echo "::notice title=Hybrid SSH retained::tailscale ssh runner@$ip (up to 45 minutes)"
+          echo "Reconnect: tailscale ssh runner@$ip"
+          echo "Workspace: $GITHUB_WORKSPACE"
+          echo "Build dir: $RUNNER_TEMP/immortal-hybrid/immortalwrt"
+          echo "When finished, run: touch $done_file"
+          {
+            echo "## Hybrid Builder SSH debugging (ephemeral)"
+            echo "- Connect: \`tailscale ssh runner@$ip\`"
+            echo "- Build root: \`$RUNNER_TEMP/immortal-hybrid/immortalwrt\`"
+            echo "- Close early: \`touch $done_file\`"
+            echo "- Original build step has failed; SSH changes do not turn the run green."
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Stop before the 45-minute step timeout, to save diagnostic caches.
+          while [[ ! -e "$done_file" ]] && (( SECONDS < 2600 )); do
+            sleep 10
+          done
+          echo "SSH debugging window closed; proceeding to cache/artifact cleanup."
       # Caches are saved even when the build fails, so a retry is not cold.
       - name: Save source archives
         if: always()
@@ -309,7 +374,8 @@ jobs:
             ${{ runner.temp }}/immortal-hybrid/immortalwrt/build_dir/host
           key: ${{ needs.resolve.outputs.host_key }}
       - name: Publish
-        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        # Debug runs are never published, even if the initial build succeeds.
+        if: ${{ success() && env.HYBRID_SSH_DEBUG != 'true' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
         env:
           CHANNEL: ${{ inputs.channel || 'auto' }}
         run: |
