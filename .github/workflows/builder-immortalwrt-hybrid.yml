@@ -86,7 +86,8 @@ jobs:
         run: |
           set -Eeuo pipefail
           for script in scripts/build-immortalwrt-hybrid.sh scripts/refresh-hybrid-builder.sh \
-            scripts/publish-hybrid-builder.sh scripts/hybrid-common.sh; do bash -n "$script"; done
+            scripts/publish-hybrid-builder.sh scripts/hybrid-common.sh \
+            scripts/hybrid-prefetch-host-sources.sh; do bash -n "$script"; done
           python3 scripts/tests/test-hybrid-snapshot.py
           python3 scripts/tests/test-hybrid-builder.py
           python3 scripts/tests/test-hybrid-ppe-source-sync.py

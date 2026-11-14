@@ -36,19 +36,32 @@ mkdir -p "$WORK" "$OUT" "$CACHE_DL" "$CACHE_CCACHE"
 hybrid_check_lock "$LOCK"
 TARGET_URL="$(jq -er '.target_url' "$LOCK")"
 
-# Run one buildroot phase, record its duration; on failure re-run only that
-# phase serially and verbosely so the first real error is visible.
+# A parallel tools build may fail transiently (e.g. source download races).
+# Keep the FULL serial diagnostic log, and respect the serial retry's exit code.
 phase() {
   local name="$1"; shift
-  local begin; begin="$(date +%s)"
+  local begin debug
+  begin="$(date +%s)"
+  debug="$OUT/$name-serial.log"
   echo "::group::$name"
-  if ! (cd "$IMM" && make -j"$JOBS" "$@"); then
+  if (cd "$IMM" && make -j"$JOBS" "$@"); then
     echo "::endgroup::"
-    echo "::error::Phase '$name' failed; re-running serially with V=s" >&2
-    (cd "$IMM" && make -j1 V=s "$@") 2>&1 | tail -n 200 || true
-    exit 1
+  else
+    echo "::endgroup::"
+    echo "::warning::Phase '$name' failed in parallel; retrying serially with V=sc (log: $debug)" >&2
+    if (cd "$IMM" && make -j1 V=sc "$@") > "$debug" 2>&1; then
+      echo "::notice::Phase '$name' succeeded on serial retry; continuing." >&2
+    else
+      echo "::error::Phase '$name' failed again; full serial log saved: $debug" >&2
+      echo "::group::First useful errors in $name"
+      grep -nEi 'error:|fatal:|failed to|could not|cannot|no such file|curl:|Error [0-9]+' "$debug" | head -n 65 || true
+      echo "::endgroup::"
+      echo "::group::Last 140 lines from $name"
+      tail -n 140 "$debug" || true
+      echo "::endgroup::"
+      exit 1
+    fi
   fi
-  echo "::endgroup::"
   printf '%s\t%s\n' "$name" "$(( $(date +%s) - begin ))" >> "$OUT/timings.tsv"
 }
 mark() { printf '%s\t%s\n' "$1" "$(( $(date +%s) - $2 ))" >> "$OUT/timings.tsv"; }
@@ -215,6 +228,9 @@ mark prepare "$T0"
 # ---------------------------------------------------------------------------
 # 4. Host tools, toolchain wrapper and host apk (needed to read official indexes)
 # ---------------------------------------------------------------------------
+# The original LZO download host previously stalled this build. Preseed the
+# exact pinned 2.10 archive from OpenWrt mirrors (SHA256-verified) before make.
+bash "$ROOT/scripts/hybrid-prefetch-host-sources.sh" "$CACHE_DL"
 phase tools tools/install
 phase toolchain toolchain/install
 phase apk-host package/system/apk/host/compile
