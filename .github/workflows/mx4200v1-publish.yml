@@ -1,0 +1,123 @@
+name: MX4200 v1 - verify and publish safe prerelease assets
+
+# Immutable Builder or manual-test OTA Release from a successful Hybrid/fast run.
+# Never publish a stable OTA: owner promotes after NAND/config recovery tests.
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: "Successful MX4200 build workflow run ID"
+        type: string
+        required: true
+      source:
+        description: "Which MX4200 workflow produced these assets"
+        type: choice
+        options: [hybrid, fast]
+        default: hybrid
+      asset:
+        description: "Builder (hybrid only) or OTA firmware prerelease"
+        type: choice
+        options: [builder, firmware]
+        default: firmware
+      confirm_publish:
+        description: "Publish as a GitHub prerelease after SHA256/target checks"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: mx4200v1-prerelease-${{ inputs.source_run_id }}-${{ inputs.asset }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Verify target identity and SHA256 provenance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    if: github.ref == 'refs/heads/main'
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate source and publication mode
+        env:
+          RUN: ${{ inputs.source_run_id }}
+          KIND: ${{ inputs.asset }}
+          FLAVOR: ${{ inputs.source }}
+        run: |
+          set -Eeuo pipefail
+          [[ "$RUN" =~ ^[0-9]{8,13}$ ]] || exit 1
+          [[ "$KIND" != builder || "$FLAVOR" == hybrid ]] || {
+            echo "::error::Builder is only published from full Hybrid runs"; exit 1;
+          }
+          bash -n mx4200v1/publish-release.sh
+      - name: Download matching Builder and ABI provenance
+        if: inputs.asset == 'builder'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mx4200v1-hybrid-*
+          merge-multiple: true
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/mx4200-assets
+      - name: Download full-build firmware
+        if: inputs.asset == 'firmware' && inputs.source == 'hybrid'
+        uses: actions/download-artifact@v4
+        with:
+          name: mx4200v1-hybrid-firmware-test
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/mx4200-assets
+      - name: Download fast-repacked firmware
+        if: inputs.asset == 'firmware' && inputs.source == 'fast'
+        uses: actions/download-artifact@v4
+        with:
+          name: mx4200v1-fast-repacked-firmware-test
+          run-id: ${{ inputs.source_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/mx4200-assets
+      - name: Verify artifact consistency and OTA device isolation
+        env:
+          KIND: ${{ inputs.asset }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/mx4200-flat"
+          # GitHub artifacts may preserve out-mx4200v1-hybrid directories.
+          # All repeated filenames across downloaded archives must match.
+          while IFS= read -r -d '' file; do
+            name="$(basename "$file")"
+            out="$RUNNER_TEMP/mx4200-flat/$name"
+            if [[ -e "$out" ]]; then
+              cmp -s "$file" "$out" || {
+                echo "::error::Conflicting MX asset name: $name"; exit 1;
+              }
+            else
+              cp -- "$file" "$out"
+            fi
+          done < <(find "$RUNNER_TEMP/mx4200-assets" -type f -print0)
+          MX_VERIFY_ONLY=true bash mx4200v1/publish-release.sh \
+            "$KIND" "$RUNNER_TEMP/mx4200-flat"
+      - name: Publish as immutable prerelease (explicit opt-in only)
+        if: inputs.confirm_publish
+        env:
+          KIND: ${{ inputs.asset }}
+        run: |
+          set -Eeuo pipefail
+          bash mx4200v1/publish-release.sh \
+            "$KIND" "$RUNNER_TEMP/mx4200-flat"
+      - name: Verification summary
+        env:
+          KIND: ${{ inputs.asset }}
+          CONFIRMED: ${{ inputs.confirm_publish }}
+          RUN: ${{ inputs.source_run_id }}
+        run: |
+          {
+            echo "## MX4200 v1 $KIND artifact validation"
+            echo "Source run: $RUN"
+            echo "Target: linksys_mx4200v1 only"
+            echo "Prerelease published: $CONFIRMED"
+            echo "Not hardware tested; no OTA install triggered."
+          } >> "$GITHUB_STEP_SUMMARY"
