@@ -9,7 +9,7 @@ PRE="${3:?Prerelease flag required}"
 REPO="${GITHUB_REPOSITORY:-pzcn/openwrt-ppe-nss-ota}"
 [[ "$REPO" == pzcn/openwrt-ppe-nss-ota && ( "$PRE" == true || "$PRE" == false ) ]] || exit 1
 BRANCH="${GITHUB_REF_NAME:-main}"
-[[ "$BRANCH" == main ]] || PRE=true
+[[ "$BRANCH" == main ]] || { echo "::error::Only main can publish immutable userland-layer tags" >&2; exit 1; }
 
 META="$DIR/layer-metadata.json"
 ARCHIVE="$DIR/hybrid-userland-packages.tar.zst"
