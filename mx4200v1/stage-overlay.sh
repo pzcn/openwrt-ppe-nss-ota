@@ -10,13 +10,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # include its stale cleanup script in a firmware that has shared OTA enabled.
 rm -f -- "$DEST/etc/uci-defaults/99-remove-ppe-update"
 
-# Keep the upstream updater's init, UCI and scheduling integration; replace
-# the binary backend and make LuCI invoke the same code as Arthur.
-for file in etc/init.d/ppe-update etc/config/ppe-update; do
-  [[ -s "$DEST/$file" ]] || {
-    echo "::error::Missing upstream OTA service $file; inspect base overlay" >&2
-    exit 1
-  }
+# Older MX-only base-overlay archives intentionally deleted these service
+# files. Stage reproducible, device-local copies to support fast repacking from
+# those otherwise valid Builder assets, without any kernel rebuild.
+for file in etc/config/ppe-update lib/upgrade/keep.d/ppe-update; do
+  install -D -m 0644 "$ROOT/mx4200v1/files/$file" "$DEST/$file"
+done
+for file in etc/init.d/ppe-update etc/uci-defaults/zz-ppe-update; do
+  install -D -m 0755 "$ROOT/mx4200v1/files/$file" "$DEST/$file"
 done
 install -D -m 0755 "$ROOT/files/usr/sbin/ppe-update" "$DEST/usr/sbin/ppe-update"
 install -D -m 0644 "$ROOT/files/usr/share/rpcd/acl.d/luci-app-ppe-update.json" \
