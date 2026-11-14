@@ -94,7 +94,7 @@ with tempfile.TemporaryDirectory() as temp:
     write_json(base, base_doc)
     write_json(base_official, {"mirrored": ["old-1.apk"],
                                "mirror": [{"filename": "old-1.apk", "sha256": hex64("7")}]})
-    payload = {"foo-1.apk": b"official signed package" * 100,
+    payload = {"foo-2026.11~abc-r1.apk": b"official signed package" * 100,
                "bar-2.apk": b"new official package" * 100}
     records = [{"filename": name, "sha256": sha_bytes(data)}
                for name, data in payload.items()]
