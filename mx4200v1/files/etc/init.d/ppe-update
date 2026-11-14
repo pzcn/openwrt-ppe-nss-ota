@@ -1,0 +1,37 @@
+#!/bin/sh /etc/rc.common
+# Shared OTA init/cron/extra-package restoration.
+# Derived from JuliusBairaktaris/Qualcommax_NSS_Builder (GPL-2.0).
+START=99
+USE_PROCD=1
+CRON=/etc/crontabs/root
+TAG='# ppe-update'
+
+cron_sync() {
+  local auto hour minute line
+  auto="$(uci -q get ppe-update.main.auto)"
+  hour="$(uci -q get ppe-update.main.hour || echo 4)"
+  case "$hour" in '' | *[!0-9]*) hour=4 ;; esac
+  [ "$hour" -ge 0 ] && [ "$hour" -le 23 ] || hour=4
+  minute="$(( $(hexdump -n1 -e '"%u"' /dev/urandom) % 60 ))"
+  line="$minute $hour * * * /usr/sbin/ppe-update auto $TAG"
+  touch "$CRON"
+  sed -i "\|$TAG|d" "$CRON"
+  [ "$auto" != 1 ] || echo "$line" >> "$CRON"
+  /etc/init.d/cron restart
+}
+
+start_service() {
+  cron_sync
+  [ -s /etc/ppe-update/packages ] || return 0
+  procd_open_instance restore
+  procd_set_param command /usr/sbin/ppe-update restore
+  procd_close_instance
+}
+
+service_triggers() {
+  procd_add_reload_trigger ppe-update
+}
+
+reload_service() {
+  cron_sync
+}
