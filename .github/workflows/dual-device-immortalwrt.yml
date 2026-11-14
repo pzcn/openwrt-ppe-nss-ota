@@ -128,7 +128,11 @@ jobs:
     name: MX4200 v1 - full PPE/NSS Builder + OTA factory/sysupgrade
     needs: validate
     if: >-
-      github.event_name != 'pull_request' && inputs.mode == 'full' &&
+      github.event_name != 'pull_request' &&
+      (inputs.mode == 'full' ||
+       (github.ref == 'refs/heads/feat/unified-ota-multidevice' &&
+        github.event_name == 'push' &&
+        contains(github.event.head_commit.message, '[mx full]'))) &&
       (inputs.device == '' || inputs.device == 'both' || inputs.device == 'mx4200v1')
     uses: ./.github/workflows/mx4200v1-hybrid.yml
     secrets: inherit
@@ -138,6 +142,9 @@ jobs:
     needs: validate
     if: >-
       github.event_name != 'pull_request' && inputs.mode != 'full' &&
+      !(github.ref == 'refs/heads/feat/unified-ota-multidevice' &&
+        github.event_name == 'push' &&
+        contains(github.event.head_commit.message, '[mx full]')) &&
       needs.validate.result == 'success' &&
       (inputs.device == '' || inputs.device == 'both' || inputs.device == 'mx4200v1')
     uses: ./.github/workflows/mx4200v1-fast-repack.yml
