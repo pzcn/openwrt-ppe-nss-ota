@@ -15,31 +15,20 @@ name: Hybrid Builder (official snapshot userland + local PPE/NSS kernel)
 # On PR #16's exact experiment branch, [ssh] forces full and enables a
 # bounded Tailscale SSH debugging window on failure (never auto-publish).
 on:
-  schedule:
-    - cron: "37 2 * * *"
-  push:
-    branches: [main, "feat/hybrid-**"]
-    paths:
-      - "config/add.txt"
-      - "config/remove.txt"
-      - "config/immortalwrt-re-ss-01.config"
-      - "config/hybrid-ssh-debug.trigger"
-      - "scripts/build-immortalwrt-hybrid.sh"
-      - "scripts/repack-immortalwrt.sh"
-      - "scripts/refresh-hybrid-builder.sh"
-      - "scripts/hybrid_layer.py"
-      - "scripts/publish-hybrid-layer.sh"
-      - "scripts/publish-hybrid-builder.sh"
-      - "scripts/hybrid-common.sh"
-      - "scripts/tests/test-hybrid-builder.py"
-      - "scripts/hybrid-prefetch-host-sources.sh"
-      - "scripts/hybrid_builder.py"
-      - "scripts/fit_configs.py"
-      - "scripts/resolve-immortalwrt-snapshot.py"
-      - "scripts/port-ppe-nss-to-immortalwrt.sh"
-      - "scripts/apply-immortalwrt-compat.sh"
-      - "scripts/reuse-official-toolchain.sh"
-      - ".github/workflows/builder-immortalwrt-hybrid.yml"
+  workflow_call:
+    inputs:
+      build_mode:
+        type: string
+        default: auto
+      channel:
+        type: string
+        default: auto
+      max_kernel_age_days:
+        type: number
+        default: 14
+      publish:
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       build_mode:
@@ -421,7 +410,7 @@ jobs:
           key: ${{ needs.resolve.outputs.host_key }}
       - name: Publish
         # Debug runs are never published, even if the initial build succeeds.
-        if: ${{ success() && env.HYBRID_SSH_DEBUG != 'true' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
+        if: ${{ success() && github.ref == 'refs/heads/main' && env.HYBRID_SSH_DEBUG != 'true' && (github.event_name != 'workflow_dispatch' || inputs.publish) }}
         env:
           CHANNEL: ${{ inputs.channel || 'auto' }}
         run: |
