@@ -33,6 +33,8 @@ on:
       - scripts/tests/test-swap-rootfs-packaging.py
       - scripts/audit-swap-runtime-readiness.py
       - scripts/tests/test-swap-runtime-readiness.py
+      - scripts/audit-swap-boot-finalization.py
+      - scripts/tests/test-swap-boot-finalization.py
 
 permissions:
   contents: read
@@ -61,6 +63,7 @@ jobs:
           python3 scripts/tests/test-swap-extracted-root.py
           python3 scripts/tests/test-swap-rootfs-packaging.py
           python3 scripts/tests/test-swap-runtime-readiness.py
+          python3 scripts/tests/test-swap-boot-finalization.py
           python3 scripts/tests/test-swap-mixed-apk-roots.py
           python3 scripts/tests/test-swap-resolved-apks.py
           python3 scripts/tests/test-swap-official-world.py
@@ -126,6 +129,19 @@ jobs:
                   .target_postinstall_scripts_executed == false and
                   .readiness_for_flash_proven == false' \
             out-julius-swap/boot-runtime-static-audit.json >/dev/null
+      - name: Compare stock/donor boot services and pending ImageBuilder finalization
+        run: |
+          set -Eeuo pipefail
+          WORK="$RUNNER_TEMP/immortal-julius-swap"
+          python3 scripts/audit-swap-boot-finalization.py \
+            --official-squashfs "$WORK/extracted/immortalwrt.squashfs" \
+            --julius-squashfs "$WORK/extracted/julius.squashfs" \
+            --mixed-rootfs "$WORK/disposable-apk-root" \
+            --report out-julius-swap/boot-finalization-inventory.json
+          jq -e '.publishable == false and
+                  .imagebuilder_prepare_rootfs_executed == false and
+                  .service_enablement_executed == false' \
+            out-julius-swap/boot-finalization-inventory.json >/dev/null
       - name: Repack disposable APK root into SquashFS, reextract and check research-only TAR
         run: |
           set -Eeuo pipefail
@@ -243,6 +259,13 @@ jobs:
                      "\nAll scanned .ko vermagic release strings match Julius: " +
                      (.kernel_abi_string_inspection.matching_module_version_strings|tostring)' \
                 out-julius-swap/boot-runtime-static-audit.json
+            fi
+            if [ -s out-julius-swap/boot-finalization-inventory.json ]; then
+              jq -r '"Stock/Julius/mixed service links: " +
+                     ([.stock_rc_symlink_count,.julius_rc_symlink_count,.mixed_rc_symlink_count]|map(tostring)|join("/")) +
+                     "\nMixed APK post-install script count: " + (.mixed.apk_postinstall.post_install_script_count|tostring) +
+                     "\nImageBuilder finalization run: NO"' \
+                out-julius-swap/boot-finalization-inventory.json
             fi
             echo "Official kernel modules cannot be retained after Julius FIT substitution."
             echo "Matching Julius module/firmware migration, F2FS and boot testing are still required."
