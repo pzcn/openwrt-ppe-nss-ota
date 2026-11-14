@@ -17,6 +17,7 @@ without a buildroot.
 from __future__ import annotations
 
 import argparse
+import ast
 import datetime as dt
 import hashlib
 import json
@@ -539,10 +540,42 @@ def feeds_fingerprint(lock: dict, nss_sha: str, ppe_luci_sha: str) -> str:
     return hashlib.sha256("".join(h + "\n" for h in heads).encode("ascii")).hexdigest()
 
 
+def _arthur_planner_bytes(data: bytes) -> bytes:
+    """Scope the shared planner's digest to Arthur.
+
+    Ignore only a pure top-level MX4200_LOCAL_PACKAGES policy assignment.
+    Executable shared logic, Arthur package selections, and unknown/suspicious
+    assignments still change the digest. AST removes harmless comment/spacing.
+    """
+    module = ast.parse(data, filename="scripts/hybrid_builder.py")
+    kept = []
+    for node in module.body:
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target = node.targets[0]
+            if isinstance(target, ast.Name) and target.id == "MX4200_LOCAL_PACKAGES":
+                value = node.value
+                alias = isinstance(value, ast.Name) and value.id == "LOCAL_PACKAGES"
+                subtraction = (
+                    isinstance(value, ast.BinOp) and isinstance(value.op, ast.Sub)
+                    and isinstance(value.left, ast.Name) and value.left.id == "LOCAL_PACKAGES"
+                    and isinstance(value.right, ast.Set)
+                    and all(isinstance(item, ast.Constant) and isinstance(item.value, str)
+                            for item in value.right.elts)
+                )
+                if alias or subtraction:
+                    continue
+        kept.append(node)
+    module.body = kept
+    return ast.dump(module, include_attributes=False).encode("utf-8")
+
+
 def _files_fingerprint(names: tuple[str, ...], root: Path) -> str:
     digest = hashlib.sha256()
     for name in names:
-        digest.update(name.encode() + b"\0" + (root / name).read_bytes() + b"\0")
+        data = (root / name).read_bytes()
+        if name == "scripts/hybrid_builder.py":
+            data = _arthur_planner_bytes(data)
+        digest.update(name.encode() + b"\0" + data + b"\0")
     return digest.hexdigest()
 
 
