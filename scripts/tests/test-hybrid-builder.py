@@ -376,6 +376,11 @@ assert "make " not in refresh_script.replace("make -C", "")  # refresh never com
 assert 'cp -a "$IB" "$WORK/ib-manifest"' in refresh_script  # keys from the manifest run never ship
 assert "hybrid_check_archive_keys" in refresh_script and "hybrid_check_archive_keys" in full_script
 assert 'verify "${files[@]}"' in common and "--keys-dir" in common
+# Index initialization must run before the first package index attempt.
+assert common.index('make -C "$ib" -s _check_keys') < common.index('make -C "$ib" -s package_index')
+assert "ImageBuilder staged $apk_count" in common
+assert "imagebuilder-mkndx.log" in common
+assert "for p in apk-openssl kernel base-files libc; do" in common
 assert "normalize-mtimes --repo" in full_script and ".tools_*" in full_script
 assert "refresh-hybrid-builder.sh" in workflow and "build-immortalwrt-hybrid.sh" in workflow
 assert "needs.refresh.result == 'failure'" in workflow  # failed refresh falls back to full

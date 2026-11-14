@@ -121,11 +121,50 @@ hybrid_ib_manifest() {  # ib_dir out_dir local_apks_file
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%%#*}"; for p in $line; do request+=" -$p"; done
   done < "$ROOT/config/remove.txt"
-  # OpenWrt generates packages.adb from local + mirrored APKs; make sure
-  # the index was actually created before asking APK to resolve the manifest.
+  # The upstream manifest target runs _check_keys before package_index.
+  # Do so only in this disposable manifest-test ImageBuilder copy.
+  local apk_bin="$ib/staging_dir/host/bin/apk" apk_dir="$ib/packages"
+  local signing_key="$ib/keys/local-private-key.pem" apk_count
+  [[ -x "$apk_bin" && -d "$apk_dir" ]] || {
+    echo "::error::ImageBuilder missing host apk or packages directory" >&2
+    exit 1
+  }
+  apk_count="$(find "$apk_dir" -maxdepth 1 -type f -name '*.apk' | wc -l)"
+  echo "ImageBuilder staged $apk_count local + mirrored APK files"
+  (( apk_count > 0 )) || {
+    echo "::error::Empty ImageBuilder package directory; check PACKAGE_SUBDIRS" >&2
+    exit 1
+  }
+  for p in apk-openssl kernel base-files libc; do
+    if ! find "$apk_dir" -maxdepth 1 -type f -name "$p-[0-9]*.apk" -print -quit |
+         grep -q .; then
+      echo "::error::ImageBuilder did not stage required package: $p" >&2
+      exit 1
+    fi
+  done
+  make -C "$ib" -s _check_keys
+  local sign_args=()
+  if grep -Fqx 'CONFIG_SIGNATURE_CHECK=y' "$ib/.config"; then
+    [[ -s "$signing_key" && -s "$ib/keys/local-public-key.pem" ]] || {
+      echo "::error::Temporary ImageBuilder signing keys are missing" >&2
+      exit 1
+    }
+    sign_args=(--keys-dir "$ib/keys" --sign "$signing_key")
+  fi
+  # package_index hides apk mkndx stderr and exit status in upstream Makefile.
   make -C "$ib" -s package_index
-  [[ -s "$ib/packages/packages.adb" ]] || {
-    echo "::error::ImageBuilder failed to generate packages/packages.adb" >&2
+  if [[ ! -s "$apk_dir/packages.adb" ]]; then
+    echo "::warning::ImageBuilder package_index failed silently; trying visible mkndx" >&2
+    if ! (cd "$apk_dir" && "$apk_bin" mkndx "${sign_args[@]}" \
+          --allow-untrusted --output packages.adb ./*.apk) \
+          > "$out/imagebuilder-mkndx.log" 2>&1; then
+      echo "::error::ImageBuilder apk mkndx failed; see imagebuilder-mkndx.log" >&2
+      tail -n 120 "$out/imagebuilder-mkndx.log" >&2
+      exit 1
+    fi
+  fi
+  [[ -s "$apk_dir/packages.adb" ]] || {
+    echo "::error::ImageBuilder index remains missing after explicit mkndx" >&2
     exit 1
   }
   make -C "$ib" -s manifest PROFILE=jdcloud_re-ss-01 STRIP_ABI=1 PACKAGES="$request" \
