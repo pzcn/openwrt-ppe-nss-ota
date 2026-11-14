@@ -54,6 +54,7 @@ LOCAL_PACKAGES = frozenset((
 KERNEL_SOURCE = "package/kernel/linux"
 # Whole sources compiled locally (every selected package they produce is local).
 LOCAL_SOURCES = frozenset(("package/libs/toolchain",))
+MX4200_LOCAL_PACKAGES = LOCAL_PACKAGES - {"luci-app-sing-box"}
 LOCAL_FEEDS = frozenset(("nss",))
 # Inputs of the compiled kernel side (kernel, kmods, DTB, base-files, libc,
 # SDK). A change here needs a full hybrid build; anything else is a refresh.
@@ -260,19 +261,23 @@ def abi_name(packages: dict[str, dict], name: str) -> str:
     return name + ("-" if name[-1].isdigit() else "") + abi
 
 
-def is_local_package(name: str, pkg: dict) -> bool:
+def is_local_package(name: str, pkg: dict, mandatory: frozenset[str] = LOCAL_PACKAGES) -> bool:
     src = pkg["source"]
     feed = src.split("/")[2] if src.startswith("package/feeds/") else ""
-    return (name in LOCAL_PACKAGES or name.startswith("kmod-")
+    return (name in mandatory or name.startswith("kmod-")
             or src in LOCAL_SOURCES or feed in LOCAL_FEEDS)
 
 
 def local_plan(sources: dict[str, dict], packages: dict[str, dict],
-               symbols: dict[str, str], extra_local: set[str] = frozenset()) -> dict:
+               symbols: dict[str, str], extra_local: set[str] = frozenset(),
+               device: str = "arthur") -> dict:
     """Decide which selected packages are compiled locally, and how."""
     selected = {name[len("PACKAGE_"):]: value for name, value in symbols.items()
                 if name.startswith("PACKAGE_") and value in ("y", "m")}
-    missing = sorted(n for n in LOCAL_PACKAGES if n not in selected)
+    mandatory = LOCAL_PACKAGES if device == "arthur" else MX4200_LOCAL_PACKAGES
+    if device not in ("arthur", "mx4200v1"):
+        raise ValueError(f"Unknown Hybrid device: {device}")
+    missing = sorted(n for n in mandatory if n not in selected)
     if missing:
         raise ValueError("Mandatory local packages are not selected: " + ", ".join(missing))
     local: dict[str, dict] = {}
@@ -280,7 +285,7 @@ def local_plan(sources: dict[str, dict], packages: dict[str, dict],
         pkg = packages.get(name)
         if pkg is None or pkg["build_only"]:
             continue
-        if is_local_package(name, pkg) or name in extra_local:
+        if is_local_package(name, pkg, mandatory) or name in extra_local:
             local[name] = pkg
     # Sources that produce a kmod (or the kernel) are compiled with their normal
     # dependency chain: those are kernel objects, never official userland.
@@ -687,7 +692,8 @@ def cmd_feeds_conf(args: argparse.Namespace) -> None:
 def cmd_plan(args: argparse.Namespace) -> None:
     sources, packages = parse_packageinfo(args.packageinfo.read_text())
     extra = set(args.extra_local.read_text().split()) if args.extra_local else set()
-    plan = local_plan(sources, packages, parse_symbols(args.config.read_text()), extra)
+    plan = local_plan(sources, packages, parse_symbols(args.config.read_text()), extra,
+                      device=args.device)
     args.output.write_text(json.dumps(plan, indent=2) + "\n")
     print(f"Local: {len(plan['local_packages'])} packages "
           f"({len(plan['local_kmods'])} kmods) from "
@@ -837,6 +843,7 @@ def main(argv: list[str] | None = None) -> None:
     s.add_argument("--nss", required=True)
     s.set_defaults(func=cmd_feeds_conf)
     s = sub.add_parser("plan")
+    s.add_argument("--device", choices=("arthur", "mx4200v1"), default="arthur")
     s.add_argument("--packageinfo", type=Path, required=True)
     s.add_argument("--config", type=Path, required=True)
     s.add_argument("--extra-local", type=Path)

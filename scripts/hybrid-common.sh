@@ -19,11 +19,11 @@ fetch_verified() {  # url dest sha256
 }
 
 hybrid_check_lock() {  # lock
-  jq -e --arg host "$HYBRID_SNAPSHOT_HOST" '
-    .schema == 2 and .target == "qualcommax/ipq60xx" and .architecture == "aarch64_cortex-a53"
-    and .target_url == ($host + "/targets/qualcommax/ipq60xx")
+  jq -e --arg host "$HYBRID_SNAPSHOT_HOST" --arg target "${HYBRID_TARGET:-qualcommax/ipq60xx}" '
+    .schema == 2 and .target == $target and .architecture == "aarch64_cortex-a53"
+    and .target_url == ($host + "/targets/" + $target)
     and .architecture_url == ($host + "/packages/aarch64_cortex-a53")' "$1" >/dev/null || {
-    echo "::error::Not an ipq60xx official snapshot lock: $1" >&2; exit 1;
+    echo "::error::Not a ${HYBRID_TARGET:-qualcommax/ipq60xx} official snapshot lock: $1" >&2; exit 1;
   }
 }
 
@@ -121,6 +121,8 @@ hybrid_mirror() {  # official_json pkg_dir apk keys_dir work_dir [local_search_d
 # "is not set" packages and remove.txt.
 hybrid_image_request() {
   local line p
+  local config="${HYBRID_IMAGE_CONFIG:-$ROOT/config/immortalwrt-re-ss-01.config}"
+  local add="${HYBRID_IMAGE_ADD:-$ROOT/config/add.txt}" remove="${HYBRID_IMAGE_REMOVE:-$ROOT/config/remove.txt}"
   local -a want=() drop=()
   while IFS= read -r line; do
     if [[ "$line" =~ ^CONFIG_PACKAGE_([A-Za-z0-9._+-]+)=y$ ]]; then
@@ -128,13 +130,13 @@ hybrid_image_request() {
     elif [[ "$line" =~ ^#\ CONFIG_PACKAGE_([A-Za-z0-9._+-]+)\ is\ not\ set$ ]]; then
       drop+=("${BASH_REMATCH[1]}")
     fi
-  done < "$ROOT/config/immortalwrt-re-ss-01.config"
+  done < "$config"
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%%#*}"; for p in $line; do want+=("$p"); done
-  done < "$ROOT/config/add.txt"
+  done < "$add"
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%%#*}"; for p in $line; do drop+=("$p"); done
-  done < "$ROOT/config/remove.txt"
+  done < "$remove"
   {
     printf '%s\n' "${want[@]}" | sort -u | grep -Fvx -f <(printf '%s\n' "${drop[@]}" "")
     printf -- '-%s\n' "${drop[@]}" | sort -u
@@ -173,7 +175,7 @@ hybrid_ib_manifest() {  # ib_dir out_dir local_apks_file
     tail -n 120 "$out/imagebuilder-mkndx.log" >&2
     exit 1
   fi
-  make -C "$ib" -s manifest PROFILE=jdcloud_re-ss-01 STRIP_ABI=1 PACKAGES="$request" \
+  make -C "$ib" -s manifest PROFILE="${HYBRID_IMAGE_PROFILE:-jdcloud_re-ss-01}" STRIP_ABI=1 PACKAGES="$request" \
     > "$out/imagebuilder.manifest"
   awk 'NF >= 3 && $2 == "-" && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
        $1 != "kernel" && $1 != "libc" && $1 != "base-files" { print $1 }' \
@@ -190,8 +192,8 @@ hybrid_ib_manifest() {  # ib_dir out_dir local_apks_file
     [[ "$p" == -* ]] && continue
     grep -Fxq "$p" "$out/imagebuilder-packages.txt" || missing+=("$p")
   done
-  for p in kmod-nss-wifi-drv luci-app-sing-box sing-box qca-ppe-qos ppe-help \
-    luci-app-qca-ppe-qos luci-theme-aurora sqm-scripts kmod-fs-f2fs; do
+  local required="${HYBRID_REQUIRED_IMAGE_PKGS:-kmod-nss-wifi-drv luci-app-sing-box sing-box qca-ppe-qos ppe-help luci-app-qca-ppe-qos luci-theme-aurora sqm-scripts kmod-fs-f2fs}"
+  for p in $required; do
     grep -Fxq "$p" "$out/imagebuilder-packages.txt" || missing+=("$p")
   done
   if (( ${#missing[@]} )); then
