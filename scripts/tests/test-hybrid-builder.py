@@ -228,6 +228,36 @@ newer = json.loads(json.dumps(LOCK))
 newer["packages_fingerprint"] = "4" * 64
 assert ident != h.identity(newer, SHA("a"), SHA("b"), SHA("c"), SHA("d"), core, packages_fp)
 assert core != ib.fingerprint(mode="full") and core == ib.fingerprint(mode="hybrid")
+# MX-only package policy must not invalidate Arthur's Builder.
+with tempfile.TemporaryDirectory() as tmp:
+    scoped = Path(tmp)
+    for name in h.HYBRID_CORE_FILES:
+        dest = scoped / name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes((ROOT / name).read_bytes())
+    original = h.core_fingerprint(scoped)
+    planner_file = scoped / "scripts/hybrid_builder.py"
+    planner = planner_file.read_text()
+    marker = 'LOCAL_FEEDS = frozenset(("nss",))'
+    assert planner.count(marker) == 1
+    for value in ('LOCAL_PACKAGES', 'LOCAL_PACKAGES - {"luci-app-sing-box"}'):
+        planner_file.write_text(planner.replace(
+            marker, 'MX4200_LOCAL_PACKAGES = ' + value + '\n' + marker))
+        assert h.core_fingerprint(scoped) == original
+    planner_file.write_text(planner + "\n# comment only\n")
+    assert h.core_fingerprint(scoped) == original
+    planner_file.write_text(planner.replace(
+        marker, 'MX4200_LOCAL_PACKAGES = update_arthur_state()\n' + marker))
+    assert h.core_fingerprint(scoped) != original
+    planner_file.write_text(planner.replace(
+        '"qca-ppe-qos", "ppe-help", "sqm-scripts",',
+        '"qca-ppe-qos", "ppe-help", "sqm-scripts", "new-arthur-package",'))
+    assert h.core_fingerprint(scoped) != original
+    planner_file.write_text(planner)
+    shared = scoped / "scripts/hybrid-common.sh"
+    shared.write_text(shared.read_text() + "\n# shared recipe changed\n")
+    assert h.core_fingerprint(scoped) != original
+
 
 # --- Kernel identity and the skip / refresh / full decision -----------------
 import datetime as dt  # noqa: E402
