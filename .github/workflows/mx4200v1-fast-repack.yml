@@ -17,6 +17,9 @@ on:
       source_commit:
         type: string
         default: "5afd6581438af59b3392c35e82322ab41b09acb2"
+      sing_box_pre_version:
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -28,6 +31,11 @@ on:
         description: "Exact source commit of that Hybrid Builder run"
         default: "5afd6581438af59b3392c35e82322ab41b09acb2"
         required: true
+        type: string
+      sing_box_pre_version:
+        description: "Opt-in sing-box 1.15.0-alpha.13 core in SquashFS"
+        default: ""
+        required: false
         type: string
 
 permissions:
@@ -54,6 +62,7 @@ jobs:
           python3 mx4200v1/test_contract.py
           python3 mx4200v1/test_hybrid_contract.py
           python3 scripts/tests/test-ota-devices.py
+          python3 scripts/tests/test-sing-box-pre.py
 
   repack:
     name: Reuse MX4200 v1 kernel and create verified factory/sysupgrade
@@ -63,6 +72,7 @@ jobs:
     env:
       BASE_RUN_ID: ${{ inputs.source_run_id || '43602206711' }}
       BASE_SOURCE_SHA: ${{ inputs.source_commit || '5afd6581438af59b3392c35e82322ab41b09acb2' }}
+      SING_BOX_PRE_VERSION: ${{ inputs.sing_box_pre_version || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -113,6 +123,7 @@ jobs:
             out-mx4200v1-fast-repack/*.metadata.json
             out-mx4200v1-fast-repack/repack-metadata.json
             out-mx4200v1-fast-repack/ota.json
+            out-mx4200v1-fast-repack/sing-box-core.json
             out-mx4200v1-fast-repack/mx4200v1-ota-identity.json
             out-mx4200v1-fast-repack/sha256sums
             out-mx4200v1-fast-repack/source-commits.txt
