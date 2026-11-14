@@ -360,90 +360,7 @@ PATH="$IMM/staging_dir/host/bin:$PATH" phase device-fit -C target/linux/qualcomm
   echo "::error::MX4200 v1 FIT exceeds its 6144 KiB kernel partition" >&2
   exit 1
 }
-if ! python3 "$ROOT/scripts/fit_configs.py" "$FIT" | grep -Eq '^config@[^[:space:]]+
-  exit 1
-fi
-printf "MX4200 v1 FIT: %s (%s bytes)\n" "$FIT" "$(stat -c %s "$FIT")"
-phase imagebuilder NO_DEPS=1 target/imagebuilder/install
-phase sdk NO_DEPS=1 target/sdk/install
-TARGET_BIN="$IMM/bin/targets/qualcommax/ipq807x"
-IB_ARCHIVE="$(find "$TARGET_BIN" -maxdepth 1 -type f -name '*imagebuilder*.tar.zst' -print -quit)"
-SDK_ARCHIVE="$(find "$TARGET_BIN" -maxdepth 1 -type f -name 'immortalwrt-sdk-*.tar.zst' -print -quit)"
-test -s "$IB_ARCHIVE" && test -s "$SDK_ARCHIVE"
-cp "$IB_ARCHIVE" "$SDK_ARCHIVE" "$OUT/"
-IB_ARCHIVE="$OUT/$(basename "$IB_ARCHIVE")"
-SDK_ARCHIVE="$OUT/$(basename "$SDK_ARCHIVE")"
-# Ensure the releasable ImageBuilder actually contains the exact device FIT
-# we generated, rather than merely succeeding at package installation.
-FIT_REL="${FIT#"$IMM"/}"
-IB_TOP="$(basename "$IB_ARCHIVE" .tar.zst)"
-tar -I zstd -tf "$IB_ARCHIVE" > "$WORK/ib-archive-contents.txt"
-if ! grep -Fxq "$IB_TOP/$FIT_REL" "$WORK/ib-archive-contents.txt"; then
-  echo "::error::ImageBuilder archive omitted $FIT_REL" >&2
-  exit 1
-fi
-(( $(stat -c '%s' "$SDK_ARCHIVE") < 2147483648 ))
-hybrid_check_archive_keys "$IB_ARCHIVE"
-tar -I zstd -tf "$SDK_ARCHIVE" > "$WORK/sdk-contents.txt"
-for required in '^[^/]+/rules[.]mk$' '^[^/]+/include/kernel[.]mk$' \
-  '^[^/]+/staging_dir/toolchain-[^/]+/bin/' \
-  '^[^/]+/build_dir/target-[^/]+/linux-[^/]+/linux-[^/]+/Module[.]symvers$'; do
-  grep -Eq "$required" "$WORK/sdk-contents.txt" || { echo "::error::SDK lacks $required" >&2; exit 1; }
-done
-refuse 'SDK still contains HomeProxy' \
-  grep -Eiq '(^|/)(luci-app-homeproxy|luci-i18n-homeproxy-zh-cn)(/|$)' "$WORK/sdk-contents.txt"
-
-T3="$(date +%s)"
-IB_TEST="$WORK/ib-manifest"
-mkdir -p "$IB_TEST"
-tar -I zstd -xf "$IB_ARCHIVE" -C "$IB_TEST"
-IB_DIR="$(find "$IB_TEST" -mindepth 1 -maxdepth 1 -type d -name '*imagebuilder*' -print -quit)"
-[[ -s "$IB_DIR/$FIT_REL" ]] && cmp -s "$FIT" "$IB_DIR/$FIT_REL" || {
-  echo "::error::Unpacked ImageBuilder FIT differs from locally generated MX4200 v1 FIT" >&2
-  exit 1
-}
-hybrid_ib_manifest "$IB_DIR" "$OUT" "$OUT/local-apks.txt"
-mark ib-manifest "$T3"
-
-# ---------------------------------------------------------------------------
-# 9. Release metadata + SDK/ImageBuilder smoke tests
-# ---------------------------------------------------------------------------
-BASE_STAGE="$WORK/base-overlay"
-mkdir -p "$BASE_STAGE"
-rsync -a "$BUILDER/devices/common/files.ppe-nss/" "$BASE_STAGE/"
-install -D -m 0644 "$COMPAT_FILES/lib/upgrade/platform.sh" "$BASE_STAGE/lib/upgrade/platform.sh"
-tar -czf "$OUT/base-overlay.tar.gz" -C "$BASE_STAGE" .
-cd "$ROOT"
-hybrid_info "$WORK/hybrid-info.json" "$IDENTITY" "$KERNEL_IDENTITY" "$BUILT_AT" "" "$KEYRING_SHA"
-python3 scripts/immortalwrt_builder.py metadata --mode hybrid --snapshot-lock "$LOCK" \
-  --hybrid-info "$WORK/hybrid-info.json" \
-  --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" --feeds "$FEEDS_FINGERPRINT" \
-  --archive "$IB_ARCHIVE" --overlay "$OUT/base-overlay.tar.gz" \
-  --packages "$OUT/imagebuilder-packages.txt" --output "$OUT/builder-metadata.json"
-python3 scripts/immortalwrt_builder.py verify --metadata "$OUT/builder-metadata.json" \
-  --archive "$IB_ARCHIVE" --overlay "$OUT/base-overlay.tar.gz" \
-  --packages "$OUT/imagebuilder-packages.txt"
-python3 scripts/immortalwrt_sdk.py metadata --source "$IMM" --ppe-luci "$PPE_LUCI" \
-  --builder-metadata "$OUT/builder-metadata.json" \
-  --toolchain-status "$OUT/official-toolchain-status.txt" \
-  --archive "$SDK_ARCHIVE" --feed-lock "$OUT/sdk-feeds.lock.json" \
-  --output "$OUT/sdk-metadata.json"
-T4="$(date +%s)"
-bash scripts/test-sdk-smoke.sh "$SDK_ARCHIVE" "$WORK/sdk-smoke"
-BUILDER_META="$OUT/builder-metadata.json" BUILDER_ARCHIVE="$IB_ARCHIVE" \
-BASE_OVERLAY="$OUT/base-overlay.tar.gz" BUILDER_PACKAGES="$OUT/imagebuilder-packages.txt" \
-IMMORTAL_OUT_DIR="$OUT/ib-smoke" PUBLISH_RELEASE=false \
-  bash scripts/repack-immortalwrt.sh
-test -s "$OUT/ib-smoke/immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
-mark smoke-tests "$T4"
-
-cp "$LOCK" "$OUT/snapshot-lock.json"
-cp "$IMM/.config" "$OUT/immortalwrt.config"
-ccache --show-stats > "$OUT/ccache-stats.txt" || true
-mark total "$T0"
-hybrid_summary "$OUT" "Hybrid Builder (full build)"
-echo "Hybrid Builder ready: $(jq -r .tag "$OUT/builder-metadata.json")"
-; then
+if ! python3 "$ROOT/scripts/fit_configs.py" "$FIT" | grep -Eq '^config@[^[:space:]]+$'; then
   echo "::error::MX4200 v1 FIT lacks a named boot configuration" >&2
   exit 1
 fi
@@ -490,40 +407,75 @@ hybrid_ib_manifest "$IB_DIR" "$OUT" "$OUT/local-apks.txt"
 mark ib-manifest "$T3"
 
 # ---------------------------------------------------------------------------
-# 9. Release metadata + SDK/ImageBuilder smoke tests
+# 9. MX4200 v1 smoke tests + isolated outputs (never OTA/release)
 # ---------------------------------------------------------------------------
 BASE_STAGE="$WORK/base-overlay"
 mkdir -p "$BASE_STAGE"
 rsync -a "$BUILDER/devices/common/files.ppe-nss/" "$BASE_STAGE/"
-install -D -m 0644 "$COMPAT_FILES/lib/upgrade/platform.sh" "$BASE_STAGE/lib/upgrade/platform.sh"
+# Never override Linksys' upstream NAND/UBI and dual-slot upgrade logic.
+test ! -e "$BASE_STAGE/lib/upgrade/platform.sh" || {
+  echo "::error::Refusing unexpected platform.sh in MX4200 overlay" >&2
+  exit 1
+}
 tar -czf "$OUT/base-overlay.tar.gz" -C "$BASE_STAGE" .
+
 cd "$ROOT"
-hybrid_info "$WORK/hybrid-info.json" "$IDENTITY" "$KERNEL_IDENTITY" "$BUILT_AT" "" "$KEYRING_SHA"
-python3 scripts/immortalwrt_builder.py metadata --mode hybrid --snapshot-lock "$LOCK" \
-  --hybrid-info "$WORK/hybrid-info.json" \
-  --immortal "$IMM_SHA" --ppe "$PPE_SHA" --base "$BASE_SHA" --feeds "$FEEDS_FINGERPRINT" \
-  --archive "$IB_ARCHIVE" --overlay "$OUT/base-overlay.tar.gz" \
-  --packages "$OUT/imagebuilder-packages.txt" --output "$OUT/builder-metadata.json"
-python3 scripts/immortalwrt_builder.py verify --metadata "$OUT/builder-metadata.json" \
-  --archive "$IB_ARCHIVE" --overlay "$OUT/base-overlay.tar.gz" \
-  --packages "$OUT/imagebuilder-packages.txt"
-python3 scripts/immortalwrt_sdk.py metadata --source "$IMM" --ppe-luci "$PPE_LUCI" \
-  --builder-metadata "$OUT/builder-metadata.json" \
-  --toolchain-status "$OUT/official-toolchain-status.txt" \
-  --archive "$SDK_ARCHIVE" --feed-lock "$OUT/sdk-feeds.lock.json" \
-  --output "$OUT/sdk-metadata.json"
 T4="$(date +%s)"
 bash scripts/test-sdk-smoke.sh "$SDK_ARCHIVE" "$WORK/sdk-smoke"
-BUILDER_META="$OUT/builder-metadata.json" BUILDER_ARCHIVE="$IB_ARCHIVE" \
-BASE_OVERLAY="$OUT/base-overlay.tar.gz" BUILDER_PACKAGES="$OUT/imagebuilder-packages.txt" \
-IMMORTAL_OUT_DIR="$OUT/ib-smoke" PUBLISH_RELEASE=false \
-  bash scripts/repack-immortalwrt.sh
-test -s "$OUT/ib-smoke/immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
+REQUEST="$(hybrid_image_request)"
+echo "::group::MX4200 v1 ImageBuilder factory + sysupgrade smoke"
+make -C "$IB_DIR" -j"$(nproc)" image PROFILE=linksys_mx4200v1 \
+  STRIP_ABI=1 PACKAGES="$REQUEST" FILES="$BASE_STAGE"
+echo "::endgroup::"
+PREFIX="immortalwrt-qualcommax-ipq807x-linksys_mx4200v1"
+IMAGES="$IB_DIR/bin/targets/qualcommax/ipq807x"
+for name in "$PREFIX-squashfs-factory.bin" "$PREFIX-squashfs-sysupgrade.bin"; do
+  [[ -s "$IMAGES/$name" ]] || { echo "::error::Missing MX4200 v1 image: $name" >&2; exit 1; }
+  cp "$IMAGES/$name" "$OUT/"
+done
+if find "$IMAGES" -maxdepth 1 -name '*linksys_mx4200v2*' | grep -q .; then
+  echo "::error::MX4200 v2 image generated in v1-only ImageBuilder" >&2
+  exit 1
+fi
+cp "$OUT/imagebuilder.manifest" "$OUT/$PREFIX.manifest"
 mark smoke-tests "$T4"
 
+# Metadata is MX-only; no Arthur Builder tag, OTA or public Release.
 cp "$LOCK" "$OUT/snapshot-lock.json"
 cp "$IMM/.config" "$OUT/immortalwrt.config"
+jq -n --arg target "$HYBRID_TARGET" --arg profile "$HYBRID_IMAGE_PROFILE" \
+  --arg imm "$IMM_SHA" --arg ppe "$PPE_SHA" --arg base "$BASE_SHA" \
+  --arg nss "$NSS_SHA" --arg identity "$IDENTITY" --arg kernel "$KERNEL_IDENTITY" \
+  --arg ib "$(basename "$IB_ARCHIVE")" --arg sdk "$(basename "$SDK_ARCHIVE")" \
+  --arg snapshot "$SNAPSHOT" --arg built "$BUILT_AT" \
+  '{schema: 1, channel: "mx4200v1-hybrid-test", target: $target,
+    profile: $profile, hardware_tested: false, publishable: false,
+    immortalwrt_commit: $imm, ppe_nss_commit: $ppe, base_commit: $base,
+    nss_commit: $nss, identity: $identity, kernel_identity: $kernel,
+    imagebuilder: $ib, sdk: $sdk, official_snapshot: $snapshot, built_at: $built}' \
+  > "$OUT/mx4200v1-hybrid-metadata.json"
+(
+  cd "$OUT"
+  sha256sum "$PREFIX-squashfs-factory.bin" "$PREFIX-squashfs-sysupgrade.bin" \
+    "$PREFIX.manifest" "$(basename "$IB_ARCHIVE")" "$(basename "$SDK_ARCHIVE")" \
+    base-overlay.tar.gz snapshot-lock.json mx4200v1-hybrid-metadata.json \
+    > sha256sums
+  sha256sum --check --status sha256sums
+)
 ccache --show-stats > "$OUT/ccache-stats.txt" || true
 mark total "$T0"
-hybrid_summary "$OUT" "Hybrid Builder (full build)"
-echo "Hybrid Builder ready: $(jq -r .tag "$OUT/builder-metadata.json")"
+if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+  {
+    echo "## MX4200 v1 Hybrid (unflashed test artifacts)"
+    echo "- Official Snapshot: $SNAPSHOT"
+    echo "- PPE/NSS kernel from: $PPE_SHA"
+    echo "- FIT: $FIT, $(stat -c %s "$FIT") bytes (6144 KiB limit)"
+    echo "- APKs mirrored: $(jq '.mirror | length' "$OUT/official-apks.json")"
+    echo "- ImageBuilder and SDK smoke: passed"
+    echo "- Device boot testing: **not yet performed**"
+    echo ""
+    echo "| Phase | Seconds |"
+    awk -F '\t' '{ printf "| %s | %s |\n", $1, $2 }' "$OUT/timings.tsv"
+  } >> "$GITHUB_STEP_SUMMARY"
+fi
+echo "MX4200 v1 Hybrid test artifacts ready: $OUT"
