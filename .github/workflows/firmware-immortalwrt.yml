@@ -1,29 +1,23 @@
 name: Firmware from released ImmortalWrt ImageBuilder
 
 on:
-  push:
-    branches: [main]
-    paths:
-      # Scope to inputs that actually change RE-SS-01 firmware.
-      - ".github/workflows/firmware-immortalwrt.yml"
-      - "files/**"
-      - "config/add.txt"
-      - "config/remove.txt"
-      - "config/translations/**"
-      - "scripts/repack-immortalwrt.sh"
-      - "scripts/hybrid_layer.py"
-      - "scripts/rebuild-missing-apks.sh"
-      - "scripts/stage-firmware-overlay.sh"
-      - "scripts/exclude-drcom-from-firmware.sh"
-      - "scripts/build_luci_i18n.py"
-      - "scripts/immortalwrt_ota.py"
-      - "scripts/immortalwrt_builder.py"
-      - "scripts/immortalwrt_sdk.py"
-      - "scripts/immortalwrt_sdk_apks.py"
-      - "scripts/fit_configs.py"
-      - "scripts/prepare-sing-box-luci.sh"
-      - "scripts/firmware_inputs.py"
-      - "scripts/tests/test-hybrid-layer.py"
+  workflow_call:
+    inputs:
+      builder_tag:
+        type: string
+        default: ""
+      layer_tag:
+        type: string
+        default: ""
+      force_firmware:
+        type: boolean
+        default: false
+      publish_release:
+        type: boolean
+        default: false
+      publish_policy:
+        type: string
+        default: "no"
   pull_request:
     paths:
       - ".github/workflows/firmware-immortalwrt.yml"
@@ -31,9 +25,6 @@ on:
       - "scripts/**"
       - "config/**"
       - "files/**"
-  schedule:
-    # Every day: publish only if firmware sources or the available Builder changed.
-    - cron: "19 4 * * *"
   workflow_dispatch:
     inputs:
       builder_tag:
@@ -89,6 +80,7 @@ jobs:
           python3 scripts/tests/test-drcom.py
           python3 scripts/tests/test-extra-apps.py
           python3 scripts/tests/test-immortalwrt-ota.py
+          python3 scripts/tests/test-ota-devices.py
           python3 scripts/tests/test-firmware-inputs.py
           python3 scripts/tests/test-hybrid-layer.py
           python3 scripts/tests/test-immortalwrt-builder.py
@@ -105,7 +97,7 @@ jobs:
     timeout-minutes: 180
     env:
       GH_TOKEN: ${{ github.token }}
-      PUBLISH_RELEASE: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
+      PUBLISH_RELEASE: ${{ github.ref == 'refs/heads/main' && (inputs.publish_policy == 'yes' || (inputs.publish_policy != 'no' && (github.event_name != 'workflow_dispatch' || inputs.publish_release))) }}
     steps:
       - uses: actions/checkout@v4
       - name: Find a published Builder and check if firmware changed
