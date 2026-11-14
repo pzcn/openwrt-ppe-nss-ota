@@ -13,10 +13,10 @@ on:
     inputs:
       source_run_id:
         type: string
-        default: "43602206711"
+        required: true
       source_commit:
         type: string
-        default: "5afd6581438af59b3392c35e82322ab41b09acb2"
+        required: true
       sing_box_pre_version:
         type: string
         default: ""
@@ -24,12 +24,10 @@ on:
     inputs:
       source_run_id:
         description: "Successful MX4200 v1 Hybrid Builder run with matching artifacts"
-        default: "43602206711"
         required: true
         type: string
       source_commit:
         description: "Exact source commit of that Hybrid Builder run"
-        default: "5afd6581438af59b3392c35e82322ab41b09acb2"
         required: true
         type: string
       sing_box_pre_version:
@@ -70,8 +68,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
-      BASE_RUN_ID: ${{ inputs.source_run_id || '43602206711' }}
-      BASE_SOURCE_SHA: ${{ inputs.source_commit || '5afd6581438af59b3392c35e82322ab41b09acb2' }}
+      BASE_RUN_ID: ${{ inputs.source_run_id }}
+      BASE_SOURCE_SHA: ${{ inputs.source_commit }}
       SING_BOX_PRE_VERSION: ${{ inputs.sing_box_pre_version || '' }}
     steps:
       - uses: actions/checkout@v4
