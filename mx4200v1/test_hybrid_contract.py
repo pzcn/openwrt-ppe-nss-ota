@@ -33,7 +33,7 @@ else:
 
 planner = load("hybrid_builder", "scripts/hybrid_builder.py")
 assert "luci-app-sing-box" in planner.LOCAL_PACKAGES
-assert "luci-app-sing-box" not in planner.MX4200_LOCAL_PACKAGES
+assert "luci-app-sing-box" in planner.MX4200_LOCAL_PACKAGES
 assert "luci-theme-aurora" in planner.MX4200_LOCAL_PACKAGES
 
 for required in (
@@ -49,6 +49,10 @@ for required in (
     '6144 * 1024', 'linksys_mx4200v1',
     'scripts/fit_configs.py', 'scripts/test-sdk-smoke.sh',
     'hybrid_ib_manifest', 'sha256sum --check --status sha256sums',
+    'scripts/prepare-sing-box-luci.sh',
+    'mx4200v1/stage-overlay.sh',
+    'autocore luci-app-sing-box sing-box',
+
     'phase fwtool-host package/system/fwtool/host/compile',
     'staging_dir/host/bin/fwtool',
     '"$IB_FWTOOL" -i "$SYSUPGRADE_META" "$SYSUPGRADE"',
@@ -75,4 +79,9 @@ assert "gh release" not in workflow and "gh workflow run" not in workflow
 assert "schedule:" not in workflow
 assert "workflow_dispatch:" in old
 assert (root / "mx4200v1/remove.txt").read_text().lstrip().startswith("#")
+assert 'stage-overlay.sh' in (root / "mx4200v1/build.sh").read_text()
+assert 'prepare-sing-box-luci.sh' in (root / "mx4200v1/build.sh").read_text()
+assert 'CONFIG_PACKAGE_autocore=y' in (root / "mx4200v1/source.config").read_text()
+assert 'CONFIG_PACKAGE_luci-app-sing-box=y' in (root / "mx4200v1/source.config").read_text()
+assert all(p in (root / "mx4200v1/packages.txt").read_text().splitlines() for p in ("autocore", "luci-app-sing-box", "sing-box", "kmod-inet-diag", "kmod-tun"))
 print("MX4200 v1 Hybrid offline contracts: OK; compilation and real hardware unverified")

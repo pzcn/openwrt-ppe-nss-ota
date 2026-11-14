@@ -54,7 +54,8 @@ LOCAL_PACKAGES = frozenset((
 KERNEL_SOURCE = "package/kernel/linux"
 # Whole sources compiled locally (every selected package they produce is local).
 LOCAL_SOURCES = frozenset(("package/libs/toolchain",))
-MX4200_LOCAL_PACKAGES = LOCAL_PACKAGES - {"luci-app-sing-box"}
+# MX4200 also builds the non-official pinned sing-box LuCI locally.
+MX4200_LOCAL_PACKAGES = LOCAL_PACKAGES
 LOCAL_FEEDS = frozenset(("nss",))
 # Inputs of the compiled kernel side (kernel, kmods, DTB, base-files, libc,
 # SDK). A change here needs a full hybrid build; anything else is a refresh.

@@ -4,6 +4,8 @@
 luci-i18n-base-zh-cn
 luci-i18n-firewall-zh-cn
 luci-i18n-package-manager-zh-cn
+# LuCI temperature RPC needs autocore /sbin/tempinfo.
+autocore
 luci-i18n-sqm-zh-cn
 luci-app-filemanager
 luci-i18n-filemanager-zh-cn
@@ -32,6 +34,12 @@ luci-app-ddns-go
 luci-i18n-ddns-go-zh-cn
 luci-app-autoreboot
 luci-i18n-autoreboot-zh-cn
+
+# Standalone sing-box GUI and daemon, no HomeProxy.
+luci-app-sing-box
+sing-box
+flock
+kmod-inet-diag
 
 tcpdump
 ip-full

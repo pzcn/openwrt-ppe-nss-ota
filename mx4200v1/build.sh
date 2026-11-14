@@ -67,11 +67,13 @@ test -e package/feeds/luci/luci-app-qca-ppe-qos
 
 git clone --quiet --depth 1 --branch v1.4.0 \
   https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora
+bash "$ROOT/scripts/prepare-sing-box-luci.sh" "$IMM/package/luci-app-sing-box"
 
 # Apply only Julius' generic PPE defaults. Never copy Arthur's F2FS,
 # eMMC sysupgrade platform.sh, firmware overlay, or OTA device identity.
 mkdir -p files
 rsync -a "$BUILDER/devices/common/files.ppe-nss/" files/
+bash "$ROOT/mx4200v1/stage-overlay.sh" "$IMM/files"
 
 cp "$ROOT/mx4200v1/source.config" .config
 while IFS= read -r line || [[ -n "$line" ]]; do
@@ -112,6 +114,10 @@ for option in \
   CONFIG_PACKAGE_kmod-nss-wifi-drv=y \
   CONFIG_PACKAGE_qca-ppe-qos=y \
   CONFIG_PACKAGE_luci-theme-aurora=y \
+  CONFIG_PACKAGE_autocore=y \
+  CONFIG_PACKAGE_luci-app-sing-box=y \
+  CONFIG_PACKAGE_sing-box=y \
+  CONFIG_PACKAGE_kmod-tun=y \
   CONFIG_IB=y CONFIG_IB_STANDALONE=y CONFIG_SDK=y; do
   grep -Fqx "$option" .config || {
     echo "::error::Required MX4200 v1 configuration was dropped: $option" >&2

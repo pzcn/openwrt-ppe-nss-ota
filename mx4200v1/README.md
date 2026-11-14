@@ -89,3 +89,22 @@ identifier. Any missing or invalid metadata fails the workflow before
 firmware artifacts are uploaded. Use `*-squashfs-sysupgrade.bin` from a
 successful **new** run for OpenWrt-to-OpenWrt upgrades; the
 `*-squashfs-factory.bin` has a different purpose.
+
+## MX4200 v1: LuCI temperature, PPE update removal, sing-box
+
+- **Temperature:** install ImmortalWrt `autocore` to provide
+  `/sbin/tempinfo`. LuCI Status > Overview uses `luci.getTempInfo`.
+  The stock qualcommax kernel already has `CONFIG_QCOM_TSENS=y`.
+  After flashing, inspect `/sbin/tempinfo` and
+  `/sys/class/thermal/thermal_zone*/{type,temp}` if no valid reading.
+- **Remove Julius system updater:** strip the `ppe-update` service, config,
+  uci-default, keep.d, command, LuCI menu, ACL and view from the PPE base
+  overlay. A one-time UCI-default cleans any settings carried over by
+  sysupgrade. Standard System > Backup / Flash Firmware remains.
+- **sing-box:** use the same pinned `lauyv/luci-app-sing-box` v0.4.7 build
+  as Arthur, with official `sing-box`, `flock`, `kmod-inet-diag` and
+  `kmod-tun`, no HomeProxy.
+
+Both the MX4200 Hybrid build and the full-source fallback use the shared
+`mx4200v1/stage-overlay.sh` cleanup. Boot confirmation alone does not
+verify temperature readings, sing-box routing or upgrade behavior.

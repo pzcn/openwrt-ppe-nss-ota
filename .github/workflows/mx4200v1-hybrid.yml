@@ -41,6 +41,7 @@ jobs:
           bash -n mx4200v1/build-hybrid.sh
           bash -n mx4200v1/build.sh
           bash -n mx4200v1/port-ppe-nss.sh
+          bash -n mx4200v1/stage-overlay.sh
           bash -n scripts/reuse-official-toolchain.sh
           bash -n scripts/hybrid-common.sh
           python3 -m compileall -q mx4200v1 scripts

@@ -50,5 +50,7 @@ assert "imagebuilder" in build and "sdk" in build.lower()
 assert "workflow_dispatch:" in workflow and "mx4200v1/**" in workflow
 assert "schedule:" not in workflow
 assert "luci-app-wol" in packages and "luci-proto-wireguard" in packages
-assert "kmod-fs-f2fs" not in packages and "sing-box" not in packages
+assert "kmod-fs-f2fs" not in packages
+assert all(p in packages.splitlines() for p in ("autocore", "luci-app-sing-box", "sing-box", "flock", "kmod-inet-diag", "kmod-tun"))
+assert "stage-overlay.sh" in build and "prepare-sing-box-luci.sh" in build
 print("MX4200 v1 static build contracts: OK (not a compilation or device test)")

@@ -24,7 +24,7 @@ export HYBRID_IMAGE_PROFILE="linksys_mx4200v1"
 export HYBRID_IMAGE_CONFIG="$ROOT/mx4200v1/source.config"
 export HYBRID_IMAGE_ADD="$ROOT/mx4200v1/packages.txt"
 export HYBRID_IMAGE_REMOVE="$ROOT/mx4200v1/remove.txt"
-export HYBRID_REQUIRED_IMAGE_PKGS="kmod-nss-wifi-drv qca-ppe-qos ppe-help luci-app-qca-ppe-qos luci-theme-aurora sqm-scripts zram-swap"
+export HYBRID_REQUIRED_IMAGE_PKGS="kmod-nss-wifi-drv qca-ppe-qos ppe-help luci-app-qca-ppe-qos luci-theme-aurora sqm-scripts zram-swap autocore luci-app-sing-box sing-box flock kmod-inet-diag kmod-tun"
 source "$ROOT/scripts/hybrid-common.sh"
 WORK="${RUNNER_TEMP:-/tmp}/mx4200v1-hybrid"
 OUT="${MX4200V1_HYBRID_OUT:-$ROOT/out-mx4200v1-hybrid}"
@@ -111,7 +111,7 @@ printf 'ImmortalWrt=%s\nPPE/NSS=%s\nPPE builder=%s\nNSS feed=%s\nPPE QoS LuCI=%s
   "$(git -C "$ROOT" rev-parse --short=8 HEAD)" | tee "$OUT/source-commits.txt"
 
 KERNEL_IDENTITY="$(printf '%s\n' "$IMM_SHA" "$PPE_SHA" "$BASE_SHA" "$NSS_SHA" "$PPE_LUCI_SHA" "$(sha256sum "$ROOT/mx4200v1/source.config" "$ROOT/mx4200v1/port-ppe-nss.sh")" | sha256sum | cut -d' ' -f1)"
-IDENTITY="$(printf '%s\n' "$KERNEL_IDENTITY" "$(jq -r .lock_fingerprint "$LOCK")" "$(sha256sum "$ROOT/mx4200v1/packages.txt")" | sha256sum | cut -d' ' -f1)"
+IDENTITY="$(printf '%s\n' "$KERNEL_IDENTITY" "$(jq -r .lock_fingerprint "$LOCK")" "$(sha256sum "$ROOT/mx4200v1/packages.txt" "$ROOT/mx4200v1/stage-overlay.sh")" | sha256sum | cut -d' ' -f1)"
 
 for name in dl .ccache; do
   [[ ! -e "$IMM/$name" ]] || { echo "::error::Unexpected $name in clone" >&2; exit 1; }
@@ -160,7 +160,7 @@ grep -Fq 'Package: luci-app-qca-ppe-qos' feeds/luci.index
 refuse 'HomeProxy is still indexed in the LuCI feed' grep -Fq 'Package: luci-app-homeproxy' feeds/luci.index
 ./scripts/feeds install -a
 git clone -q --depth 1 --branch v1.4.0 https://github.com/eamonxg/luci-theme-aurora.git package/luci-theme-aurora
-# No sing-box on MX4200 v1.
+bash "$ROOT/scripts/prepare-sing-box-luci.sh" "$IMM/package/luci-app-sing-box"
 
 FEEDS_FINGERPRINT="$(
   for feed in packages luci routing telephony nss; do git -C "feeds/$feed" rev-parse HEAD; done
@@ -225,7 +225,8 @@ while IFS= read -r line || [[ -n "$line" ]]; do
   for p in $line; do grep -Fqx "CONFIG_PACKAGE_$p=y" .config || missing+=("$p"); done
 done < "$ROOT/mx4200v1/packages.txt"
 for p in kmod-nss-wifi-drv luci-theme-aurora qca-ppe-qos \
-  luci-app-qca-ppe-qos zram-swap; do
+  luci-app-qca-ppe-qos zram-swap autocore luci-app-sing-box sing-box \
+  flock kmod-inet-diag kmod-tun; do
   grep -Fqx "CONFIG_PACKAGE_$p=y" .config || missing+=("$p")
 done
 if grep -Fqx 'CONFIG_TARGET_DEVICE_qualcommax_ipq807x_DEVICE_linksys_mx4200v2=y' .config; then
@@ -438,6 +439,7 @@ mark ib-manifest "$T3"
 BASE_STAGE="$WORK/base-overlay"
 mkdir -p "$BASE_STAGE"
 rsync -a "$BUILDER/devices/common/files.ppe-nss/" "$BASE_STAGE/"
+bash "$ROOT/mx4200v1/stage-overlay.sh" "$BASE_STAGE"
 # Never override Linksys' upstream NAND/UBI and dual-slot upgrade logic.
 test ! -e "$BASE_STAGE/lib/upgrade/platform.sh" || {
   echo "::error::Refusing unexpected platform.sh in MX4200 overlay" >&2
