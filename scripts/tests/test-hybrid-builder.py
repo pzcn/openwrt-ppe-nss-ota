@@ -449,6 +449,12 @@ assert 'Expected one configured linux-* kernel source tree' not in full_script
 assert '[[ -s "$KDIR/Image" ]]' in full_script
 assert full_script.index("phase kmods") < full_script.index("phase kernel-image") < full_script.index("phase device-fit")
 assert "phase device-fit -C target/linux/qualcommax/image" in full_script
+# Direct target/linux image make must see OpenWrt's own host mkimage on PATH.
+assert 'HOST_MKIMAGE="$IMM/staging_dir/host/bin/mkimage"' in full_script
+assert '[[ -x "$HOST_MKIMAGE" ]]' in full_script
+assert 'PATH="$IMM/staging_dir/host/bin:$PATH" phase device-fit -C' in full_script
+assert full_script.index('phase tools tools/install') < full_script.index('[[ -x "$HOST_MKIMAGE" ]]')
+assert full_script.index('[[ -x "$HOST_MKIMAGE" ]]') < full_script.index('phase device-fit')
 assert "jdcloud_re-ss-01-uImage.itb" in full_script
 assert "config@cp03-c2" in full_script
 assert full_script.index("phase kmods") < full_script.index("phase device-fit") < full_script.index("phase imagebuilder")

@@ -232,6 +232,13 @@ mark prepare "$T0"
 # pinned archive (name/hash from tools/liblzo) from OpenWrt mirrors before make.
 bash "$ROOT/scripts/hybrid-prefetch-host-sources.sh" "$IMM" "$CACHE_DL"
 phase tools tools/install
+# Device FITs use the mkimage compiled by OpenWrt tools/mkimage.
+# Check for it here, before the longer kernel and package build phases.
+HOST_MKIMAGE="$IMM/staging_dir/host/bin/mkimage"
+[[ -x "$HOST_MKIMAGE" ]] || {
+  echo "::error::tools/install did not provide the host mkimage binary: $HOST_MKIMAGE" >&2
+  exit 1
+}
 phase toolchain toolchain/install
 phase apk-host package/system/apk/host/compile
 APK="$IMM/staging_dir/host/bin/apk"
@@ -331,7 +338,9 @@ phase kernel-image -C target/linux/qualcommax "TOPDIR=$IMM" "TARGET_BUILD=1" "$L
   exit 1
 }
 FIT="$KDIR/jdcloud_re-ss-01-uImage.itb"
-phase device-fit -C target/linux/qualcommax/image "TOPDIR=$IMM" "$FIT"
+# The direct image Makefile bypasses top-level Make's host-tools PATH setup.
+# Its FIT rule invokes bare mkimage; use the matching OpenWrt host binary.
+PATH="$IMM/staging_dir/host/bin:$PATH" phase device-fit -C target/linux/qualcommax/image "TOPDIR=$IMM" "$FIT"
 [[ -s "$FIT" && ! -L "$FIT" ]] || {
   echo "::error::RE-SS-01 FIT was not generated from the locally compiled kernel: $FIT" >&2
   exit 1
