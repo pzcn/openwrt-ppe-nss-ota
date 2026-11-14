@@ -245,7 +245,8 @@ jobs:
       - name: Produce verified official APK layer and real firmware smoke test
         run: bash scripts/refresh-hybrid-builder.sh "$RUNNER_TEMP/parent"
       - name: Publish
-        if: github.event_name != 'workflow_dispatch' || inputs.publish
+        # Test branches never occupy a stable content-addressed layer tag.
+        if: github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish)
         env:
           CHANNEL: ${{ inputs.channel || 'auto' }}
           PARENT_PRERELEASE: ${{ needs.resolve.outputs.parent_prerelease }}
@@ -258,10 +259,9 @@ jobs:
         if: always()
         with:
           name: immortalwrt-hybrid-refresh
-          path: |
-            out-hybrid/
-            !out-hybrid/*.tar.zst
+          path: out-hybrid/
           retention-days: 14
+          compression-level: 0
           if-no-files-found: warn
 
   full:
