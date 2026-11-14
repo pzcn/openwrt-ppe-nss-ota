@@ -254,6 +254,16 @@ phase toolchain toolchain/install
 phase apk-host package/system/apk/host/compile
 APK="$IMM/staging_dir/host/bin/apk"
 test -x "$APK"
+# The mirrored target fwtool APK does not build the host-side fwtool.
+# ImageBuilder's append-metadata recipe invokes bare 'fwtool', and Make
+# deliberately ignores that command's errors. Missing host fwtool would
+# silently produce a sysupgrade.bin that the router refuses to upgrade.
+phase fwtool-host package/system/fwtool/host/compile
+HOST_FWTOOL="$IMM/staging_dir/host/bin/fwtool"
+[[ -x "$HOST_FWTOOL" ]] || {
+  echo "::error::Host fwtool missing after package/system/fwtool/host/compile: $HOST_FWTOOL" >&2
+  exit 1
+}
 
 # ---------------------------------------------------------------------------
 # 5. Official indexes and the userland closure — before the long compile
@@ -388,6 +398,12 @@ if ! grep -Fxq "$IB_TOP/$FIT_REL" "$WORK/ib-archive-contents.txt"; then
   echo "::error::ImageBuilder archive omitted $FIT_REL" >&2
   exit 1
 fi
+# The IB archive must contain fwtool: make image is executed from this
+# archive, not from the source tree's staging_dir/host/bin.
+if ! grep -Fxq "$IB_TOP/staging_dir/host/bin/fwtool" "$WORK/ib-archive-contents.txt"; then
+  echo "::error::MX4200 ImageBuilder archive omitted host fwtool; sysupgrade metadata would be missing" >&2
+  exit 1
+fi
 (( $(stat -c '%s' "$SDK_ARCHIVE") < 2147483648 ))
 hybrid_check_archive_keys "$IB_ARCHIVE"
 tar -I zstd -tf "$SDK_ARCHIVE" > "$WORK/sdk-contents.txt"
@@ -404,6 +420,11 @@ IB_TEST="$WORK/ib-manifest"
 mkdir -p "$IB_TEST"
 tar -I zstd -xf "$IB_ARCHIVE" -C "$IB_TEST"
 IB_DIR="$(find "$IB_TEST" -mindepth 1 -maxdepth 1 -type d -name '*imagebuilder*' -print -quit)"
+IB_FWTOOL="$IB_DIR/staging_dir/host/bin/fwtool"
+[[ -x "$IB_FWTOOL" ]] || {
+  echo "::error::MX4200 ImageBuilder has no runnable fwtool to append image metadata" >&2
+  exit 1
+}
 [[ -s "$IB_DIR/$FIT_REL" ]] && cmp -s "$FIT" "$IB_DIR/$FIT_REL" || {
   echo "::error::Unpacked ImageBuilder FIT differs from locally generated MX4200 v1 FIT" >&2
   exit 1
@@ -438,6 +459,25 @@ for name in "$PREFIX-squashfs-factory.bin" "$PREFIX-squashfs-sysupgrade.bin"; do
   [[ -s "$IMAGES/$name" ]] || { echo "::error::Missing MX4200 v1 image: $name" >&2; exit 1; }
   cp "$IMAGES/$name" "$OUT/"
 done
+# An existing file is not sufficient: verify the actual fwtool trailer,
+# exactly as OpenWrt's REQUIRE_IMAGE_METADATA sysupgrade check does.
+SYSUPGRADE="$OUT/$PREFIX-squashfs-sysupgrade.bin"
+SYSUPGRADE_META="$OUT/$PREFIX-squashfs-sysupgrade.metadata.json"
+"$IB_FWTOOL" -i "$SYSUPGRADE_META" "$SYSUPGRADE" || {
+  echo "::error::MX4200 v1 sysupgrade.bin lacks readable OpenWrt firmware metadata" >&2
+  exit 1
+}
+jq -e '
+  .metadata_version == "1.1"
+  and (.compat_version | type == "string")
+  and ((.supported_devices // .new_supported_devices // []) | index("linksys,mx4200v1") != null)
+' "$SYSUPGRADE_META" >/dev/null || {
+  echo "::error::MX4200 sysupgrade metadata does not declare linksys,mx4200v1" >&2
+  cat "$SYSUPGRADE_META" >&2
+  exit 1
+}
+printf 'Verified MX4200 sysupgrade metadata:\n'
+jq -c '{metadata_version, compat_version, supported_devices, new_supported_devices}' "$SYSUPGRADE_META"
 if find "$IMAGES" -maxdepth 1 -name '*linksys_mx4200v2*' | grep -q .; then
   echo "::error::MX4200 v2 image generated in v1-only ImageBuilder" >&2
   exit 1
@@ -462,7 +502,8 @@ jq -n --arg target "$HYBRID_TARGET" --arg profile "$HYBRID_IMAGE_PROFILE" \
 (
   cd "$OUT"
   sha256sum "$PREFIX-squashfs-factory.bin" "$PREFIX-squashfs-sysupgrade.bin" \
-    "$PREFIX.manifest" "$(basename "$IB_ARCHIVE")" "$(basename "$SDK_ARCHIVE")" \
+    "$PREFIX.manifest" "$PREFIX-squashfs-sysupgrade.metadata.json" \
+    "$(basename "$IB_ARCHIVE")" "$(basename "$SDK_ARCHIVE")" \
     base-overlay.tar.gz snapshot-lock.json mx4200v1-hybrid-metadata.json \
     > sha256sums
   sha256sum --check --status sha256sums
@@ -476,7 +517,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo "- PPE/NSS kernel from: $PPE_SHA"
     echo "- FIT: $FIT, $(stat -c %s "$FIT") bytes (6144 KiB limit)"
     echo "- APKs mirrored: $(jq '.mirror | length' "$OUT/official-apks.json")"
-    echo "- ImageBuilder and SDK smoke: passed"
+    echo "- ImageBuilder, SDK and real sysupgrade metadata verification: passed"
     echo "- Device boot testing: **not yet performed**"
     echo ""
     echo "| Phase | Seconds |"

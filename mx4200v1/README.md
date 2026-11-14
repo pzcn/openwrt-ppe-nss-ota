@@ -73,3 +73,19 @@ OTA metadata, or flash the router**. The original
 Gates: 6 MiB FIT limit, FIT boot configuration, exact v1 package manifest,
 both factory and sysupgrade images, and SDK compile smoke. Successful CI is
 **not** proof that the router can boot or safely sysupgrade.
+
+### Required sysupgrade metadata
+
+The MX4200 v1 firmware built before the host-`fwtool` fix (Actions
+#43592253791) is **not safe to sysupgrade**: its ImageBuilder log includes
+`fwtool: command not found`, so the generated sysupgrade binary lacks
+the required OpenWrt metadata trailer. Do not bypass this with `sysupgrade -F`.
+
+The Hybrid workflow now builds `package/system/fwtool/host/compile` before
+ImageBuilder packaging, checks that the ImageBuilder archive contains the
+host binary, and **requires `fwtool -i` to read the produced sysupgrade file**.
+CI also checks the metadata for the `linksys,mx4200v1` supported-device
+identifier. Any missing or invalid metadata fails the workflow before
+firmware artifacts are uploaded. Use `*-squashfs-sysupgrade.bin` from a
+successful **new** run for OpenWrt-to-OpenWrt upgrades; the
+`*-squashfs-factory.bin` has a different purpose.

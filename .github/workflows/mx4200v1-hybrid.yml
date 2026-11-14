@@ -140,6 +140,7 @@ jobs:
             out-mx4200v1-hybrid/*-factory.bin
             out-mx4200v1-hybrid/*-sysupgrade.bin
             out-mx4200v1-hybrid/*.manifest
+            out-mx4200v1-hybrid/*-sysupgrade.metadata.json
             out-mx4200v1-hybrid/sha256sums
             out-mx4200v1-hybrid/mx4200v1-hybrid-metadata.json
             out-mx4200v1-hybrid/source-commits.txt

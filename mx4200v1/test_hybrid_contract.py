@@ -49,6 +49,11 @@ for required in (
     '6144 * 1024', 'linksys_mx4200v1',
     'scripts/fit_configs.py', 'scripts/test-sdk-smoke.sh',
     'hybrid_ib_manifest', 'sha256sum --check --status sha256sums',
+    'phase fwtool-host package/system/fwtool/host/compile',
+    'staging_dir/host/bin/fwtool',
+    '"$IB_FWTOOL" -i "$SYSUPGRADE_META" "$SYSUPGRADE"',
+    'index("linksys,mx4200v1")',
+    'sysupgrade.bin lacks readable OpenWrt firmware metadata',
 ):
     assert required in script, f"Missing MX4200 v1 guardrail: {required}"
 for bad in (
