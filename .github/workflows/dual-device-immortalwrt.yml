@@ -40,14 +40,6 @@ on:
         description: "Permit verified Arthur releases (main only)"
         type: boolean
         default: false
-      mx_source_run_id:
-        description: "Verified MX4200 Builder run ID (temporary until immutable Builder Release)"
-        type: string
-        default: "43602206711"
-      mx_source_commit:
-        description: "Source commit for the verified MX4200 Builder"
-        type: string
-        default: "5afd6581438af59b3392c35e82322ab41b09acb2"
 
 permissions:
   contents: write
@@ -90,6 +82,7 @@ jobs:
             python3 mx4200v1/test_contract.py
             python3 mx4200v1/test_hybrid_contract.py
             python3 mx4200v1/test_fast_repack.py
+            python3 scripts/tests/test-mx4200-builder-resolver.py
             python3 mx4200v1/test_release.py
           fi
 
@@ -127,32 +120,55 @@ jobs:
       publish_policy: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.publish_arthur) && 'yes' || 'no' }}
     secrets: inherit
 
-  mx4200v1-full:
-    name: MX4200 v1 - full PPE/NSS Builder + OTA factory/sysupgrade
+  mx4200v1-resolve:
+    name: MX4200 v1 - choose compatible existing Builder or rebuild
     needs: validate
     if: >-
       github.event_name != 'pull_request' &&
-      (inputs.mode == 'full' ||
-       (github.ref == 'refs/heads/feat/unified-ota-multidevice' &&
-        github.event_name == 'push' &&
-        contains(github.event.head_commit.message, '[mx full]'))) &&
+      needs.validate.result == 'success' &&
+      (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') &&
       (inputs.device == '' || inputs.device == 'both' || inputs.device == 'mx4200v1')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      parent_run: ${{ steps.select.outputs.parent_run }}
+      parent_sha: ${{ steps.select.outputs.parent_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Find verified, unexpired MX4200 Builder compatible with current packages
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_MODE: ${{ inputs.mode || 'auto' }}
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/resolve-mx4200-builder.py --mode "$REQUESTED_MODE"
+
+  mx4200v1-full:
+    name: MX4200 v1 - full PPE/NSS Builder + OTA factory/sysupgrade
+    needs: [validate, mx4200v1-resolve]
+    if: >-
+      needs.validate.result == 'success' &&
+      needs.mx4200v1-resolve.result == 'success' &&
+      needs.mx4200v1-resolve.outputs.mode == 'full'
     uses: ./.github/workflows/mx4200v1-hybrid.yml
     secrets: inherit
 
   mx4200v1-firmware:
     name: MX4200 v1 - fast OTA factory/sysupgrade (no kernel compile)
-    needs: validate
+    needs: [validate, mx4200v1-resolve]
     if: >-
-      github.event_name != 'pull_request' && inputs.mode != 'full' &&
-      !(github.ref == 'refs/heads/feat/unified-ota-multidevice' &&
-        github.event_name == 'push' &&
-        contains(github.event.head_commit.message, '[mx full]')) &&
       needs.validate.result == 'success' &&
-      (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') &&
-      (inputs.device == '' || inputs.device == 'both' || inputs.device == 'mx4200v1')
+      needs.mx4200v1-resolve.result == 'success' &&
+      needs.mx4200v1-resolve.outputs.mode == 'repack'
     uses: ./.github/workflows/mx4200v1-fast-repack.yml
     with:
-      source_run_id: ${{ inputs.mx_source_run_id || '43602206711' }}
-      source_commit: ${{ inputs.mx_source_commit || '5afd6581438af59b3392c35e82322ab41b09acb2' }}
+      source_run_id: ${{ needs.mx4200v1-resolve.outputs.parent_run }}
+      source_commit: ${{ needs.mx4200v1-resolve.outputs.parent_sha }}
     secrets: inherit
