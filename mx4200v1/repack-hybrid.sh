@@ -98,9 +98,9 @@ bash "$ROOT/mx4200v1/stage-overlay.sh" "$WORK/overlay"
 [[ ! -e "$WORK/overlay/lib/upgrade/platform.sh" ]] || {
   echo "::error::Refusing to override upstream Linksys NAND/UBI upgrade code"; exit 1;
 }
-for file in usr/sbin/ppe-update etc/init.d/ppe-update; do
-  [[ ! -e "$WORK/overlay/$file" ]] || { echo "::error::PPE updater leaked: $file"; exit 1; }
-done
+IMM_SHA="$(jq -er '.immortalwrt_commit' "$BASE_META")"
+PPE_SHA="$(jq -er '.ppe_nss_commit' "$BASE_META")"
+bash "$ROOT/mx4200v1/ota-artifacts.sh" prepare "$WORK/overlay" "$OUT" "$IMM_SHA" "$PPE_SHA"
 
 export HYBRID_TARGET=qualcommax/ipq807x
 export HYBRID_IMAGE_PROFILE=linksys_mx4200v1
@@ -159,6 +159,7 @@ while read -r apk; do
   grep -Fxq "$apk" "$LOCAL_APKS" || { echo "::error::Non-parent kmod: $apk"; exit 1; }
 done < <(awk '$1 ~ /^kmod-/ { print $1 "-" $3 ".apk" }' "$OUT/$PREFIX.manifest")
 
+bash "$ROOT/mx4200v1/ota-artifacts.sh" metadata "$OUT" "$IMM_SHA" "$PPE_SHA"
 cp "$BASE_LOCK" "$OUT/snapshot-lock.json"
 jq -n --argjson parent "$(cat "$BASE_META")" \
   --arg source "$(git -C "$ROOT" rev-parse HEAD)" \
@@ -177,7 +178,7 @@ printf 'Parent run=%s\nParent SHA=%s\nSource SHA=%s\n' \
   cd "$OUT"
   sha256sum "$PREFIX-squashfs-factory.bin" "$PREFIX-squashfs-sysupgrade.bin" \
     "$PREFIX.manifest" "$PREFIX-squashfs-sysupgrade.metadata.json" \
-    repack-metadata.json snapshot-lock.json > sha256sums
+    repack-metadata.json snapshot-lock.json ota.json mx4200v1-ota-identity.json > sha256sums
   sha256sum -c sha256sums
 )
 {
