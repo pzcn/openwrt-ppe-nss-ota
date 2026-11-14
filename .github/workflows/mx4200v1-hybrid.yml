@@ -19,6 +19,7 @@ on:
       - "scripts/hybrid_builder.py"
       - "scripts/hybrid-common.sh"
       - ".github/workflows/mx4200v1-hybrid.yml"
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -50,6 +51,7 @@ jobs:
           set -Eeuo pipefail
           python3 mx4200v1/test_contract.py
           python3 mx4200v1/test_hybrid_contract.py
+          python3 scripts/tests/test-ota-devices.py
           python3 scripts/tests/test-hybrid-snapshot.py
           python3 scripts/tests/test-hybrid-builder.py
           python3 scripts/tests/test-fit-configs.py
@@ -142,6 +144,8 @@ jobs:
             out-mx4200v1-hybrid/*-sysupgrade.bin
             out-mx4200v1-hybrid/*.manifest
             out-mx4200v1-hybrid/*-sysupgrade.metadata.json
+            out-mx4200v1-hybrid/ota.json
+            out-mx4200v1-hybrid/mx4200v1-ota-identity.json
             out-mx4200v1-hybrid/sha256sums
             out-mx4200v1-hybrid/mx4200v1-hybrid-metadata.json
             out-mx4200v1-hybrid/source-commits.txt
