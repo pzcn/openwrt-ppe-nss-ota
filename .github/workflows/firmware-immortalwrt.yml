@@ -11,6 +11,7 @@ on:
       - "config/remove.txt"
       - "config/translations/**"
       - "scripts/repack-immortalwrt.sh"
+      - "scripts/hybrid_layer.py"
       - "scripts/rebuild-missing-apks.sh"
       - "scripts/stage-firmware-overlay.sh"
       - "scripts/exclude-drcom-from-firmware.sh"
@@ -22,6 +23,7 @@ on:
       - "scripts/fit_configs.py"
       - "scripts/prepare-sing-box-luci.sh"
       - "scripts/firmware_inputs.py"
+      - "scripts/tests/test-hybrid-layer.py"
   pull_request:
     paths:
       - ".github/workflows/firmware-immortalwrt.yml"
@@ -36,6 +38,11 @@ on:
     inputs:
       builder_tag:
         description: "Optional specific published imm-builder-... tag (blank: newest)"
+        type: string
+        required: false
+        default: ""
+      layer_tag:
+        description: "Optional imm-layer-... tag (blank: newest stable compatible layer, none: disable)"
         type: string
         required: false
         default: ""
@@ -83,6 +90,7 @@ jobs:
           python3 scripts/tests/test-extra-apps.py
           python3 scripts/tests/test-immortalwrt-ota.py
           python3 scripts/tests/test-firmware-inputs.py
+          python3 scripts/tests/test-hybrid-layer.py
           python3 scripts/tests/test-immortalwrt-builder.py
           python3 scripts/tests/test-immortalwrt-sdk.py
           python3 scripts/tests/test-immortalwrt-sdk-apks.py
@@ -104,6 +112,7 @@ jobs:
         id: resolve
         env:
           REQUESTED_TAG: ${{ inputs.builder_tag || '' }}
+          REQUESTED_LAYER: ${{ inputs.layer_tag || '' }}
           FORCE_FIRMWARE: ${{ inputs.force_firmware || false }}
         shell: bash
         run: |
@@ -135,6 +144,44 @@ jobs:
             exit 1
           }
           python3 scripts/immortalwrt_builder.py check --metadata "$META"
+          # A layer points to one immutable Builder and never replaces its SDK.
+          LAYER=""
+          if [[ "$REQUESTED_LAYER" != none ]]; then
+            mkdir -p "$RUNNER_TEMP/imm-layer-candidates"
+            if [[ -n "$REQUESTED_LAYER" ]]; then
+              [[ "$REQUESTED_LAYER" =~ ^imm-layer-[0-9a-f]{24}$ ]] || {
+                echo "::error::Invalid requested layer tag"; exit 1;
+              }
+              printf "%s\n" "$REQUESTED_LAYER" > "$RUNNER_TEMP/imm-layer-candidates/tags.txt"
+            else
+              gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '
+                [.[] | select(.draft == false and .prerelease == false and
+                              (.tag_name | startswith("imm-layer-")) and
+                              ((.name // "") | startswith("Hybrid Userland Layer")))]
+                | sort_by(.published_at) | reverse | .[0:50][] | .tag_name
+              ' > "$RUNNER_TEMP/imm-layer-candidates/tags.txt"
+            fi
+            while IFS= read -r candidate; do
+              test -n "$candidate" || continue
+              mkdir -p "$RUNNER_TEMP/imm-layer-candidates/$candidate"
+              if gh release download "$candidate" -R "$GITHUB_REPOSITORY" \
+                   -D "$RUNNER_TEMP/imm-layer-candidates/$candidate" \
+                   -p layer-metadata.json >/dev/null 2>&1 &&
+                 python3 scripts/hybrid_layer.py check-header \
+                   --base-metadata "$META" \
+                   --metadata "$RUNNER_TEMP/imm-layer-candidates/$candidate/layer-metadata.json" \
+                   >/dev/null 2>&1; then
+                LAYER="$candidate"
+                break
+              fi
+            done < "$RUNNER_TEMP/imm-layer-candidates/tags.txt"
+            if [[ -n "$REQUESTED_LAYER" && -z "$LAYER" ]]; then
+              echo "::error::Requested layer is not compatible with Builder $TAG"
+              exit 1
+            fi
+          fi
+          echo "layer_tag=$LAYER" >> "$GITHUB_OUTPUT"
+          echo "Selected layer: ${LAYER:-none}" >> "$GITHUB_STEP_SUMMARY"
           if [[ "$FORCE_FIRMWARE" != true ]]; then
             LATEST="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
               --jq '[.[] | select(.draft == false and (.tag_name | startswith("imm-ppe-nss-")))] | sort_by(.published_at) | last | .tag_name // empty')"
@@ -143,7 +190,7 @@ jobs:
               if gh release download "$LATEST" -R "$GITHUB_REPOSITORY" \
                 -D "$RUNNER_TEMP/imm-last-firmware" -p ota.json >/dev/null 2>&1; then
                 OLD_META="$RUNNER_TEMP/imm-last-firmware/ota.json"
-                if jq -e --arg builder "$TAG" '.builder_tag == $builder' "$OLD_META" >/dev/null; then
+                if jq -e --arg builder "$TAG" --arg layer "$LAYER" '.builder_tag == $builder and (.layer_tag // "") == $layer' "$OLD_META" >/dev/null; then
                   OLD_SOURCE="$(jq -r '.source_commit // empty' "$OLD_META")"
                   UNCHANGED=false
                   if [[ "$OLD_SOURCE" == "$GITHUB_SHA" ]]; then
@@ -177,6 +224,7 @@ jobs:
           echo "needs_image=true" >> "$GITHUB_OUTPUT"
           echo "## Repack firmware" >> "$GITHUB_STEP_SUMMARY"
           echo "Builder: $TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "Layer: ${LAYER:-none}" >> "$GITHUB_STEP_SUMMARY"
           echo "Source: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install ImageBuilder repack dependencies
@@ -204,14 +252,36 @@ jobs:
           gh release download "$BUILDER_TAG" -R "$GITHUB_REPOSITORY" \
             -D "$RUNNER_TEMP/imm-builder-download" \
             -p '*imagebuilder*.tar.zst' -p 'base-overlay.tar.gz' \
-            -p 'imagebuilder-packages.txt'
+            -p 'imagebuilder-packages.txt' -p 'official-apks.json'
+      - name: Download exact immutable userland APK layer (no duplicated IB/SDK)
+        if: steps.resolve.outputs.needs_image == 'true' && steps.resolve.outputs.layer_tag != ''
+        env:
+          LAYER_TAG: ${{ steps.resolve.outputs.layer_tag }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/imm-layer-download"
+          gh release download "$LAYER_TAG" -R "$GITHUB_REPOSITORY" \
+            -D "$RUNNER_TEMP/imm-layer-download" \
+            -p layer-metadata.json -p hybrid-userland-packages.tar.zst \
+            -p official-apks.json -p imagebuilder-packages.txt -p snapshot-lock.json
       - name: Repack firmware (SDK compiles missing packages only)
         if: steps.resolve.outputs.needs_image == 'true'
+        env:
+          LAYER_TAG: ${{ steps.resolve.outputs.layer_tag }}
         run: |
           set -Eeuo pipefail
           DIR="$RUNNER_TEMP/imm-builder-download"
           ARCHIVE="$(find "$DIR" -maxdepth 1 -type f -name '*imagebuilder*.tar.zst' -print -quit)"
           test -n "$ARCHIVE"
+          if [[ -n "$LAYER_TAG" ]]; then
+            LAYER_DIR="$RUNNER_TEMP/imm-layer-download"
+            export HYBRID_LAYER_META="$LAYER_DIR/layer-metadata.json"
+            export HYBRID_LAYER_ARCHIVE="$LAYER_DIR/hybrid-userland-packages.tar.zst"
+            export HYBRID_LAYER_OFFICIAL="$LAYER_DIR/official-apks.json"
+            export HYBRID_LAYER_PACKAGES="$LAYER_DIR/imagebuilder-packages.txt"
+            export HYBRID_LAYER_SNAPSHOT="$LAYER_DIR/snapshot-lock.json"
+            export HYBRID_PARENT_OFFICIAL="$DIR/official-apks.json"
+          fi
           BUILDER_META="$DIR/builder-metadata.json" \
           BUILDER_ARCHIVE="$ARCHIVE" \
           BASE_OVERLAY="$DIR/base-overlay.tar.gz" \
