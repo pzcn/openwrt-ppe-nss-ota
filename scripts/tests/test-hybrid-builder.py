@@ -441,7 +441,7 @@ assert 'touch $done_file' in workflow
 # kernel and custom package phases, before packaging standalone ImageBuilder.
 # Compiling kmods alone is insufficient: kernel-build.mk only populates
 # KERNEL_BUILD_DIR/Image when the .image target runs Kernel/CompileImage.
-assert 'phase kernel-image -C target/linux/qualcommax "TOPDIR=$IMM" "$LINUX_SRC/.image"' in full_script
+assert 'phase kernel-image -C target/linux/qualcommax "TOPDIR=$IMM" "TARGET_BUILD=1" "$LINUX_SRC/.image"' in full_script
 assert '[[ -s "$KDIR/Image" ]]' in full_script
 assert full_script.index("phase kmods") < full_script.index("phase kernel-image") < full_script.index("phase device-fit")
 assert "phase device-fit -C target/linux/qualcommax/image" in full_script

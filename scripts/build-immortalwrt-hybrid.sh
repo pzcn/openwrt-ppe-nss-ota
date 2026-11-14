@@ -323,7 +323,7 @@ LINUX_SRC="${kernel_sources[0]}"
   echo "::error::Kernel modules phase did not produce vmlinux: $LINUX_SRC" >&2
   exit 1
 }
-phase kernel-image -C target/linux/qualcommax "TOPDIR=$IMM" "$LINUX_SRC/.image"
+phase kernel-image -C target/linux/qualcommax "TOPDIR=$IMM" "TARGET_BUILD=1" "$LINUX_SRC/.image"
 [[ -s "$KDIR/Image" ]] || {
   echo "::error::Kernel/CompileImage did not copy Image into $KDIR" >&2
   exit 1
