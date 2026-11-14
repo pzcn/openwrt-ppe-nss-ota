@@ -42,11 +42,23 @@ copy_tree package/kernel/mac80211/patches/ath11k
 copy_file package/kernel/mac80211/Makefile
 copy_file package/kernel/mac80211/ath.mk
 
+# The PPE headers, VLAN/ACL/debugfs sources and Kbuild patches must be
+# imported together. The official tree's older qca_ppe_vlan.c defines static
+# ppe_xlt_idx_alloc/free conflicting with Julius' newer non-static header.
 for file in \
-  qca_edma.c qca_edma.h qca_ppe.h qca_ppe_flow.c \
-  qca_ppe_flow_offload.c qca_ppe_main.c qca_ppe_scheduler.c; do
+  qca_edma.c qca_edma.h \
+  qca_ppe.h qca_ppe_main.c qca_ppe_vlan.c qca_ppe_scheduler.c \
+  qca_ppe_debugfs.c qca_ppe_acl.c \
+  qca_ppe_flow.c qca_ppe_flow_offload.c; do
   copy_file "target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/$file"
 done
+for file in \
+  0952-net-ethernet-qca-add-ppe.patch \
+  0953-net-ethernet-qca-add-EDMA.patch; do
+  copy_file "target/linux/qualcommax/patches-6.18/$file"
+done
+# Distinct EDMA switch and NSS firmware interfaces are both needed.
+copy_file target/linux/qualcommax/files/include/linux/qca_edma.h
 for file in qca_edma.h qca_ppe.h; do
   copy_file "target/linux/qualcommax/files/include/linux/soc/qcom/$file"
 done
@@ -76,6 +88,18 @@ grep -Fq '#include "ipq8074-nss.dtsi"' \
   "$imm/target/linux/qualcommax/dts/ipq8174-mx4x00.dtsi"
 grep -Fq 'nss_region' \
   "$imm/target/linux/qualcommax/files/arch/arm64/boot/dts/qcom/ipq8074-nss.dtsi"
+# Match the coherent PPE source and Kbuild contract already used by Arthur.
+vlan="$imm/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe_vlan.c"
+ppe_header="$imm/target/linux/qualcommax/files/drivers/net/ethernet/qualcomm/qca_ppe.h"
+ppe_patch="$imm/target/linux/qualcommax/patches-6.18/0952-net-ethernet-qca-add-ppe.patch"
+edma_patch="$imm/target/linux/qualcommax/patches-6.18/0953-net-ethernet-qca-add-EDMA.patch"
+grep -Eq '^int ppe_xlt_idx_alloc\(' "$vlan"
+grep -Eq '^void ppe_xlt_idx_free\(' "$vlan"
+grep -Fq 'int ppe_xlt_idx_alloc(' "$ppe_header"
+grep -Fq 'qca_ppe_flow.o qca_ppe_flow_offload.o' "$ppe_patch"
+grep -Fq 'depends on NET_DSA && QCOM_EDMA' "$ppe_patch"
+grep -Fq 'select PAGE_POOL' "$edma_patch"
+grep -Fq 'CONFIG_ATH11K_NSS_WIFI' "$imm/package/kernel/mac80211/Makefile"
 grep -Fq 'config ATH11K_NSS_WIFI' "$imm/package/kernel/mac80211/ath.mk"
 test -f "$imm/package/kernel/nss-wifi-drv/Makefile"
 echo "MX4200 v1 IPQ8074 PPE/NSS source port staged; hardware testing is still required."
