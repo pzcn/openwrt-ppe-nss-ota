@@ -9,6 +9,14 @@ on:
       - "mx4200v1/repack-hybrid.sh"
       - "mx4200v1/test_fast_repack.py"
       - ".github/workflows/mx4200v1-fast-repack.yml"
+  workflow_call:
+    inputs:
+      source_run_id:
+        type: string
+        default: "43602206711"
+      source_commit:
+        type: string
+        default: "5afd6581438af59b3392c35e82322ab41b09acb2"
   workflow_dispatch:
     inputs:
       source_run_id:
@@ -45,6 +53,7 @@ jobs:
           python3 mx4200v1/test_fast_repack.py
           python3 mx4200v1/test_contract.py
           python3 mx4200v1/test_hybrid_contract.py
+          python3 scripts/tests/test-ota-devices.py
 
   repack:
     name: Reuse MX4200 v1 kernel and create verified factory/sysupgrade
@@ -103,6 +112,8 @@ jobs:
             out-mx4200v1-fast-repack/*.manifest
             out-mx4200v1-fast-repack/*.metadata.json
             out-mx4200v1-fast-repack/repack-metadata.json
+            out-mx4200v1-fast-repack/ota.json
+            out-mx4200v1-fast-repack/mx4200v1-ota-identity.json
             out-mx4200v1-fast-repack/sha256sums
             out-mx4200v1-fast-repack/source-commits.txt
             out-mx4200v1-fast-repack/snapshot-lock.json
