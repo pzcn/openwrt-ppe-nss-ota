@@ -111,7 +111,7 @@ with tempfile.TemporaryDirectory() as d:
     assert "auto='0'" in (
         staging / "etc/uci-defaults/98-mx4200v1-ota-manual-default").read_text()
     try:
-        (staging / "lib/upgrade").mkdir(parents=True)
+        (staging / "lib/upgrade").mkdir(parents=True, exist_ok=True)
         (staging / "lib/upgrade/platform.sh").write_text("eMMC override\n")
         subprocess.run(["bash", str(ROOT / "mx4200v1/stage-overlay.sh"), str(staging)],
                        check=True, capture_output=True)
