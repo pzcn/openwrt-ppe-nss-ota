@@ -25,6 +25,8 @@ IMAGE_FILES = frozenset({
     "scripts/fit_configs.py",
     "scripts/hybrid_layer.py",
     "scripts/prepare-sing-box-luci.sh",
+    "scripts/stage-sing-box-pre.sh",
+    "scripts/sing_box_pre.py",
 })
 IMAGE_PREFIXES = ("files/", "config/translations/")
 
