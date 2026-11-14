@@ -308,7 +308,27 @@ mapfile -t fit_dirs < <(find "$IMM/build_dir" -mindepth 2 -maxdepth 2 -type d \
   echo "::error::Expected one qualcommax/ipq60xx kernel build directory, got ${#fit_dirs[@]}" >&2
   exit 1
 }
-FIT="${fit_dirs[0]}/jdcloud_re-ss-01-uImage.itb"
+# target/compile completes modules, but only the kernel .image target invokes
+# Kernel/CompileImage and copies the raw Image into KERNEL_BUILD_DIR.
+# Do not run target/linux/install here: that also runs full image/rootfs logic.
+KDIR="${fit_dirs[0]}"
+mapfile -t kernel_sources < <(find "$KDIR" -mindepth 1 -maxdepth 1 -type d \
+  -name "linux-*" -print | sort)
+(( ${#kernel_sources[@]} == 1 )) || {
+  echo "::error::Expected one configured linux-* kernel source tree, got ${#kernel_sources[@]}" >&2
+  exit 1
+}
+LINUX_SRC="${kernel_sources[0]}"
+[[ -s "$LINUX_SRC/vmlinux" ]] || {
+  echo "::error::Kernel modules phase did not produce vmlinux: $LINUX_SRC" >&2
+  exit 1
+}
+phase kernel-image -C target/linux/qualcommax "TOPDIR=$IMM" "$LINUX_SRC/.image"
+[[ -s "$KDIR/Image" ]] || {
+  echo "::error::Kernel/CompileImage did not copy Image into $KDIR" >&2
+  exit 1
+}
+FIT="$KDIR/jdcloud_re-ss-01-uImage.itb"
 phase device-fit -C target/linux/qualcommax/image "TOPDIR=$IMM" "$FIT"
 [[ -s "$FIT" && ! -L "$FIT" ]] || {
   echo "::error::RE-SS-01 FIT was not generated from the locally compiled kernel: $FIT" >&2
