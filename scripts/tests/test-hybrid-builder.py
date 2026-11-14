@@ -381,6 +381,23 @@ assert common.index('make -C "$ib" -s _check_keys') < common.index('make -C "$ib
 assert "ImageBuilder staged $apk_count" in common
 assert "imagebuilder-mkndx.log" in common
 assert "for p in apk-openssl kernel base-files libc; do" in common
+
+# Verify the real add/remove files and the local PPE/NSS package baseline
+# are used by the same manifest function for full and refresh Builds.
+req = subprocess.run(
+    ["bash", "-c",
+     'set -Eeuo pipefail; ROOT="$PWD"; source scripts/hybrid-common.sh; hybrid_image_request'],
+    cwd=ROOT, check=True, capture_output=True, text=True,
+).stdout.split()
+for package in ("qca-ppe-qos", "luci-app-qca-ppe-qos",
+                "luci-theme-aurora", "ppe-help", "luci-app-sing-box",
+                "luci-app-wol", "kmod-fs-f2fs"):
+    assert req.count(package) == 1, (package, req)
+for excluded in ("luci-app-homeproxy", "luci-app-diskman", "luci-app-statistics"):
+    assert "-" + excluded in req
+assert 'request="$(hybrid_image_request)"' in common
+assert 'missing_required+=("$p")' in common
+
 assert "normalize-mtimes --repo" in full_script and ".tools_*" in full_script
 assert "refresh-hybrid-builder.sh" in workflow and "build-immortalwrt-hybrid.sh" in workflow
 assert "needs.refresh.result == 'failure'" in workflow  # failed refresh falls back to full

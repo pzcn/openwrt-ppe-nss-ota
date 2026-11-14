@@ -113,14 +113,26 @@ hybrid_mirror() {  # official_json pkg_dir apk keys_dir work_dir [local_search_d
 # Resolve the firmware package set with the ImageBuilder itself and enforce
 # the image contract: required packages present, excluded ones absent, and
 # every kmod one we compiled for this kernel.
-hybrid_ib_manifest() {  # ib_dir out_dir local_apks_file
-  local ib="$1" out="$2" local_list="$3" request="" line p apk
+# Package selections in the buildroot .config are NOT automatically included
+# by a standalone ImageBuilder. Request the locally compiled PPE/NSS UI and
+# helper baseline explicitly, in full and refresh runs alike.
+hybrid_image_request() {
+  local request="" line p
+  for p in qca-ppe-qos luci-app-qca-ppe-qos luci-theme-aurora ppe-help; do
+    request+=" $p"
+  done
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%%#*}"; request+=" $line"
   done < "$ROOT/config/add.txt"
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%%#*}"; for p in $line; do request+=" -$p"; done
   done < "$ROOT/config/remove.txt"
+  printf '%s\n' "$request"
+}
+
+hybrid_ib_manifest() {  # ib_dir out_dir local_apks_file
+  local ib="$1" out="$2" local_list="$3" request p apk
+  request="$(hybrid_image_request)"
   # The upstream manifest target runs _check_keys before package_index.
   # Do so only in this disposable manifest-test ImageBuilder copy.
   local apk_bin="$ib/staging_dir/host/bin/apk" apk_dir="$ib/packages"
@@ -172,13 +184,18 @@ hybrid_ib_manifest() {  # ib_dir out_dir local_apks_file
   awk 'NF >= 3 && $2 == "-" && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
        $1 != "kernel" && $1 != "libc" && $1 != "base-files" { print $1 }' \
     "$out/imagebuilder.manifest" | sort -u > "$out/imagebuilder-packages.txt"
+  local missing_required=()
   for p in kmod-nss-wifi-drv luci-app-sing-box sing-box luci-app-autoreboot \
     luci-app-cpufreq default-settings-chn autocore luci-app-ddns-go kmod-fs-f2fs \
-    qca-ppe-qos luci-app-qca-ppe-qos luci-theme-aurora sqm-scripts; do
-    grep -Fxq "$p" "$out/imagebuilder-packages.txt" || {
-      echo "::error::ImageBuilder manifest missing $p" >&2; exit 1;
-    }
+    qca-ppe-qos luci-app-qca-ppe-qos luci-theme-aurora ppe-help sqm-scripts; do
+    if ! grep -Fxq "$p" "$out/imagebuilder-packages.txt"; then
+      missing_required+=("$p")
+    fi
   done
+  if (( ${#missing_required[@]} )); then
+    echo "::error::ImageBuilder manifest missing required packages: ${missing_required[*]}" >&2
+    exit 1
+  fi
   for p in luci-app-homeproxy luci-i18n-homeproxy-zh-cn luci-app-diskman \
     luci-i18n-diskman-zh-cn luci-app-statistics luci-i18n-statistics-zh-cn; do
     refuse "Image still includes $p" grep -Fxq "$p" "$out/imagebuilder-packages.txt"
