@@ -57,7 +57,7 @@ PACKAGEINFO = "\n".join((
     block("package/feeds/nss/nss-firmware", pkgs=[("nss-firmware-ipq60xx", "+libc", ())]),
     block("package/firmware/ipq-wifi", pkgs=[("ipq-wifi-jdcloud_re-ss-01", "", ())]),
     block("package/feeds/packages/sing-box", pkgs=[("sing-box", "+kmod-inet-diag", ())]),
-    block("package/system/apk", pkgs=[("apk-openssl", "", ())]),
+    block("package/system/apk", pkgs=[("apk-openssl", "+libopenssl", ())]),
 ))
 SELECTED = ["kmod-fs-f2fs", "kmod-lib-crc32c", "kmod-sched-cake", "kmod-nft-fullcone", "kmod-nft-nat",
             "base-files", "libc", "libgcc", "usign", "netifd", "procd", "libubox", "sqm-scripts",
@@ -115,7 +115,8 @@ assert local["base-files"]["depends"] == ["libc", "netifd", "usign", "procd"]
 assert local["base-files"]["provides"] == ["base-files-any"]
 roots = set(plan["image_roots"])
 assert {"ipq-wifi-jdcloud_re-ss-01", "sing-box", "libubox", "luci-base"} <= roots
-assert not roots & {"csstidy", "apk-openssl", "sqm-scripts", "libc", "kmod-fs-f2fs"}
+assert "apk-openssl" in roots  # target package manager, not host-only
+assert not roots & {"csstidy", "sqm-scripts", "libc", "kmod-fs-f2fs"}
 missing = SELECTED.copy()
 missing.remove("ppe-help")
 expect_error(lambda: h.local_plan(sources, packages, h.parse_symbols(
@@ -138,7 +139,8 @@ def indexes(**extra):
                  pkg("netifd", ["libubox20260721", "!netifd-legacy"]), pkg("usign", ["libubox20260721"]),
                  pkg("firewall4", ["kmod-nft-nat", "nftables"], ["uci-firewall"]),
                  pkg("firewall", ["kmod-ipt-nat"], ["uci-firewall"]), pkg("nftables"),
-                 pkg("tc-full", provides=["tc"]), pkg("tc-tiny", provides=["tc"])],
+                 pkg("tc-full", provides=["tc"]), pkg("tc-tiny", provides=["tc"]),
+                  pkg("apk-openssl", ["libopenssl"], provides=["apk"]), pkg("libopenssl")],
         "packages": [pkg("sing-box", ["kmod-inet-diag", "ca-bundle>=1"]), pkg("ca-bundle"),
                      pkg("sqm-scripts", version="0.9")],
         "luci": [pkg("luci-base", ["libubox", "rpcd"]), pkg("rpcd", ["libubox20260721"])],
@@ -157,6 +159,10 @@ chosen = {p["name"]: p["repo"] for p in res["official"]}
 assert not res["errors"] and not res["local_fallback"], res
 # Local builds win, official kernel/kmods/base-files never enter the mirror.
 assert not set(chosen) & {"kernel", "base-files", "libc", "sqm-scripts"}
+assert chosen["apk-openssl"] == "base" and chosen["libopenssl"] == "base"
+no_apk_index = indexes()
+no_apk_index["base"] = [x for x in no_apk_index["base"] if x["name"] != "apk-openssl"]
+assert "apk-openssl" in h.closure(plan, no_apk_index)["local_fallback"]
 assert not any(n.startswith("kmod-") for n in chosen)
 # Roots resolve through ABI base names; deps through exact ABI names.
 assert chosen["libubox20260721"] == "base" and chosen["procd"] == "target"

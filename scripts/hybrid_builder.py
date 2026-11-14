@@ -55,8 +55,6 @@ KERNEL_SOURCE = "package/kernel/linux"
 # Whole sources compiled locally (every selected package they produce is local).
 LOCAL_SOURCES = frozenset(("package/libs/toolchain",))
 LOCAL_FEEDS = frozenset(("nss",))
-# Sources that never belong in the image repository.
-IGNORED_SOURCES = frozenset(("package/system/apk",))
 # Inputs of the compiled kernel side (kernel, kmods, DTB, base-files, libc,
 # SDK). A change here needs a full hybrid build; anything else is a refresh.
 KERNEL_CORE_FILES = (
@@ -280,7 +278,7 @@ def local_plan(sources: dict[str, dict], packages: dict[str, dict],
     local: dict[str, dict] = {}
     for name, value in selected.items():
         pkg = packages.get(name)
-        if pkg is None or pkg["build_only"] or pkg["source"] in IGNORED_SOURCES:
+        if pkg is None or pkg["build_only"]:
             continue
         if is_local_package(name, pkg) or name in extra_local:
             local[name] = pkg
@@ -327,10 +325,12 @@ def local_plan(sources: dict[str, dict], packages: dict[str, dict],
         "local_kmods": [n for n in local_names if n.startswith("kmod-")],
         # Plain names: official libraries carry the snapshot's own ABI suffix.
         # 'm' too: per-device rootfs selects device packages (ipq-wifi-*) as m.
+        # apk-openssl is the default USE_APK target package manager, not
+        # a host-only tool. Include it in the official closure as usual.
         "image_roots": sorted(
             n for n in selected
             if n in packages and not packages[n]["build_only"]
-            and packages[n]["source"] not in IGNORED_SOURCES and n not in local
+            and n not in local
         ),
     }
 

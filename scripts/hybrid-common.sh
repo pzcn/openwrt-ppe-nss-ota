@@ -121,6 +121,13 @@ hybrid_ib_manifest() {  # ib_dir out_dir local_apks_file
   while IFS= read -r line || [[ -n "$line" ]]; do
     line="${line%%#*}"; for p in $line; do request+=" -$p"; done
   done < "$ROOT/config/remove.txt"
+  # OpenWrt generates packages.adb from local + mirrored APKs; make sure
+  # the index was actually created before asking APK to resolve the manifest.
+  make -C "$ib" -s package_index
+  [[ -s "$ib/packages/packages.adb" ]] || {
+    echo "::error::ImageBuilder failed to generate packages/packages.adb" >&2
+    exit 1
+  }
   make -C "$ib" -s manifest PROFILE=jdcloud_re-ss-01 STRIP_ABI=1 PACKAGES="$request" \
     > "$out/imagebuilder.manifest"
   awk 'NF >= 3 && $2 == "-" && $1 ~ /^[a-z0-9][a-z0-9+._-]*$/ &&
