@@ -20,6 +20,32 @@ MANIFEST = "immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest"
 TAG_PATTERN = re.compile(r"^imm-ppe-nss-[a-zA-Z0-9._-]+$")
 SHA_PATTERN = re.compile(r"^[a-f0-9]{40}$")
 
+# The updater implementation and release index are shared; every device gets
+# a unique, strictly checked OTA identity and its own release sequence.
+DEVICES = {
+    "arthur": {
+        "channel": CHANNEL, "group": GROUP, "profile": PROFILE, "board": BOARD,
+        "target": "qualcommax/ipq60xx", "image": IMAGE, "manifest": MANIFEST,
+        "tag_prefix": "imm-ppe-nss-", "display": "RE-SS-01 PPE+NSS",
+    },
+    "mx4200v1": {
+        "channel": "mx4200v1-immortal-ppe-nss", "group": "ipq807x-6m",
+        "profile": "linksys_mx4200v1", "board": "linksys,mx4200v1",
+        "target": "qualcommax/ipq807x",
+        "image": "immortalwrt-qualcommax-ipq807x-linksys_mx4200v1-squashfs-sysupgrade.bin",
+        "manifest": "immortalwrt-qualcommax-ipq807x-linksys_mx4200v1.manifest",
+        "tag_prefix": "imm-mx4200v1-", "display": "MX4200 v1 PPE+NSS",
+    },
+}
+
+
+def device_spec(device: str) -> dict:
+    try:
+        return DEVICES[device]
+    except KeyError as exc:
+        raise ValueError(f"Unknown OTA device: {device}") from exc
+
+
 
 def sha256(path: Path) -> str:
     h = hashlib.sha256()
@@ -36,31 +62,32 @@ def replace_once(source: str, before: str, after: str) -> str:
     return source.replace(before, after)
 
 
-def prepare(overlay: Path, tag: str, build: int) -> None:
-    if not TAG_PATTERN.fullmatch(tag) or build < 1:
+def prepare(overlay: Path, tag: str, build: int, device: str = "arthur") -> None:
+    spec = device_spec(device)
+    if not TAG_PATTERN.fullmatch(tag) or not tag.startswith(spec["tag_prefix"]) or build < 1:
         raise ValueError("Invalid release tag/build")
     ota = overlay / "usr/sbin/ppe-update"
     source = ota.read_text()
     patches = [
         ('[ -r "${PPE_RELEASE:=/etc/ppe-release}" ] && . "$PPE_RELEASE"',
-         "GROUP='ipq60xx-512m'"),
+         f"GROUP='{spec['group']}'"),
         ('[ -r "${PZCN_RELEASE:=/etc/pzcn-ota-release}" ] && . "$PZCN_RELEASE"',
          '[ -r "${PZCN_RELEASE:=/etc/immortal-ppe-ota-release}" ] && . "$PZCN_RELEASE"'),
         ("RELEASE_API='https://api.github.com/repos/pzcn/openwrt-ppe-nss-ota/releases/latest'",
          "RELEASE_API='https://api.github.com/repos/pzcn/openwrt-ppe-nss-ota/releases?per_page=100'"),
         ("RELEASE_CHANNEL='re-ss-01-custom'",
-         f"RELEASE_CHANNEL='{CHANNEL}'"),
+         f"RELEASE_CHANNEL='{spec['channel']}'"),
         ("EXPECTED_IMAGE='openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin'",
-         f"EXPECTED_IMAGE='{IMAGE}'"),
+         f"EXPECTED_IMAGE='{spec['image']}'"),
         ("EXPECTED_MANIFEST='openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest'",
-         f"EXPECTED_MANIFEST='{MANIFEST}'"),
+         f"EXPECTED_MANIFEST='{spec['manifest']}'"),
         ("LATEST=$(jsonfilter -i \"$WORK/github.json\" -e '@.tag_name')",
          """if ! jq -e 'type == "array"' "$WORK/github.json" >/dev/null 2>&1; then
     die "invalid GitHub Releases API response"
 fi
 LATEST=$(jq -r --arg image "$EXPECTED_IMAGE" --arg manifest "$EXPECTED_MANIFEST" '
     [.[] | select(.draft == false and .prerelease == false and
-                  (.tag_name | startswith("imm-ppe-nss-")))
+                  (.tag_name | startswith("__OTA_TAG_PREFIX__")))
          | select(any(.assets[]?; .name == "ota.json"))
          | select(any(.assets[]?; .name == $image))
          | select(any(.assets[]?; .name == $manifest))]
@@ -68,11 +95,15 @@ LATEST=$(jq -r --arg image "$EXPECTED_IMAGE" --arg manifest "$EXPECTED_MANIFEST"
 ' "$WORK/github.json") ||
     die "failed to parse GitHub firmware release index"
 [ -n "$LATEST" ] || die "no ImmortalWrt firmware release is published on this channel" """),
-        ('\tota-ppe-nss-*) ;;', '\timm-ppe-nss-*) ;;'),
+        ('\tota-ppe-nss-*) ;;', f'\t{spec["tag_prefix"]}*) ;;'),
         ('\tppe-nss-*) ;;', '\timmortal-*) ;;'),
+        ("EXPECTED_BOARD=\'jdcloud,re-ss-01\'", f"EXPECTED_BOARD=\'{spec['board']}\'"),
+        ("EXPECTED_PROFILE=\'jdcloud_re-ss-01\'", f"EXPECTED_PROFILE=\'{spec['profile']}\'"),
+        ("EXPECTED_GROUP=\'ipq60xx-512m\'", f"EXPECTED_GROUP=\'{spec['group']}\'"),
     ]
     for before, after in patches:
         source = replace_once(source, before, after)
+    source = source.replace("__OTA_TAG_PREFIX__", spec["tag_prefix"])
     if "sysupgrade -T" not in source or "cmd_auto()" not in source:
         raise ValueError("OTA backend lost firmware validation/automatic update")
     ota.write_text(source)
@@ -83,18 +114,20 @@ LATEST=$(jq -r --arg image "$EXPECTED_IMAGE" --arg manifest "$EXPECTED_MANIFEST"
     release.write_text(
         f"OTA_TAG={shlex.quote(tag)}\n"
         f"OTA_BUILD={build}\n"
-        f"OTA_CHANNEL={shlex.quote(CHANNEL)}\n"
+        f"OTA_CHANNEL={shlex.quote(spec['channel'])}\n"
     )
 
 
 def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
              manifest: Path, output: Path, builder_tag: str = "",
-             source_commit: str = "", layer_tag: str = "") -> None:
-    if not TAG_PATTERN.fullmatch(tag) or build < 1:
+             source_commit: str = "", layer_tag: str = "",
+             device: str = "arthur") -> None:
+    spec = device_spec(device)
+    if not TAG_PATTERN.fullmatch(tag) or not tag.startswith(spec["tag_prefix"]) or build < 1:
         raise ValueError("Invalid tag/build")
     if not SHA_PATTERN.fullmatch(upstream) or not SHA_PATTERN.fullmatch(ppe):
         raise ValueError("Expected 40-character source commit SHAs")
-    if image.name != IMAGE or manifest.name != MANIFEST:
+    if image.name != spec["image"] or manifest.name != spec["manifest"]:
         raise ValueError("Unexpected image or manifest basename")
     if not image.is_file() or image.stat().st_size < 1_000_000:
         raise ValueError("Missing or unusually small firmware image")
@@ -108,21 +141,22 @@ def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
         raise ValueError("Invalid userland layer tag")
     doc = {
         "schema": 1,
-        "channel": CHANNEL,
+        "channel": spec["channel"],
         "repository": REPOSITORY,
         "tag": tag,
         "build": build,
         "epoch": int(time.time()),
-        "board": BOARD,
-        "profile": PROFILE,
-        "group": GROUP,
+        "board": spec["board"],
+        "profile": spec["profile"],
+        "group": spec["group"],
+        "target": spec["target"],
         "upstream_tag": f"immortal-{upstream[:12]}",
         "immortalwrt_commit": upstream,
         "ppe_nss_commit": ppe,
-        "image": IMAGE,
+        "image": spec["image"],
         "image_size": image.stat().st_size,
         "image_sha256": sha256(image),
-        "manifest": MANIFEST,
+        "manifest": spec["manifest"],
         "manifest_sha256": sha256(manifest),
     }
     if builder_tag:
@@ -139,6 +173,7 @@ def main() -> None:
     subs = parser.add_subparsers(dest="action", required=True)
     a = subs.add_parser("prepare")
     a.add_argument("--overlay", type=Path, required=True)
+    a.add_argument("--device", choices=tuple(DEVICES), default="arthur")
     a.add_argument("--tag", required=True)
     a.add_argument("--build", type=int, required=True)
     b = subs.add_parser("metadata")
@@ -149,16 +184,17 @@ def main() -> None:
     b.add_argument("--image", type=Path, required=True)
     b.add_argument("--manifest", type=Path, required=True)
     b.add_argument("--output", type=Path, required=True)
+    b.add_argument("--device", choices=tuple(DEVICES), default="arthur")
     b.add_argument("--builder-tag", default="")
     b.add_argument("--source-commit", default="")
     b.add_argument("--layer-tag", default="")
     args = parser.parse_args()
     if args.action == "prepare":
-        prepare(args.overlay, args.tag, args.build)
+        prepare(args.overlay, args.tag, args.build, args.device)
     else:
         metadata(args.tag, args.build, args.immortal_commit, args.ppe_commit,
                  args.image, args.manifest, args.output,
-                 args.builder_tag, args.source_commit, args.layer_tag)
+                 args.builder_tag, args.source_commit, args.layer_tag, args.device)
 
 
 if __name__ == "__main__":
