@@ -45,6 +45,14 @@
 5. **检查**：IB `make manifest` 得到 `imagebuilder-packages.txt`，必须包含 PPE/NSS/F2FS 等关键包、不得含已排除的应用、镜像里每个 kmod 都必须是本地编译的；发布的 IB 不得含私钥（manifest 在临时副本上运行）；SDK 交叉编译冒烟（full）；用 `repack-immortalwrt.sh` 实际出一次 sysupgrade 镜像。
 6. **发布**：tag 为 `imm-builder-…-s<snapshot>`，标题带 identity。
 
+## 智能构建影响范围（亚瑟 / MX4200 隔离）
+
+- 亚瑟 Hybrid Builder 对共享规划器 `hybrid_builder.py` 采用 AST 指纹，仅忽略确定无副作用的 `MX4200_LOCAL_PACKAGES` 包选择声明及格式/注释改动。亚瑟包选择、共享函数、内核/ABI 配方变更仍会正常改变指纹。
+- `mx4200v1/**` 不在亚瑟的 Builder/固件构建输入中。MX4200 局部修改无需重编亚瑟 Builder，亦无需重新生成亚瑟固件。
+- 亚瑟固件的 push 触发器只匹配实际打包、OTA、补编 SDK、插件选择及叠加文件；每日检查和手动运行时，进一步比较上一版 OTA `source_commit` 与当前提交之间的真正固件输入差异。Builder tag 未改变且差异为空时直接跳过。
+- 若此前提交不可读取或文件差异检查失败，则保守地重打包；如果 Builder tag 改变则不跳过。
+- 首次部署此改动时，Builder 指纹格式由源文件字节改为 AST，可能发生一次 `refresh`；此后 MX4200 包选择变化不应再引起无关刷新。
+
 ## 缓存
 
 - `dl` 源码包、`ccache`：失败也会保存。
