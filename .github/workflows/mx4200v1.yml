@@ -1,11 +1,9 @@
 name: MX4200 v1 - ImmortalWrt PPE NSS test build
 
+# Legacy full-source build is a manual rescue route only.
+# Main pushes are handled by the unified PPE/NSS workflow to avoid duplicate
+# multi-hour MX4200 kernel/SDK builds.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "mx4200v1/**"
-      - ".github/workflows/mx4200v1.yml"
   workflow_dispatch:
 
 permissions:
