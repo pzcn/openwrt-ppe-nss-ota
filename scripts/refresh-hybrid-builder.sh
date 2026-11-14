@@ -44,7 +44,7 @@ python3 "$ROOT/scripts/immortalwrt_builder.py" verify --metadata "$META" \
   --packages "$PARENT/imagebuilder-packages.txt"
 jq -e --arg tag "$(jq -er .tag "$META")" \
   --arg sha "$(sha256sum "$META" | cut -d" " -f1)" \
-  '.builder_tag == $tag and .builder_metadata_sha256 == $sha and \
+  '.builder_tag == $tag and .builder_metadata_sha256 == $sha and
    (.archive_sha256 | test("^[0-9a-f]{64}$"))' "$SDK_META" >/dev/null
 jq -e --arg tag "$(jq -er .tag "$META")" \
   '.builder_tag == $tag and .schema == 1' "$FEED_LOCK" >/dev/null
