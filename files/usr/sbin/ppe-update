@@ -30,9 +30,10 @@ EXPECTED_MANIFEST='openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest'
 log() { logger -t ppe-update "$*"; echo "$*" >&2; }
 die() { log "$*"; exit 2; }
 
-# Release assets redirect through a different host than api.github.com.
-# If uclient-fetch cannot follow that HTTPS chain, retry with curl. Do not
-# conflate failed download with a missing/mismatched device or OTA channel.
+# GitHub Releases may send 302 headers with >4 KiB CSP lines. The
+# uclient-fetch HTTP parser can stall on those headers even when TLS and TCP
+# are working. Use curl first; keep uclient-fetch as a fallback when curl is
+# missing or cannot download the file. Keep OTA validation unchanged.
 # Prefix-style proxies accept BASE/https://github.com/owner/repo/...
 # Status requests prefer the official API (mirrors may reject api.github.com).
 github_proxy_base() {
@@ -61,14 +62,14 @@ github_proxy_base() {
 fetch_once() {
 	local url="$1" dest="$2"
 	rm -f "$dest"
-	if uclient-fetch -q -T 30 -O "$dest" "$url" 2>>"$WORK/fetch-error.log" &&
+	if command -v curl >/dev/null 2>&1 &&
+		curl -fLsS --retry 2 --connect-timeout 10 --max-time 60 \
+			-o "$dest" "$url" 2>>"$WORK/fetch-error.log" &&
 		[ -s "$dest" ]; then
 		return 0
 	fi
 	rm -f "$dest"
-	if command -v curl >/dev/null 2>&1 &&
-		curl -fLsS --retry 2 --connect-timeout 10 --max-time 60 \
-			-o "$dest" "$url" 2>>"$WORK/fetch-error.log" &&
+	if uclient-fetch -q -T 30 -O "$dest" "$url" 2>>"$WORK/fetch-error.log" &&
 		[ -s "$dest" ]; then
 		return 0
 	fi

@@ -18,7 +18,27 @@ uci() {
         *) return 1 ;;
     esac
 }
-curl() { return 1; } # no external requests, even on failed stub fetch
+# Mock curl in the shell: no network and no need for the real executable.
+# Record the requested URL, write a nonempty file on success, and a partial
+# file on failure to verify cleanup before uclient-fetch fallback.
+curl() {
+    output=''
+    url=''
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -o) output="$2"; shift 2 ;;
+            https://*) url="$1"; shift ;;
+            *) shift ;;
+        esac
+    done
+    printf 'curl %s\n' "$url" >> "$CALL_LOG"
+    if [ "$CURL_SUCCEED" = 1 ]; then
+        printf 'curl response' > "$output"
+        return 0
+    fi
+    printf 'partial curl response' > "$output"
+    return 22
+}
 fetch "$ORIGINAL" "$WORK/output"
 '''
 api = "https://api.github.com/repos/pzcn/openwrt-ppe-nss-ota/releases?per_page=100"
@@ -31,7 +51,8 @@ candidates = {
 }
 
 
-def probe(mode, url, *, custom="", fail_direct=False, fail_proxy=False, ok=True):
+def probe(mode, url, *, custom="", fail_direct=False, fail_proxy=False,
+          curl_success=False, ok=True):
     with tempfile.TemporaryDirectory() as d:
         env = dict(os.environ)
         env.update({
@@ -40,6 +61,8 @@ def probe(mode, url, *, custom="", fail_direct=False, fail_proxy=False, ok=True)
             "PPE_WORK": d,
             "PPE_STATE": str(Path(d) / "state"),
             "FETCH_LOG": str(Path(d) / "requested.txt"),
+            "CALL_LOG": str(Path(d) / "calls.txt"),
+            "CURL_SUCCEED": "1" if curl_success else "0",
             "PROXY_MODE": mode,
             "CUSTOM_PROXY": custom,
             "ORIGINAL": url,
@@ -49,6 +72,12 @@ def probe(mode, url, *, custom="", fail_direct=False, fail_proxy=False, ok=True)
         mock_fetch = Path(d) / "uclient-fetch"
         mock_fetch.write_text("""#!/bin/sh
 printf '%s\n' "$6" >> "$FETCH_LOG"
+printf 'uclient %s\n' "$6" >> "$CALL_LOG"
+# The failed curl must leave no partial file for this transport.
+if [ -e "$5" ]; then
+    echo "uclient saw stale partial curl file" >&2
+    exit 93
+fi
 if [ "$FAIL_DIRECT" = 1 ] && [ "$6" = "$ORIGINAL" ]; then
     exit 1
 fi
@@ -63,10 +92,32 @@ printf 'test content' > "$5"
             ["sh", "-c", script], env=env, capture_output=True, text=True)
         requests = (Path(d) / "requested.txt")
         requested = requests.read_text().splitlines() if requests.exists() else []
-        assert (result.returncode == 0) == ok, (mode, url, requested, result.stdout, result.stderr, (Path(d) / "fetch-error.log").read_text() if (Path(d) / "fetch-error.log").exists() else "")
+        call_file = Path(d) / "calls.txt"
+        calls = call_file.read_text().splitlines() if call_file.exists() else []
+        if curl_success and ok:
+            selected_url = url
+            if mode in candidates and url.startswith("https://github.com/"):
+                selected_url = candidates[mode] + "/" + url
+            assert calls == ["curl " + selected_url], (mode, calls)
+            assert not requested, "successful curl must bypass uclient-fetch"
+        elif requested:
+            expected = [entry for link in requested
+                        for entry in ("curl " + link, "uclient " + link)]
+            assert calls == expected, (mode, calls, expected)
+        else:
+            assert not calls, (mode, calls)
+        assert (result.returncode == 0) == ok, (
+            mode, url, requested, result.stdout, result.stderr)
         return requested
 
 
+# A successful curl must be the only transport invoked on the normal path.
+assert probe("direct", image, curl_success=True) == []
+assert probe("direct", api, curl_success=True) == []
+assert probe("ghproxy", image, curl_success=True) == []
+assert probe("ghproxy", api, curl_success=True) == []
+
+# curl failure must remove partial data before falling back to uclient-fetch.
 assert probe("direct", image) == [image]
 assert probe("direct", api) == [api]
 
