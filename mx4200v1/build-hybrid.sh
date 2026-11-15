@@ -440,7 +440,7 @@ BASE_STAGE="$WORK/base-overlay"
 mkdir -p "$BASE_STAGE"
 rsync -a "$BUILDER/devices/common/files.ppe-nss/" "$BASE_STAGE/"
 bash "$ROOT/mx4200v1/stage-overlay.sh" "$BASE_STAGE"
-bash "$ROOT/mx4200v1/ota-artifacts.sh" prepare "$BASE_STAGE" "$OUT" "$IMM_SHA" "$PPE_SHA"
+MX_OTA_SNAPSHOT_LOCK="$LOCK" bash "$ROOT/mx4200v1/ota-artifacts.sh" prepare "$BASE_STAGE" "$OUT" "$IMM_SHA" "$PPE_SHA"
 bash "$ROOT/scripts/stage-sing-box-pre.sh" "$BASE_STAGE" "$OUT"
 # Never override Linksys' upstream NAND/UBI and dual-slot upgrade logic.
 test ! -e "$BASE_STAGE/lib/upgrade/platform.sh" || {
