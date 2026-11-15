@@ -107,7 +107,7 @@ assert "L.url('admin/system/ppe-update')" not in flash
 assert not (overlay / "usr/share/luci/menu.d/luci-app-ppe-update.json").exists()
 assert "renderOTAPanel()" in flash
 assert "actions.appendChild(this.renderOTAPanel())" in flash
-assert "pzcn-integrated-ota" in flash
+assert "native-integrated-ota" in flash
 assert "s.option(form.SectionValue, 'online_upgrade'" not in flash
 assert not (overlay / "usr/share/luci/menu.d/luci-app-pzcn-ota.json").exists()
 assert "c.login_url !== target.login" in campus.read_text()
