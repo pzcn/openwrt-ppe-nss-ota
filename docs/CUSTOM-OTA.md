@@ -2,7 +2,7 @@
 
 入口：**系统 → 备份 / 升级 → 在线固件更新**。
 
-固件使用 `re-ss-01-immortal-ppe-nss` OTA 渠道，读取 GitHub Releases 中的 `imm-ppe-nss-...` 固件和 `ota.json`。下载之前检查设备型号、SHA256 和 `sysupgrade -T`，升级时按用户选择保留配置。
+固件使用 `re-ss-01-immortal-ppe-nss` OTA 渠道，读取 GitHub Releases 中的 `imm-arthur-SNAPSHOT2611-YYYYMMDDHHMM` 固件和 `ota.json`。下载之前检查设备型号、SHA256 和 `sysupgrade -T`，升级时按用户选择保留配置。
 
 ## 功能
 

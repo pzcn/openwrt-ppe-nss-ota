@@ -12,6 +12,9 @@ on:
       force_firmware:
         type: boolean
         default: false
+      ota_build_epoch:
+        type: string
+        default: ""
       publish_release:
         type: boolean
         default: false
@@ -90,6 +93,7 @@ jobs:
           python3 scripts/tests/test-drcom.py
           python3 scripts/tests/test-extra-apps.py
           python3 scripts/tests/test-immortalwrt-ota.py
+          python3 scripts/tests/test-ota-version.py
           python3 scripts/tests/test-ota-github-proxy.py
           python3 scripts/tests/test-ota-devices.py
           python3 scripts/tests/test-luci-cache-identity.py
@@ -112,6 +116,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       PUBLISH_RELEASE: ${{ github.ref == 'refs/heads/main' && (inputs.publish_policy == 'yes' || (inputs.publish_policy != 'no' && (github.event_name != 'workflow_dispatch' || inputs.publish_release))) }}
       SING_BOX_PRE_VERSION: ${{ inputs.sing_box_pre_version || '' }}
+      OTA_BUILD_EPOCH: ${{ inputs.ota_build_epoch || '' }}
       RELEASE_PRERELEASE: ${{ inputs.publish_policy == 'preview' }}
     steps:
       - uses: actions/checkout@v4
@@ -191,7 +196,7 @@ jobs:
           echo "Selected layer: ${LAYER:-none}" >> "$GITHUB_STEP_SUMMARY"
           if [[ "$FORCE_FIRMWARE" != true ]]; then
             LATEST="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-              --jq '[.[] | select(.draft == false and (.tag_name | startswith("imm-ppe-nss-")))] | sort_by(.published_at) | last | .tag_name // empty')"
+              --jq '[.[] | select(.draft == false and (.tag_name | startswith("imm-arthur-")))] | sort_by(.published_at) | last | .tag_name // empty')"
             if [[ -n "$LATEST" ]]; then
               mkdir -p "$RUNNER_TEMP/imm-last-firmware"
               if gh release download "$LATEST" -R "$GITHUB_REPOSITORY" \

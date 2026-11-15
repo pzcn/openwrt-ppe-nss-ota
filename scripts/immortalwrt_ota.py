@@ -17,7 +17,7 @@ PROFILE = "jdcloud_re-ss-01"
 BOARD = "jdcloud,re-ss-01"
 IMAGE = "immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
 MANIFEST = "immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest"
-TAG_PATTERN = re.compile(r"^imm-(?:ppe-nss|mx4200v1)-[a-zA-Z0-9._-]+$")
+TAG_PATTERN = re.compile(r"^imm-(?:arthur|mx4200v1)-[a-zA-Z0-9._-]+$")
 SHA_PATTERN = re.compile(r"^[a-f0-9]{40}$")
 
 # The updater implementation and release index are shared; every device gets
@@ -26,7 +26,7 @@ DEVICES = {
     "arthur": {
         "channel": CHANNEL, "group": GROUP, "profile": PROFILE, "board": BOARD,
         "target": "qualcommax/ipq60xx", "image": IMAGE, "manifest": MANIFEST,
-        "tag_prefix": "imm-ppe-nss-", "display": "RE-SS-01 PPE+NSS",
+        "tag_prefix": "imm-arthur-", "display": "RE-SS-01 PPE+NSS",
     },
     "mx4200v1": {
         "channel": "mx4200v1-immortal-ppe-nss", "group": "ipq807x-6m",

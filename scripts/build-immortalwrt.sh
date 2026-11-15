@@ -28,7 +28,7 @@ for n in "$RUN_NUMBER" "$ATTEMPT"; do
   [[ "$n" =~ ^[0-9]+$ ]] || { echo "Invalid run number" >&2; exit 1; }
 done
 (( ATTEMPT < 10 )) || { echo "Unexpected run attempt" >&2; exit 1; }
-BUILD_NUMBER="$(date -u +%s)"
+BUILD_NUMBER="${OTA_BUILD_EPOCH:-$(date -u +%s)}"
 SOURCE_REV="$(git -C "$ROOT" rev-parse --short=8 HEAD)"
 
 clone() {
@@ -63,7 +63,7 @@ for pair in "IMM_SHA:EXPECTED_IMM_SHA" "PPE_SHA:EXPECTED_PPE_SHA" "BASE_SHA:EXPE
     exit 1
   fi
 done
-TAG="imm-ppe-nss-${IMM_SHA:0:8}-${PPE_SHA:0:8}-g$SOURCE_REV-b$BUILD_NUMBER"
+TAG="$(python3 "$ROOT/scripts/ota_version.py" arthur "$BUILD_NUMBER")"
 printf 'ImmortalWrt=%s\nPPE/NSS=%s\nPPE builder=%s\nCustom=%s\n' "$IMM_SHA" "$PPE_SHA" "$BASE_SHA" "$SOURCE_REV" | tee "$OUT/source-commits.txt"
 
 export IMM_SOURCE_DIR="$IMM" PPE_SOURCE_DIR="$PPE"

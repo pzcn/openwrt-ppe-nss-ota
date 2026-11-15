@@ -29,7 +29,7 @@ if [[ "$ACTION" == prepare ]]; then
   [[ "$BUILD" =~ ^[0-9]+$ ]] && (( BUILD > 0 )) || {
     echo "::error::MX OTA build must be positive integer"; exit 1;
   }
-  TAG="imm-mx4200v1-${IMM:0:8}-${PPE:0:8}-g${SOURCE:0:8}-b$BUILD"
+  TAG="$(python3 "$ROOT/scripts/ota_version.py" mx4200v1 "$BUILD")"
   mkdir -p "$OUT"
   python3 "$ROOT/scripts/immortalwrt_ota.py" prepare \
     --device mx4200v1 --overlay "$OVERLAY" --tag "$TAG" --build "$BUILD"

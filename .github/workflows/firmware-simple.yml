@@ -11,7 +11,7 @@ on:
         options: [both, arthur, mx4200v1]
         default: both
       publish:
-        description: Publish tested Arthur OTA and MX4200 prerelease
+        description: Publish Arthur stable OTA and MX4200 test prerelease
         type: boolean
         default: false
   push:
@@ -26,6 +26,7 @@ on:
       - "mx4200v1/packages.txt"
       - "mx4200v1/remove.txt"
       - "scripts/repack-immortalwrt.sh"
+      - "scripts/ota_version.py"
       - "scripts/stage-firmware-overlay.sh"
       - "scripts/stage-sing-box-pre.sh"
       - ".github/workflows/firmware-simple.yml"
@@ -34,7 +35,17 @@ permissions:
   contents: write
 
 jobs:
+  version:
+    name: One shared OTA version/build timestamp
+    runs-on: ubuntu-24.04
+    outputs:
+      epoch: ${{ steps.clock.outputs.epoch }}
+    steps:
+      - id: clock
+        run: echo "epoch=$(date -u +%s)" >> "$GITHUB_OUTPUT"
+
   arthur:
+    needs: version
     if: github.event_name != 'workflow_dispatch' || inputs.device != 'mx4200v1'
     uses: ./.github/workflows/firmware-immortalwrt.yml
     with:
@@ -42,10 +53,12 @@ jobs:
       layer_tag: ""
       force_firmware: false
       publish_release: false
-      publish_policy: ${{ github.event_name == 'workflow_dispatch' && inputs.publish && 'yes' || 'no' }}
+      ota_build_epoch: ${{ needs.version.outputs.epoch }}
+      publish_policy: ${{ ((github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[release-snapshot-20261115]'))) && 'yes' || 'no' }}
     secrets: inherit
 
   mx4200v1:
+    needs: version
     if: github.event_name != 'workflow_dispatch' || inputs.device != 'arthur'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -54,12 +67,15 @@ jobs:
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
+      MX_OTA_BUILD: ${{ needs.version.outputs.epoch }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       - name: Verify OTA module URL changes with image build and content
-        run: python3 scripts/tests/test-luci-cache-identity.py
+        run: |
+          python3 scripts/tests/test-luci-cache-identity.py
+          python3 scripts/tests/test-ota-version.py
       - name: Verify native Backup/Flash OTA rendering
         run: node scripts/tests/test-embedded-ota-render.js
       - name: Validate GitHub proxy transport and LuCI settings
@@ -105,6 +121,12 @@ jobs:
           retention-days: 14
           compression-level: 0
           if-no-files-found: error
-      - name: Publish MX4200 prerelease only when explicitly requested
-        if: steps.builder.outputs.available == 'true' && github.event_name == 'workflow_dispatch' && inputs.publish
+      - name: Publish verified MX4200 OTA on explicit release request
+        if: >-
+          steps.builder.outputs.available == 'true' &&
+          ((github.event_name == 'workflow_dispatch' && inputs.publish) ||
+           (github.event_name == 'push' && contains(github.event.head_commit.message, '[release-snapshot-20261115]')))
+        env:
+          MX_RELEASE_STABLE: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[release-snapshot-20261115]') && 'true' || 'false' }}
+          GITHUB_EVENT_RELEASE_MARKER: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[release-snapshot-20261115]') && 'release-snapshot-20261115' || '' }}
         run: bash mx4200v1/publish-release.sh firmware out-mx4200v1-fast-repack

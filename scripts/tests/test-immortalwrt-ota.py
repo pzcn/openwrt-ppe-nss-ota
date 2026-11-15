@@ -27,11 +27,11 @@ with tempfile.TemporaryDirectory() as d:
     flash = overlay / "www/luci-static/resources/view/system/flash.js"
     flash.parent.mkdir(parents=True)
     flash.write_bytes((ROOT / "files/www/luci-static/resources/view/system/flash.js").read_bytes())
-    tag = "imm-ppe-nss-6a123456-9b123456-g12345678-b7-a1"
+    tag = "imm-arthur-6a123456-9b123456-g12345678-b7-a1"
     mod.prepare(overlay, tag, 71)
     result = path.read_text()
     assert "releases?per_page=100" in result
-    assert 'startswith("imm-ppe-nss-")' in result
+    assert 'startswith("imm-arthur-")' in result
     assert "sort_by(.published_at" in result
     assert 'select(any(.assets[]?; .name == "ota.json"))' in result
     assert 'select(any(.assets[]?; .name == $image))' in result
