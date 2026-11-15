@@ -16,7 +16,8 @@ const notifications = [];
 
 function E(tag, attrs, data) {
   const attributes = attrs && typeof attrs === 'object' && !Array.isArray(attrs) ? attrs : {};
-  const contents = data === undefined ? (typeof attrs === 'string' ? [attrs] : []) :
+  const contents = data === undefined ? (Array.isArray(attrs) ? attrs :
+    (typeof attrs === 'string' ? [attrs] : [])) :
     (Array.isArray(data) ? data : [data]);
   const listeners = {};
   const node = {
