@@ -766,9 +766,12 @@ return view.extend({
 		return m.render().then(L.bind(function(node) {
 			// The CBI "Actions" tab has finished rendering. Insert the OTA
 			// panel into its visible section rather than a nested widget.
+			// LuCI's NamedSection receives a translated section type
+			// (_('Actions')), so data-tab is locale-dependent ("操作" on
+			// Chinese installations). The stable section ID is "actions".
 			const actions = node.querySelector(
-				'[data-tab="actions"] .cbi-section-node[data-section-id="actions"]'
-			) || node.querySelector('[data-tab="actions"] .cbi-section-node');
+				'.cbi-map-tabbed > .cbi-section > .cbi-section-node[data-section-id="actions"]'
+			) || node.querySelector('.cbi-section-node[data-section-id="actions"]');
 			if (!actions)
 				throw new Error('Cannot locate the LuCI flash Actions section');
 			actions.appendChild(this.renderOTAPanel());
