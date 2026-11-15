@@ -108,17 +108,17 @@ with tempfile.TemporaryDirectory() as d:
     '''
     cases = {
         "no ImmortalWrt firmware release is published on this channel":
-            "当前尚未发布 ImmortalWrt 固件",
+            "暂无可用固件",
         "cannot reach custom GitHub Releases API":
-            "无法访问 GitHub Releases API",
+            "GitHub API 连接失败",
         "invalid GitHub Releases API response":
-            "GitHub Releases API 返回数据异常",
+            "GitHub API 响应异常",
         "custom OTA metadata does not match this device":
-            "更新渠道、设备或固件元数据不匹配",
+            "固件信息或设备不匹配",
         "failed to fetch latest OTA metadata asset from GitHub":
-            "GitHub Release 附件 ota.json 下载失败",
+            "更新信息下载失败",
         "custom release package manifest is missing":
-            "GitHub Release 附件 manifest 下载失败",
+            "软件包清单下载失败",
     }
     for simulated, expected in cases.items():
         env = dict(os.environ)
