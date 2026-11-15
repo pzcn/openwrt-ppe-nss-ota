@@ -97,3 +97,11 @@
 `target/compile` 只确保内核编译；上游 `target/imagebuilder/Makefile` 仅复制当时 `KERNEL_BUILD_DIR` 已存在的文件。full 模式在打包 ImageBuilder 前对选中的 RE-SS-01 执行 `target/linux/qualcommax/image` 的专属 FIT 目标，生成 `jdcloud_re-ss-01-uImage.itb`；检查 FIT 大小不超过 6144 KiB、包含 `config@cp03-c2`，并在打包后验证该文件进入 ImageBuilder 且字节一致。Repack 阶段同样提前检查 FIT，绝不借用不同内核 ABI 的官方 FIT。
 
 SSH 调试只有提交标题以 `[ssh] ` 开头才启用，避免普通修复提交的正文引用该字符串时触发并因未配置 OAuth 密钥而失败。
+
+## Arthur 固件选择策略（避免旧 Builder 回退）
+
+固件的 **默认** 选择顺序是：已发布的 Stable Hybrid Builder → 仓库显式批准的、CI 验证的 Hybrid Prerelease。后者只生成 Actions 可下载的固件测试产物，**不允许自动发布 Stable OTA**。已发布的旧 Full Source Builder 不再静默覆盖 Hybrid；需要使用时可在 `firmware-immortalwrt.yml` 的 `builder_tag` 手动指定。
+
+批准的测试 Builder 标签固定在 `config/arthur-builder-policy.json`，不能自动选择其他分支的 Prerelease。解析器先检查 Release 设备、包集与 Hybrid 身份，再下载并校验 Builder 元数据与官方 `snapshot-lock.json`，实际打包仍执行 FIT 大小、F2FS/sysupgrade、manifest 与 SHA256 检查。
+
+目前已固定的 Arthur Hybrid 官方 Snapshot 包集为 `r42542`；MX4200 当前不可变 Builder 锁定 `r42541`。它们都采用官方 Snapshot 包复用架构，但**这两个数字还不完全相同**。要做到完全同一修订，需要另外生成相应目标的 Builder，不能跨目标直接混用 APK。

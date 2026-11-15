@@ -1,0 +1,6 @@
+{
+  "schema": 1,
+  "preferred_prerelease_tag": "imm-builder-a4ba8240-7d65a3ed-5796d271-gc2dce4940324-p8d78d583-f3a7075a6-sd21482dd",
+  "rationale": "CI-built official Snapshot r42542 Hybrid Builder from the merged hybrid-official-snapshot work. Trial firmware only until on-device testing; do not choose arbitrary prereleases.",
+  "fallback": "Explicit builder_tag workflow input for legacy stable Builder; do not silently downgrade the default to Full Source."
+}

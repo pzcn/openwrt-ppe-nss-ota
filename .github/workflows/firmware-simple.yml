@@ -29,6 +29,8 @@ on:
       - "scripts/repack-immortalwrt.sh"
       - "scripts/immortalwrt_ota.py"
       - "scripts/ota_version.py"
+      - "scripts/arthur_builder_resolver.py"
+      - "config/arthur-builder-policy.json"
       - "scripts/stage-firmware-overlay.sh"
       - "scripts/stage-sing-box-pre.sh"
       - ".github/workflows/firmware-simple.yml"

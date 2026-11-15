@@ -2,9 +2,10 @@
 # Publish a verified hybrid Builder (full build or refresh) as a Release.
 #
 # Usage: publish-hybrid-builder.sh OUT_DIR PRERELEASE(true|false)
-# A prerelease is invisible to the firmware workflow (it only picks
-# non-prerelease imm-builder-* releases), so a new kernel waits for a
-# hardware test; promote it by unticking "pre-release" on GitHub.
+# A prerelease is never automatically promoted into stable firmware OTA.
+# A single explicitly pinned CI-tested prerelease may produce preview
+# firmware artifacts, without publishing a stable OTA Release. Hardware
+# testing is required before promoting a new kernel to a stable Builder.
 set -Eeuo pipefail
 ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "$0")/.." && pwd)}"
 DIR="$(realpath "${1:?Builder output directory}")"
@@ -50,7 +51,7 @@ flags=(--latest=false)
 # Builder by it.
 gh release create "$TAG" -R "$REPO" "${flags[@]}" \
   --title "Hybrid ImageBuilder + SDK $SNAPSHOT (id:${IDENTITY:0:16})" \
-  --notes "Hybrid Builder, $KIND. Kernel, kmods, base-files and PPE/LuCI packages are compiled from ImmortalWrt master + PPE/NSS; every other APK is mirrored from the official ImmortalWrt snapshot $SNAPSHOT (signed index, per-package signature and SHA256). See snapshot-lock.json, local-plan.json and official-apks.json. Prereleases are ignored by the firmware workflow until promoted." \
+  --notes "Hybrid Builder, $KIND. Kernel, kmods, base-files and PPE/LuCI packages are compiled from ImmortalWrt master + PPE/NSS; every other APK is mirrored from the official ImmortalWrt snapshot $SNAPSHOT (signed index, per-package signature and SHA256). See snapshot-lock.json, local-plan.json and official-apks.json. Unpromoted prereleases are eligible for firmware preview only if explicitly approved; stable OTA continues to require hardware validation." \
   "$IB_ARCHIVE" "$DIR/base-overlay.tar.gz" "$DIR/imagebuilder-packages.txt" \
   "$META" "$SDK_ARCHIVE" "$SDK_META" "$DIR/sdk-feeds.lock.json" \
   "$DIR/source-commits.txt" "$DIR/official-toolchain-status.txt" \
