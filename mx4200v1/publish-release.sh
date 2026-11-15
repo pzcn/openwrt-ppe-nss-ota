@@ -39,6 +39,7 @@ if [[ "$KIND" == builder ]]; then
     .profile == "linksys_mx4200v1" and
     (.identity | test("^[0-9a-f]{64}$")) and
     (.kernel_identity | test("^[0-9a-f]{64}$")) and
+    (.source_commit | test("^[0-9a-f]{40}$")) and
     (.immortalwrt_commit | test("^[0-9a-f]{40}$")) and
     (.ppe_nss_commit | test("^[0-9a-f]{40}$")) and
     (.hardware_tested == false) and (.publishable == false) and
