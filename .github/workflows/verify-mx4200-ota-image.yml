@@ -5,6 +5,10 @@ on:
     branches: [fix/mx4200-luci-ota-visibility]
     paths:
       - .github/workflows/verify-mx4200-ota-image.yml
+      - files/**
+      - mx4200v1/repack-hybrid.sh
+      - scripts/tests/test-luci-native.py
+      - scripts/tests/test-ota-devices.py
 
 permissions:
   contents: read
