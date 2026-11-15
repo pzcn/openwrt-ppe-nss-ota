@@ -24,6 +24,9 @@ with tempfile.TemporaryDirectory() as d:
     path = overlay / "usr/sbin/ppe-update"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source)
+    flash = overlay / "www/luci-static/resources/view/system/flash.js"
+    flash.parent.mkdir(parents=True)
+    flash.write_bytes((ROOT / "files/www/luci-static/resources/view/system/flash.js").read_bytes())
     tag = "imm-ppe-nss-6a123456-9b123456-g12345678-b7-a1"
     mod.prepare(overlay, tag, 71)
     result = path.read_text()
@@ -46,6 +49,12 @@ with tempfile.TemporaryDirectory() as d:
     assert "cmd_auto()" in result
     release = (overlay / "etc/immortal-ppe-ota-release").read_text()
     assert "OTA_BUILD=71" in release and f"OTA_TAG={tag}" in release
+    menu = json.loads((overlay / "usr/share/luci/menu.d/zzzz-ota-flash-cache.json").read_text())
+    action = menu["admin/system/flash"]["action"]
+    assert action["type"] == "view"
+    assert action["path"].startswith("system/flash-ota-b71-")
+    assert (overlay / "www/luci-static/resources/view" /
+            (action["path"] + ".js")).read_bytes() == flash.read_bytes()
 
     image = root / mod.IMAGE
     manifest = root / mod.MANIFEST
