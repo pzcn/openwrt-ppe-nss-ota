@@ -1,0 +1,102 @@
+name: Firmware - Arthur and MX4200 (reuse published Builders)
+
+# Firmware never compiles a kernel, SDK or new Builder.
+# Every device runs independently; a failure on one cannot rebuild the other.
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: Device to repack
+        type: choice
+        options: [both, arthur, mx4200v1]
+        default: both
+      publish:
+        description: Publish tested Arthur OTA and MX4200 prerelease
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths:
+      - "config/add.txt"
+      - "config/remove.txt"
+      - "config/translations/**"
+      - "files/**"
+      - "mx4200v1/stage-overlay.sh"
+      - "mx4200v1/ota-artifacts.sh"
+      - "mx4200v1/packages.txt"
+      - "mx4200v1/remove.txt"
+      - "scripts/repack-immortalwrt.sh"
+      - "scripts/stage-firmware-overlay.sh"
+      - "scripts/stage-sing-box-pre.sh"
+      - ".github/workflows/firmware-simple.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  arthur:
+    if: github.event_name != 'workflow_dispatch' || inputs.device != 'mx4200v1'
+    uses: ./.github/workflows/firmware-immortalwrt.yml
+    with:
+      builder_tag: ""
+      layer_tag: ""
+      force_firmware: false
+      publish_release: false
+      publish_policy: ${{ github.event_name == 'workflow_dispatch' && inputs.publish && 'yes' || 'no' }}
+    secrets: inherit
+
+  mx4200v1:
+    if: github.event_name != 'workflow_dispatch' || inputs.device != 'arthur'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    concurrency:
+      group: mx4200v1-firmware
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check prerelease Builder and exact source compatibility
+        id: builder
+        run: python3 mx4200v1/resolve-release.py
+      - name: Install ImageBuilder runtime
+        if: steps.builder.outputs.available == 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq zstd rsync make file python3 gawk
+      - name: Download immutable Builder assets
+        if: steps.builder.outputs.available == 'true'
+        env:
+          BUILDER_TAG: ${{ steps.builder.outputs.tag }}
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/mx4200-parent/"{builder,firmware,diagnostics}
+          gh release download "$BUILDER_TAG" -D "$RUNNER_TEMP/mx4200-parent/builder" \
+            -p '*imagebuilder*.tar.zst' -p base-overlay.tar.gz -p snapshot-lock.json
+          gh release download "$BUILDER_TAG" -D "$RUNNER_TEMP/mx4200-parent/firmware" -p sha256sums
+          gh release download "$BUILDER_TAG" -D "$RUNNER_TEMP/mx4200-parent/diagnostics" \
+            -p mx4200v1-hybrid-metadata.json -p local-apks.txt
+      - name: Repack MX4200 with no compilation
+        if: steps.builder.outputs.available == 'true'
+        env:
+          BASE_RUN_ID: "0"
+          BASE_SOURCE_SHA: ${{ steps.builder.outputs.source_commit }}
+        run: |
+          bash mx4200v1/repack-hybrid.sh \
+            "$RUNNER_TEMP/mx4200-parent/builder" \
+            "$RUNNER_TEMP/mx4200-parent/firmware" \
+            "$RUNNER_TEMP/mx4200-parent/diagnostics"
+      - name: Upload manually testable firmware
+        if: steps.builder.outputs.available == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mx4200v1-firmware
+          path: out-mx4200v1-fast-repack/
+          retention-days: 14
+          compression-level: 0
+          if-no-files-found: error
+      - name: Publish MX4200 prerelease only when explicitly requested
+        if: steps.builder.outputs.available == 'true' && github.event_name == 'workflow_dispatch' && inputs.publish
+        run: bash mx4200v1/publish-release.sh firmware out-mx4200v1-fast-repack
