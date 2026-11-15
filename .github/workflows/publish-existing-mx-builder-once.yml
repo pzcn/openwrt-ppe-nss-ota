@@ -1,0 +1,97 @@
+name: Preserve verified MX4200 ImageBuilder and SDK as immutable Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-existing-mx-builder-once.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      GH_TOKEN: ${{ github.token }}
+      PARENT_SOURCE: "915c3dff6a5b10b041fc6c630c7753609e9dbcee"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Download the previously successful MX4200 full build (no compilation)
+        uses: actions/download-artifact@v4
+        with:
+          name: mx4200v1-hybrid-builder-sdk-test
+          run-id: 43623226982
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/mx-parent/builder
+      - uses: actions/download-artifact@v4
+        with:
+          name: mx4200v1-hybrid-firmware-test
+          run-id: 43623226982
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/mx-parent/firmware
+      - uses: actions/download-artifact@v4
+        with:
+          name: mx4200v1-hybrid-diagnostics
+          run-id: 43623226982
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/mx-parent/diagnostics
+      - name: Verify original checksums, metadata, and commit ancestry
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jq
+          git cat-file -e "${PARENT_SOURCE}^{commit}"
+          git diff --quiet "$PARENT_SOURCE" HEAD -- \
+            mx4200v1/source.config mx4200v1/port-ppe-nss.sh \
+            mx4200v1/packages.txt mx4200v1/remove.txt
+          parent="$RUNNER_TEMP/mx-parent"
+          source_dir="$RUNNER_TEMP/mx-verified-original"
+          release_dir="$GITHUB_WORKSPACE/out-mx4200v1-builder-release"
+          mkdir -p "$source_dir" "$release_dir"
+          pick() {
+            local dir="$1" name="$2" dest="$3"
+            local -a found=()
+            mapfile -d '' -t found < <(find "$dir" -type f -name "$name" -print0)
+            [[ "${#found[@]}" -eq 1 ]] || { echo "::error::Expected exactly one $name in $dir"; exit 1; }
+            cp "${found[0]}" "$dest/$name"
+          }
+          prefix="immortalwrt-qualcommax-ipq807x-linksys_mx4200v1"
+          # Reconstitute the exact original checksum manifest before altering metadata.
+          pick "$parent/builder" "*imagebuilder*.tar.zst" "$source_dir"
+          pick "$parent/builder" "*sdk*.tar.zst" "$source_dir"
+          for name in base-overlay.tar.gz snapshot-lock.json; do
+            pick "$parent/builder" "$name" "$source_dir"
+          done
+          for name in "$prefix-squashfs-factory.bin" "$prefix-squashfs-sysupgrade.bin" \
+              "$prefix.manifest" "$prefix-squashfs-sysupgrade.metadata.json" \
+              ota.json mx4200v1-ota-identity.json sha256sums; do
+            pick "$parent/firmware" "$name" "$source_dir"
+          done
+          pick "$parent/diagnostics" mx4200v1-hybrid-metadata.json "$source_dir"
+          (cd "$source_dir" && sha256sum --check --status sha256sums)
+          jq -e --arg source "$PARENT_SOURCE" '
+            .target == "qualcommax/ipq807x" and .profile == "linksys_mx4200v1" and
+            (.source_commit == null or .source_commit == $source) and
+            .hardware_tested == false and .publishable == false
+          ' "$source_dir/mx4200v1-hybrid-metadata.json" >/dev/null
+          # The original full-build format predates source_commit. Add it once,
+          # retain the original kernel identity, and hash the new immutable set.
+          for name in "$source_dir/"*imagebuilder*.tar.zst "$source_dir/"*sdk*.tar.zst \
+              "$source_dir/base-overlay.tar.gz" "$source_dir/snapshot-lock.json"; do
+            cp "$name" "$release_dir/"
+          done
+          for name in source-commits.txt local-apks.txt imagebuilder-packages.txt \
+              official-apks.json local-plan.json; do
+            pick "$parent/diagnostics" "$name" "$release_dir"
+          done
+          jq --arg source "$PARENT_SOURCE" '.source_commit = $source' \
+            "$source_dir/mx4200v1-hybrid-metadata.json" > "$release_dir/mx4200v1-hybrid-metadata.json"
+          (cd "$release_dir" && sha256sum * > sha256sums && sha256sum --check --status sha256sums)
+          MX_VERIFY_ONLY=true bash mx4200v1/publish-release.sh builder "$release_dir"
+      - name: Publish persistent MX4200 Builder prerelease
+        run: bash mx4200v1/publish-release.sh builder out-mx4200v1-builder-release
