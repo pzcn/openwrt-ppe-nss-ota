@@ -32,6 +32,27 @@ WORKFLOW_NAMES = frozenset({
     "MX4200 v1 Hybrid - official Snapshot + local PPE NSS (test)",
 })
 SHA = re.compile(r"^[0-9a-f]{40}$")
+# In a reusable GitHub Actions workflow, the overall run conclusion can be
+# "failure" even though the target-specific Hybrid build job passed and its
+# complete SHA256-backed artifacts were uploaded. Never discard that work.
+MX_FULL_BUILD_JOB = (
+    "Build ipq807x PPE/NSS and test MX4200 v1 factory/sysupgrade"
+)
+
+
+def completed_mx_build(jobs: dict) -> bool:
+    """Verify the specific MX4200 full Builder job, not any unrelated job."""
+    records = jobs.get("jobs", [])
+    if not isinstance(records, list):
+        return False
+    return any(
+        isinstance(job, dict)
+        and (job.get("name") == MX_FULL_BUILD_JOB
+             or job.get("name", "").endswith(" / " + MX_FULL_BUILD_JOB))
+        and job.get("status") == "completed"
+        and job.get("conclusion") == "success"
+        for job in records
+    )
 
 
 def shell(*args: str, check: bool = True) -> subprocess.CompletedProcess:
@@ -70,14 +91,16 @@ def usable_artifacts(assets: dict) -> bool:
     return REQUIRED_ARTIFACTS <= names
 
 
-def choose_parent(runs: list, fetch_assets, is_compatible) -> tuple[int, str] | None:
-    """Pure selector; GitHub/API/git checks are injected for offline tests."""
+def choose_parent(runs: list, fetch_assets, is_compatible,
+                  fetch_jobs=None) -> tuple[int, str] | None:
+    """Pure selector; all GitHub/API/git checks injectable for tests."""
     for run in runs:
         if not isinstance(run, dict):
             continue
         if run.get("name") not in WORKFLOW_NAMES:
             continue
-        if run.get("conclusion") != "success" or run.get("status") != "completed":
+        if (run.get("status") != "completed"
+                or run.get("conclusion") not in ("success", "failure")):
             continue
         commit = run.get("head_sha", "")
         if not isinstance(commit, str) or not SHA.fullmatch(commit):
@@ -87,8 +110,16 @@ def choose_parent(runs: list, fetch_assets, is_compatible) -> tuple[int, str] | 
             continue
         if not is_compatible(commit):
             continue
-        if usable_artifacts(fetch_assets(run_id)):
-            return run_id, commit
+        if not usable_artifacts(fetch_assets(run_id)):
+            continue
+        # A failed parent workflow is usable ONLY if its own MX4200 Builder
+        # job completed successfully. The ImageBuilder repack subsequently
+        # checks SHA256, target/profile and identical local kmod provenance.
+        # Never reuse artifacts from a failed or cancelled Builder job.
+        if run["conclusion"] == "failure":
+            if fetch_jobs is None or not completed_mx_build(fetch_jobs(run_id)):
+                continue
+        return run_id, commit
     return None
 
 
@@ -110,13 +141,16 @@ def resolve(repository: str, mode: str, max_pages: int) -> dict[str, str]:
             lambda run_id: github_json(
                 repository, f"actions/runs/{run_id}/artifacts?per_page=100"),
             compatible_source,
+            lambda run_id: github_json(
+                repository, f"actions/runs/{run_id}/jobs?per_page=100"),
         )
         if parent:
             run_id, source_sha = parent
             return {
                 "mode": "repack", "parent_run": str(run_id),
                 "parent_sha": source_sha,
-                "reason": f"compatible and complete MX4200 Hybrid Builder run {run_id}",
+                "reason": f"compatible and complete MX4200 Hybrid Builder run {run_id} "
+                          "(verified even if unrelated jobs marked parent workflow failed)",
             }
         if len(runs) < 100:
             break
