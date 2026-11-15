@@ -27,6 +27,18 @@ COMPATIBILITY_INPUTS = (
     "mx4200v1/packages.txt",
     "mx4200v1/remove.txt",
 )
+# Only skip a push when no firmware-producing input changed since the
+# parent full build. Non-firmware tests and this resolver must not force a
+# 100+ MiB repackage. Scheduled checks still run the image path.
+FIRMWARE_INPUTS = (
+    "mx4200v1", "config", "files", "scripts",
+    ".github/workflows/mx4200v1-hybrid.yml",
+    ".github/workflows/mx4200v1-fast-repack.yml",
+    ":(exclude)scripts/resolve-mx4200-builder.py",
+    ":(exclude)scripts/tests",
+    ":(exclude)mx4200v1/README.md",
+    ":(exclude,glob)mx4200v1/test*.py",
+)
 WORKFLOW_NAMES = frozenset({
     "Unified PPE/NSS - Arthur and MX4200 v1",
     "MX4200 v1 Hybrid - official Snapshot + local PPE NSS (test)",
@@ -78,6 +90,13 @@ def compatible_source(commit: str) -> bool:
                  *COMPATIBILITY_INPUTS, check=False).returncode == 0
 
 
+def unchanged_firmware_inputs(commit: str) -> bool:
+    """A push with no changes to image inputs should reuse existing firmware."""
+    return (SHA.fullmatch(commit) is not None
+            and shell("git", "diff", "--quiet", commit, "HEAD", "--",
+                      *FIRMWARE_INPUTS, check=False).returncode == 0)
+
+
 def usable_artifacts(assets: dict) -> bool:
     entries = assets.get("artifacts", [])
     if not isinstance(entries, list):
@@ -123,7 +142,8 @@ def choose_parent(runs: list, fetch_assets, is_compatible,
     return None
 
 
-def resolve(repository: str, mode: str, max_pages: int) -> dict[str, str]:
+def resolve(repository: str, mode: str, max_pages: int,
+            event_name: str = "") -> dict[str, str]:
     if mode == "full":
         return {
             "mode": "full", "parent_run": "", "parent_sha": "",
@@ -146,6 +166,15 @@ def resolve(repository: str, mode: str, max_pages: int) -> dict[str, str]:
         )
         if parent:
             run_id, source_sha = parent
+            # The original Hybrid run also contains a fully assembled
+            # MX4200 factory/sysupgrade image. Do not rebuild that identical
+            # image just because this resolver, its tests or docs changed.
+            if mode == "auto" and event_name == "push" and unchanged_firmware_inputs(source_sha):
+                return {
+                    "mode": "skip", "parent_run": str(run_id),
+                    "parent_sha": source_sha,
+                    "reason": f"firmware inputs unchanged since MX4200 build {run_id}",
+                }
             return {
                 "mode": "repack", "parent_run": str(run_id),
                 "parent_sha": source_sha,
@@ -176,7 +205,8 @@ def main() -> None:
         parser.error("max-pages must be 1..10")
 
     repository = os.environ.get("GITHUB_REPOSITORY", "pzcn/openwrt-ppe-nss-ota")
-    result = resolve(repository, args.mode, args.max_pages)
+    result = resolve(repository, args.mode, args.max_pages,
+                     event_name=os.environ.get("GITHUB_EVENT_NAME", ""))
     print(json.dumps(result, indent=2))
     output = os.environ.get("GITHUB_OUTPUT")
     if output:

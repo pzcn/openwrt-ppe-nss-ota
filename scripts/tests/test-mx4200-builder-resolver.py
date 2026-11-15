@@ -110,6 +110,38 @@ with patch.object(resolver, "github_json", side_effect=lambda repo, ep:
     assert result["parent_run"] == "43623226982"
     assert result["parent_sha"] == sha3
 
+# On a main push that changes only Builder selection/tests, the existing
+# verified Hybrid run already contains identical factory/sysupgrade images.
+# Do not even repack the same image. Scheduled checks and explicit repack
+# intentionally bypass this conservative push-only skip.
+assert "files" in resolver.FIRMWARE_INPUTS
+assert "config" in resolver.FIRMWARE_INPUTS
+assert "mx4200v1" in resolver.FIRMWARE_INPUTS
+assert ":(exclude)scripts/resolve-mx4200-builder.py" in resolver.FIRMWARE_INPUTS
+with patch.object(resolver, "github_json", side_effect=lambda repo, ep:
+                  {"workflow_runs": [failed_parent]} if "runs?" in ep else
+                  valid_mx_jobs if "/jobs?" in ep else artifacts()), \
+     patch.object(resolver, "compatible_source", return_value=True), \
+     patch.object(resolver, "unchanged_firmware_inputs", return_value=True):
+    unchanged = resolver.resolve("pzcn/openwrt-ppe-nss-ota", "auto", 1,
+                                 event_name="push")
+    assert unchanged["mode"] == "skip", unchanged
+    assert unchanged["parent_run"] == "43623226982"
+    nightly = resolver.resolve("pzcn/openwrt-ppe-nss-ota", "auto", 1,
+                               event_name="schedule")
+    assert nightly["mode"] == "repack", nightly
+    forced = resolver.resolve("pzcn/openwrt-ppe-nss-ota", "repack", 1,
+                              event_name="push")
+    assert forced["mode"] == "repack", forced
+with patch.object(resolver, "github_json", side_effect=lambda repo, ep:
+                  {"workflow_runs": [failed_parent]} if "runs?" in ep else
+                  valid_mx_jobs if "/jobs?" in ep else artifacts()), \
+     patch.object(resolver, "compatible_source", return_value=True), \
+     patch.object(resolver, "unchanged_firmware_inputs", return_value=False):
+    changed = resolver.resolve("pzcn/openwrt-ppe-nss-ota", "auto", 1,
+                               event_name="push")
+    assert changed["mode"] == "repack", changed
+
 # No compatible parent: full MX Builder instead of trying outdated artifacts.
 with patch.object(resolver, "github_json", return_value={"workflow_runs": [old]}), \
      patch.object(resolver, "compatible_source", return_value=False):
