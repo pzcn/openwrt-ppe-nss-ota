@@ -23,9 +23,11 @@ on:
       - "files/**"
       - "mx4200v1/stage-overlay.sh"
       - "mx4200v1/ota-artifacts.sh"
+      - "mx4200v1/repack-hybrid.sh"
       - "mx4200v1/packages.txt"
       - "mx4200v1/remove.txt"
       - "scripts/repack-immortalwrt.sh"
+      - "scripts/immortalwrt_ota.py"
       - "scripts/ota_version.py"
       - "scripts/stage-firmware-overlay.sh"
       - "scripts/stage-sing-box-pre.sh"
@@ -54,7 +56,7 @@ jobs:
       force_firmware: false
       publish_release: false
       ota_build_epoch: ${{ needs.version.outputs.epoch }}
-      publish_policy: ${{ ((github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[release-snapshot-20261115]'))) && 'yes' || 'no' }}
+      publish_policy: ${{ ((github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[release-official-r-20261115]'))) && 'yes' || 'no' }}
     secrets: inherit
 
   mx4200v1:
@@ -125,8 +127,8 @@ jobs:
         if: >-
           steps.builder.outputs.available == 'true' &&
           ((github.event_name == 'workflow_dispatch' && inputs.publish) ||
-           (github.event_name == 'push' && contains(github.event.head_commit.message, '[release-snapshot-20261115]')))
+           (github.event_name == 'push' && contains(github.event.head_commit.message, '[release-official-r-20261115]')))
         env:
-          MX_RELEASE_STABLE: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[release-snapshot-20261115]') && 'true' || 'false' }}
-          GITHUB_EVENT_RELEASE_MARKER: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[release-snapshot-20261115]') && 'release-snapshot-20261115' || '' }}
+          MX_RELEASE_STABLE: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[release-official-r-20261115]') && 'true' || 'false' }}
+          GITHUB_EVENT_RELEASE_MARKER: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[release-official-r-20261115]') && 'release-official-r-20261115' || '' }}
         run: bash mx4200v1/publish-release.sh firmware out-mx4200v1-fast-repack

@@ -27,7 +27,7 @@ with tempfile.TemporaryDirectory() as d:
     flash = overlay / "www/luci-static/resources/view/system/flash.js"
     flash.parent.mkdir(parents=True)
     flash.write_bytes((ROOT / "files/www/luci-static/resources/view/system/flash.js").read_bytes())
-    tag = "imm-arthur-6a123456-9b123456-g12345678-b7-a1"
+    tag = "imm-arthur-SNAPSHOT-r43172-202611151925"
     mod.prepare(overlay, tag, 71)
     result = path.read_text()
     assert "releases?per_page=100" in result

@@ -31,7 +31,7 @@
 **两条流水线之间的契约：**
 
 - Builder Release：`imm-builder-...`，包含 ImageBuilder 压缩包、`builder-metadata.json`、`base-overlay.tar.gz`、`imagebuilder-packages.txt`，以及 `immortalwrt-sdk-*.tar.zst`、`sdk-metadata.json`、`sdk-feeds.lock.json`。
-- 固件 Release：`imm-arthur-SNAPSHOT2611-YYYYMMDDHHMM`，包含 sysupgrade、manifest、`ota.json` 和 Builder 元数据。
+- 固件 Release：`imm-arthur-SNAPSHOT-r<revision>-YYYYMMDDHHMM`，包含 sysupgrade、manifest、`ota.json` 和 Builder 元数据。
 - `builder-metadata.json` 中的指纹用于记录该 Builder 的编译来源，而不是要求它与当前 Git 代码一致。固件侧校验 Builder 自身的 Release 标签、设备型号、渠道，以及压缩包、覆盖层和软件包列表的 SHA256；软件包只能来自该 Builder 的仓库。
 - `ota.json` 记录 `builder_tag` 和 `source_commit`，用于每天的无变动跳过判断。
 

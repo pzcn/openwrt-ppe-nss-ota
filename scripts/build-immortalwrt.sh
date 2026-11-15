@@ -63,7 +63,7 @@ for pair in "IMM_SHA:EXPECTED_IMM_SHA" "PPE_SHA:EXPECTED_PPE_SHA" "BASE_SHA:EXPE
     exit 1
   fi
 done
-TAG="$(python3 "$ROOT/scripts/ota_version.py" arthur "$BUILD_NUMBER")"
+TAG="$(python3 "$ROOT/scripts/ota_version.py" arthur "$BUILD_NUMBER" --source-commit "$IMM_SHA")"
 printf 'ImmortalWrt=%s\nPPE/NSS=%s\nPPE builder=%s\nCustom=%s\n' "$IMM_SHA" "$PPE_SHA" "$BASE_SHA" "$SOURCE_REV" | tee "$OUT/source-commits.txt"
 
 export IMM_SOURCE_DIR="$IMM" PPE_SOURCE_DIR="$PPE"

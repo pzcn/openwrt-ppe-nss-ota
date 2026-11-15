@@ -138,7 +138,7 @@ if [[ "$KIND" == firmware && "${MX_RELEASE_STABLE:-false}" == true ]]; then
   # device-scoped OTA. Retain all image, trailer, and SHA256 gates above.
   [[ "${GITHUB_EVENT_NAME:-}" == push &&
      "${GITHUB_REF:-}" == refs/heads/main &&
-     "${GITHUB_EVENT_RELEASE_MARKER:-}" == release-snapshot-20261115 ]] || {
+     "${GITHUB_EVENT_RELEASE_MARKER:-}" == release-official-r-20261115 ]] || {
     echo "::error::Stable MX release requires the one-time marked main push"; exit 1;
   }
   release_flags=(--latest=false)
@@ -148,4 +148,4 @@ fi
 gh release create "$TAG" -R "$REPO" "${release_flags[@]}" \
   --target "${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD)}" \
   --title "$TITLE" --notes "$NOTES" "${files[@]}"
-echo "Published MX4200 $KIND as safe prerelease $TAG"
+echo "Published MX4200 $KIND as $( [[ "$KIND" == firmware && "${MX_RELEASE_STABLE:-false}" == true ]] && echo stable || echo prerelease ) $TAG"

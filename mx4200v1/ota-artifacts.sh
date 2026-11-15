@@ -29,7 +29,8 @@ if [[ "$ACTION" == prepare ]]; then
   [[ "$BUILD" =~ ^[0-9]+$ ]] && (( BUILD > 0 )) || {
     echo "::error::MX OTA build must be positive integer"; exit 1;
   }
-  TAG="$(python3 "$ROOT/scripts/ota_version.py" mx4200v1 "$BUILD")"
+  : "${MX_OTA_SNAPSHOT_LOCK:?Pass the verified MX4200 snapshot-lock.json path for tag generation}"
+  TAG="$(python3 "$ROOT/scripts/ota_version.py" mx4200v1 "$BUILD" --snapshot-lock "$MX_OTA_SNAPSHOT_LOCK")"
   mkdir -p "$OUT"
   python3 "$ROOT/scripts/immortalwrt_ota.py" prepare \
     --device mx4200v1 --overlay "$OVERLAY" --tag "$TAG" --build "$BUILD"
