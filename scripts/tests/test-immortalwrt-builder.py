@@ -242,4 +242,10 @@ assert mod.FIRMWARE_ONLY_END.decode().rstrip("\n") in full_build
 assert "immortalwrt_builder.py check --metadata \"$META\"" in firmware_workflow
 assert 'EXPECTED="$(python3 scripts/immortalwrt_builder.py fingerprint)"' not in firmware_workflow
 assert "sort_by(.published_at) | last" in firmware_workflow
+# Stable Hybrid first, pinned prerelease preview only; do not silently downgrade
+# to the legacy Full Source Builder or turn trial images into stable OTA.
+assert "scripts/arthur_builder_resolver.py" in firmware_workflow
+assert "builder_prerelease" in firmware_workflow
+assert "builder_hybrid" in firmware_workflow
+assert 'PUBLISH_RELEASE: ${{ steps.resolve.outputs.builder_prerelease' in firmware_workflow
 print("PASS firmware always reuses newest Builder with release metadata verification")
