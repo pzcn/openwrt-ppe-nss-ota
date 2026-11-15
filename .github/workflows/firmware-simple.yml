@@ -81,7 +81,7 @@ jobs:
       - name: Repack MX4200 with no compilation
         if: steps.builder.outputs.available == 'true'
         env:
-          BASE_RUN_ID: "0"
+          BASE_BUILDER_TAG: ${{ steps.builder.outputs.tag }}
           BASE_SOURCE_SHA: ${{ steps.builder.outputs.source_commit }}
         run: |
           bash mx4200v1/repack-hybrid.sh \
