@@ -16,6 +16,8 @@ must = (
     'index("linksys,mx4200v1")', "local-apks.txt", "sha256sum -c sha256sums",
     'publishable:false', 'hardware_tested:false',
     "unsquashfs -cat", "native-integrated-ota",
+    "zzzz-ota-flash-cache.json", "FLASH_MODULE",
+    "www/luci-static/resources/view/${FLASH_MODULE}.js",
     "OTA_CHANNEL=mx4200v1-immortal-ppe-nss",
 )
 for value in must:
