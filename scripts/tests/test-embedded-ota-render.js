@@ -80,7 +80,7 @@ function collect(node, match, output = []) {
   assert.equal(actions.children.length, 1,
     'One OTA section must be inserted in the Actions tab');
   const panel = actions.children[0];
-  assert.equal(panel.attrs.id, 'pzcn-integrated-ota');
+  assert.equal(panel.attrs.id, 'native-integrated-ota');
   assert.ok(collect(panel, n => n.tag === 'h3' &&
     n.children.includes('在线固件更新')).length);
   assert.ok(collect(panel, n => n.children?.includes('重新检查')).length);
