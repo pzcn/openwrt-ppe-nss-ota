@@ -164,7 +164,7 @@ ota_rootfs_file() {
     echo "::error::OTA content mismatch in squashfs: $path" >&2; exit 1;
   fi
 }
-ota_rootfs_file www/luci-static/resources/view/system/flash.js "pzcn-integrated-ota"
+ota_rootfs_file www/luci-static/resources/view/system/flash.js "native-integrated-ota"
 ota_rootfs_file www/luci-static/resources/view/system/flash.js "actions.appendChild(this.renderOTAPanel())"
 ota_rootfs_file usr/sbin/ppe-update "mx4200v1-immortal-ppe-nss"
 ota_rootfs_file etc/immortal-ppe-ota-release "OTA_CHANNEL=mx4200v1-immortal-ppe-nss"
