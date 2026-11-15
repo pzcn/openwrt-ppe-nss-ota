@@ -49,7 +49,7 @@ def main():
                                "mx4200v1/packages.txt", "mx4200v1/remove.txt"]).returncode:
                 continue
             with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
-                out.write(f"available=true\\ntag={tag}\\nsource_commit={source}\\n")
+                out.write(f"available=true\ntag={tag}\nsource_commit={source}\n")
             print(f"Reuse immutable MX4200 Builder: {tag} at {source}")
             return
         except (subprocess.CalledProcessError, KeyError, ValueError, json.JSONDecodeError) as exc:
@@ -59,7 +59,7 @@ def main():
         raise SystemExit(msg)
     print("::notice::" + msg)
     with Path(os.environ["GITHUB_OUTPUT"]).open("a") as out:
-        out.write("available=false\\n")
+        out.write("available=false\n")
 
 if __name__ == "__main__":
     main()
