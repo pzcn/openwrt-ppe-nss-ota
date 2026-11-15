@@ -104,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix="mx4200-release-test-") as temp:
         "schema": 2, "target": "qualcommax/ipq807x",
         "architecture": "aarch64_cortex-a53",
     })
-    tag = "imm-mx4200v1-SNAPSHOT2611-202611151925"
+    tag = "imm-mx4200v1-SNAPSHOT-r42542-202611151925"
     ota = {
         "schema": 1, "channel": "mx4200v1-immortal-ppe-nss",
         "repository": "pzcn/openwrt-ppe-nss-ota",
