@@ -212,7 +212,13 @@ assert "PUBLISH_RELEASE: \"false\"" in builder_workflow
 assert "scripts/repack-immortalwrt.sh" in firmware_workflow
 assert "run: bash scripts/build-immortalwrt.sh" not in firmware_workflow
 assert 'workflow_call:' in firmware_workflow
-assert 'cron: "37 2 * * *"' in (ROOT / ".github/workflows/dual-device-immortalwrt.yml").read_text()
+# The daily umbrella rebuild/dispatcher is retired. Firmware packaging
+# must never initiate Builder compilation or depend on an old run's result.
+simple_firmware = (ROOT / ".github/workflows/firmware-simple.yml").read_text()
+assert 'workflow_dispatch:' in simple_firmware
+assert 'push:' in simple_firmware
+assert 'schedule:' not in simple_firmware
+assert 'uses: ./.github/workflows/builder-immortalwrt-hybrid.yml' not in simple_firmware
 assert 'schedule:' not in builder_workflow  # manual fallback; hybrid is scheduled
 assert "workflow_dispatch:" in builder_workflow
 assert "needs_builder" not in builder_workflow

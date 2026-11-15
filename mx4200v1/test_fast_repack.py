@@ -30,4 +30,9 @@ for needed in ("actions/download-artifact@v4", "required: true",
     assert needed in workflow, f"Missing CI contract: {needed}"
 assert "43602206711" not in workflow and "5afd6581438af59b3392c35e82322ab41b09acb2" not in workflow
 assert "gh release" not in workflow and "schedule:" not in workflow
+# Durable Release provenance must be recorded as a tag, not fake run ID 0.
+simple = (root / ".github/workflows/firmware-simple.yml").read_text()
+assert "BASE_BUILDER_TAG:" in simple
+assert 'BASE_RUN_ID: "0"' not in simple
+assert "parent_builder_tag:" in script
 print("MX4200 v1 fast-repack offline contracts: PASS")

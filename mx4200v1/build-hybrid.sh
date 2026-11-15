@@ -111,7 +111,7 @@ printf 'ImmortalWrt=%s\nPPE/NSS=%s\nPPE builder=%s\nNSS feed=%s\nPPE QoS LuCI=%s
   "$(git -C "$ROOT" rev-parse --short=8 HEAD)" | tee "$OUT/source-commits.txt"
 
 KERNEL_IDENTITY="$(printf '%s\n' "$IMM_SHA" "$PPE_SHA" "$BASE_SHA" "$NSS_SHA" "$PPE_LUCI_SHA" "$(sha256sum "$ROOT/mx4200v1/source.config" "$ROOT/mx4200v1/port-ppe-nss.sh")" | sha256sum | cut -d' ' -f1)"
-IDENTITY="$(printf '%s\n' "$KERNEL_IDENTITY" "$(jq -r .lock_fingerprint "$LOCK")" "$(sha256sum "$ROOT/mx4200v1/packages.txt" "$ROOT/mx4200v1/stage-overlay.sh")" | sha256sum | cut -d' ' -f1)"
+IDENTITY="$(printf '%s\n' "$KERNEL_IDENTITY" "$(jq -r .lock_fingerprint "$LOCK")" "$(sha256sum "$ROOT/mx4200v1/packages.txt" "$ROOT/mx4200v1/stage-overlay.sh" "$ROOT/mx4200v1/build-hybrid.sh" "$ROOT/scripts/hybrid-common.sh" "$ROOT/scripts/resolve-immortalwrt-snapshot.py")" | sha256sum | cut -d' ' -f1)"
 
 for name in dl .ccache; do
   [[ ! -e "$IMM/$name" ]] || { echo "::error::Unexpected $name in clone" >&2; exit 1; }
@@ -498,11 +498,13 @@ jq -n --arg target "$HYBRID_TARGET" --arg profile "$HYBRID_IMAGE_PROFILE" \
   --arg nss "$NSS_SHA" --arg identity "$IDENTITY" --arg kernel "$KERNEL_IDENTITY" \
   --arg ib "$(basename "$IB_ARCHIVE")" --arg sdk "$(basename "$SDK_ARCHIVE")" \
   --arg snapshot "$SNAPSHOT" --arg built "$BUILT_AT" \
+  --arg source "$(git -C "$ROOT" rev-parse HEAD)" \
   '{schema: 1, channel: "mx4200v1-hybrid-test", target: $target,
     profile: $profile, hardware_tested: false, publishable: false,
     immortalwrt_commit: $imm, ppe_nss_commit: $ppe, base_commit: $base,
     nss_commit: $nss, identity: $identity, kernel_identity: $kernel,
-    imagebuilder: $ib, sdk: $sdk, official_snapshot: $snapshot, built_at: $built}' \
+    imagebuilder: $ib, sdk: $sdk, official_snapshot: $snapshot, built_at: $built,
+    source_commit: $source}' \
   > "$OUT/mx4200v1-hybrid-metadata.json"
 (
   cd "$OUT"

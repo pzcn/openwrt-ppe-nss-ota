@@ -13,12 +13,20 @@ OUT="${MX4200V1_REPACK_OUT:-$ROOT/out-mx4200v1-fast-repack}"
 BUILDER="$(realpath "${1:?Builder artifact directory is required}")"
 PREVIOUS="$(realpath "${2:?Prior firmware artifact directory is required}")"
 DIAGNOSTICS="$(realpath "${3:?Diagnostic artifact directory is required}")"
-BASE_RUN_ID="${BASE_RUN_ID:?MX4200 Builder resolver must supply BASE_RUN_ID}"
+BASE_RUN_ID="${BASE_RUN_ID:-}"
+BASE_BUILDER_TAG="${BASE_BUILDER_TAG:-}"
 BASE_SOURCE_SHA="${BASE_SOURCE_SHA:?MX4200 Builder resolver must supply BASE_SOURCE_SHA}"
 
 # The IB is tied to the original kernel recipe. Repack-only changes to packages
 # and userspace files are allowed; a new kernel config/port needs a new Builder.
-[[ "$BASE_SOURCE_SHA" =~ ^[a-f0-9]{40}$ && "$BASE_RUN_ID" =~ ^[0-9]+$ ]] || exit 1
+[[ "$BASE_SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]] || exit 1
+# Old short-lived artifacts identify their numeric run; durable releases use
+# an immutable Builder tag. Never fabricate a run ID for Release-backed images.
+if [[ -n "$BASE_BUILDER_TAG" ]]; then
+  [[ "$BASE_BUILDER_TAG" =~ ^mx4200-builder-[0-9a-f]{24}$ && -z "$BASE_RUN_ID" ]] || exit 1
+else
+  [[ "$BASE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || exit 1
+fi
 git -C "$ROOT" cat-file -e "${BASE_SOURCE_SHA}^{commit}"
 if ! git -C "$ROOT" diff --quiet "$BASE_SOURCE_SHA" HEAD -- \
     mx4200v1/source.config mx4200v1/port-ppe-nss.sh \
@@ -166,16 +174,19 @@ cp "$BASE_LOCK" "$OUT/snapshot-lock.json"
 jq -n --argjson parent "$(cat "$BASE_META")" \
   --arg source "$(git -C "$ROOT" rev-parse HEAD)" \
   --arg base_source "$BASE_SOURCE_SHA" --arg base_run "$BASE_RUN_ID" \
+  --arg builder_tag "$BASE_BUILDER_TAG" \
   --arg ib_sha "$(sha256sum "$IB_ARCHIVE" | cut -d' ' -f1)" \
   '{schema:1, channel:"mx4200v1-imagebuilder-repack-test",
     target:"qualcommax/ipq807x", profile:"linksys_mx4200v1",
-    parent_run_id:$base_run, parent_source_commit:$base_source,
+    parent_run_id:(if $base_run == "" then null else $base_run end),
+    parent_builder_tag:(if $builder_tag == "" then null else $builder_tag end),
+    parent_source_commit:$base_source,
     parent_imagebuilder_sha256:$ib_sha, parent_hybrid:$parent,
     repack_source_commit:$source, compiled_kernel:false,
     reused_imagebuilder:true, hardware_tested:false,
     publishable:false}' > "$OUT/repack-metadata.json"
-printf 'Parent run=%s\nParent SHA=%s\nSource SHA=%s\n' \
-  "$BASE_RUN_ID" "$BASE_SOURCE_SHA" "$(git -C "$ROOT" rev-parse HEAD)" > "$OUT/source-commits.txt"
+printf 'Parent Builder=%s\nParent run=%s\nParent SHA=%s\nSource SHA=%s\n' \
+  "${BASE_BUILDER_TAG:-none}" "${BASE_RUN_ID:-none}" "$BASE_SOURCE_SHA" "$(git -C "$ROOT" rev-parse HEAD)" > "$OUT/source-commits.txt"
 (
   cd "$OUT"
   sha256sum "$PREFIX-squashfs-factory.bin" "$PREFIX-squashfs-sysupgrade.bin" \
@@ -185,7 +196,7 @@ printf 'Parent run=%s\nParent SHA=%s\nSource SHA=%s\n' \
 )
 {
   echo "## MX4200 v1: firmware built from reused Hybrid ImageBuilder"
-  echo "- Parent run: $BASE_RUN_ID"
+  echo "- Parent: ${BASE_BUILDER_TAG:-run $BASE_RUN_ID}"
   echo "- ImageBuilder reused: $IB_NAME"
   echo "- New kernel, kmods, toolchain or SDK compiled: **no**"
   echo "- MX4200 v1 factory/sysupgrade metadata: **verified**"

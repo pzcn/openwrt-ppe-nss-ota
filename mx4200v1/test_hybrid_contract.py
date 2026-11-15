@@ -72,11 +72,29 @@ assert 'HYBRID_IMAGE_PROFILE' in common and 'HYBRID_REQUIRED_IMAGE_PKGS' in comm
 assert '--config "$TOOLCHAIN_TARGET"' in toolchain and 'qualcommax/ipq807x' in toolchain
 assert '"feat/mx4200v1-hybrid-builder"' in workflow
 assert "if: github.event_name != 'pull_request'" in workflow
-assert "contents: read" in workflow
+assert "contents: write" in workflow
 assert "workflow_dispatch:" in workflow
 assert "actions/upload-artifact@v4" in workflow
-assert "gh release" not in workflow and "gh workflow run" not in workflow
+assert "mx4200v1/publish-release.sh builder" in workflow
+assert "if: success() && github.ref == 'refs/heads/main'" in workflow
+assert "gh workflow run" not in workflow
 assert "schedule:" not in workflow
+# The fast image entry consumes durable Releases. Retired umbrella cannot
+# accidentally run a full Builder on ordinary pushes.
+simple = (root / ".github/workflows/firmware-simple.yml").read_text()
+legacy = (root / ".github/workflows/dual-device-immortalwrt.yml").read_text()
+resolver = (root / "mx4200v1/resolve-release.py").read_text()
+assert "workflow_dispatch:" in simple and "push:" in simple
+assert "uses: ./.github/workflows/builder-immortalwrt-hybrid.yml" not in simple
+assert "uses: ./.github/workflows/mx4200v1-hybrid.yml" not in simple
+assert "gh release download" in simple
+assert "mx4200v1/resolve-release.py" in simple
+assert "push:" not in legacy and "schedule:" not in legacy
+assert "workflow_dispatch:" in legacy
+assert "mx4200-builder-" in resolver
+assert '"source_commit"' in resolver
+assert "No automatic compile" in resolver
+
 assert "workflow_dispatch:" in old
 assert (root / "mx4200v1/remove.txt").read_text().lstrip().startswith("#")
 assert 'stage-overlay.sh' in (root / "mx4200v1/build.sh").read_text()

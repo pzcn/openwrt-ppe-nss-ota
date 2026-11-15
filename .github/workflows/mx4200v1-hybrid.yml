@@ -1,6 +1,7 @@
 name: MX4200 v1 Hybrid - official Snapshot + local PPE NSS (test)
 
-# Separate from Arthur. Only CI artifacts, never a Release/OTA.
+# Separate from Arthur. Full builds publish an immutable Builder prerelease on main.
+# Firmware/OTA remains a separate workflow and never auto-promotes to stable.
 on:
   push:
     branches: ["feat/mx4200v1-hybrid-builder"]
@@ -23,7 +24,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: mx4200v1-hybrid-${{ github.ref }}
@@ -51,6 +52,9 @@ jobs:
           set -Eeuo pipefail
           python3 mx4200v1/test_contract.py
           python3 mx4200v1/test_hybrid_contract.py
+          python3 mx4200v1/test_fast_repack.py
+          python3 mx4200v1/test_release.py
+          python3 mx4200v1/test_release_resolver.py
           python3 scripts/tests/test-ota-devices.py
           python3 scripts/tests/test-hybrid-snapshot.py
           python3 scripts/tests/test-hybrid-builder.py
@@ -165,6 +169,11 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+      - name: Save immutable MX4200 Builder as prerelease (not stable OTA)
+        if: success() && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash mx4200v1/publish-release.sh builder out-mx4200v1-hybrid
       - name: Upload diagnostic logs even when the build fails
         if: always()
         uses: actions/upload-artifact@v4

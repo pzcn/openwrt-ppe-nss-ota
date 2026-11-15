@@ -2,28 +2,9 @@ name: Unified PPE/NSS - Arthur and MX4200 v1
 
 # One entry point, two independent ABIs, two OTA channels.
 # Any failure stays isolated to its device; no automatic MX4200 flashing.
+# Retired as an automatic orchestrator: use firmware-simple.yml for repacks.
+# Keep manual access temporarily for rollback and deep diagnostics.
 on:
-  push:
-    branches: [main, feat/unified-ota-multidevice, feat/dual-device-feature-parity]
-    paths:
-      - ".github/workflows/dual-device-immortalwrt.yml"
-      - ".github/workflows/builder-immortalwrt-hybrid.yml"
-      - ".github/workflows/firmware-immortalwrt.yml"
-      - ".github/workflows/mx4200v1-hybrid.yml"
-      - ".github/workflows/mx4200v1-fast-repack.yml"
-      - "scripts/**"
-      - "config/**"
-      - "files/**"
-      - "mx4200v1/**"
-  pull_request:
-    paths:
-      - ".github/workflows/dual-device-immortalwrt.yml"
-      - "scripts/**"
-      - "config/**"
-      - "files/**"
-      - "mx4200v1/**"
-  schedule:
-    - cron: "37 2 * * *"
   workflow_dispatch:
     inputs:
       device:

@@ -457,7 +457,15 @@ assert 'if [[ "$BRANCH" != main ]]; then\n  PRERELEASE=true' in publish_sh
 assert 'github.repository == \'pzcn/openwrt-ppe-nss-ota\'' in workflow
 assert 'github.ref == \'refs/heads/feat/hybrid-official-snapshot\'' in workflow
 assert "startsWith(github.event.head_commit.message, '[ssh] ')" in workflow
-assert '"config/**"' in (ROOT / ".github/workflows/dual-device-immortalwrt.yml").read_text()
+# Firmware-only edits run the new decoupled repack workflow; the legacy
+# umbrella orchestrator is intentionally manual-only.
+simple = (ROOT / ".github/workflows/firmware-simple.yml").read_text()
+legacy = (ROOT / ".github/workflows/dual-device-immortalwrt.yml").read_text()
+assert '"config/add.txt"' in simple and '"config/remove.txt"' in simple
+assert 'uses: ./.github/workflows/firmware-immortalwrt.yml' in simple
+assert 'uses: ./.github/workflows/builder-immortalwrt-hybrid.yml' not in simple
+assert "push:" not in legacy and "schedule:" not in legacy
+assert "workflow_dispatch:" in legacy
 assert "HYBRID_SSH_DEBUG: ${{" in workflow
 assert 'uses: tailscale/github-action@v4' in workflow
 assert 'tags: tag:gh-hybrid-debug' in workflow
