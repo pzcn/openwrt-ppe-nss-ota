@@ -124,62 +124,109 @@ return view.extend({
 			'value': uci.get('ppe-update', 'main', 'delay') || '1',
 			'disabled': isReadonlyView || null
 		});
+		const modes = [
+			[ 'direct', '直连 GitHub' ],
+			[ 'ghfast', 'GHFast (ghfast.top)' ],
+			[ 'ghproxy', 'GHProxy (ghproxy.net)' ],
+			[ 'gh_proxy', 'GH-Proxy (gh-proxy.com)' ],
+			[ 'custom', '自定义' ]
+		];
+		const savedMode = uci.get('ppe-update', 'main', 'github_proxy') || 'direct';
+		const proxy = E('select', { 'class': 'cbi-input-select', 'disabled': isReadonlyView || null },
+			modes.map(function(item) {
+				return E('option', {
+					'value': item[0],
+					'selected': savedMode === item[0] ? '' : null
+				}, item[1]);
+			}));
+		const customProxy = E('input', {
+			'type': 'url', 'class': 'cbi-input-text',
+			'placeholder': 'https://proxy.example.com',
+			'value': uci.get('ppe-update', 'main', 'github_proxy_url') || '',
+			'disabled': isReadonlyView || null
+		});
 		const row = function(label, element) {
 			return E('div', { 'class': 'cbi-value' }, [
 				E('label', { 'class': 'cbi-value-title' }, label),
 				E('div', { 'class': 'cbi-value-field' }, element)
 			]);
 		};
-		const toggle = function() {
+		const customRow = row('代理地址', customProxy);
+		const toggleAuto = function() {
 			hour.disabled = delay.disabled = isReadonlyView || !auto.checked;
 		};
-		auto.addEventListener('change', toggle);
-		toggle();
+		const toggleProxy = function() {
+			customRow.hidden = proxy.value !== 'custom';
+		};
+		auto.addEventListener('change', toggleAuto);
+		proxy.addEventListener('change', toggleProxy);
+		toggleAuto();
+		toggleProxy();
 		const save = E('button', {
 			'type': 'button', 'class': 'btn cbi-button cbi-button-apply',
 			'disabled': isReadonlyView || null,
 			'click': ui.createHandlerFn(this, function() {
 				const days = Number(delay.value);
 				if (!Number.isInteger(days) || days < 0 || days > 3650) {
-					ui.addNotification(null, E('p', '请输入有效的发布后等待天数。'), 'error');
+					ui.addNotification(null, E('p', '等待天数无效'), 'error');
 					return;
 				}
 				const settings = {
 					auto: auto.checked ? '1' : '0',
 					hour: hour.value,
-					delay: String(days)
+					delay: String(days),
+					github_proxy: proxy.value,
+					github_proxy_url: customProxy.value.trim().replace(/\/+$/, '')
 				};
+				if (settings.github_proxy === 'custom') {
+					let parsed;
+					try { parsed = new URL(settings.github_proxy_url); }
+					catch (_) {
+						ui.addNotification(null, E('p', '请输入 HTTPS 代理地址'), 'error');
+						return;
+					}
+					if (parsed.protocol !== 'https:' || !parsed.hostname ||
+						parsed.username || parsed.password || parsed.search || parsed.hash ||
+						settings.github_proxy_url.length > 200 ||
+						!/^[A-Za-z0-9][A-Za-z0-9.-]*$/.test(parsed.hostname)) {
+						ui.addNotification(null, E('p', '请输入有效的 HTTPS 代理前缀'), 'error');
+						return;
+					}
+				}
 				save.disabled = true;
-				uci.set('ppe-update', 'main', 'auto', settings.auto);
-				uci.set('ppe-update', 'main', 'hour', settings.hour);
-				uci.set('ppe-update', 'main', 'delay', settings.delay);
+				Object.keys(settings).forEach(function(key) {
+					uci.set('ppe-update', 'main', key, settings[key]);
+				});
 				return uci.save()
 					.then(function() { return commitOtaConfig('ppe-update'); })
 					.then(function() {
-						// Read back from the committed configuration, not LuCI's cache.
 						uci.unload('ppe-update');
 						return uci.load('ppe-update');
 					}).then(function() {
 						if (Object.keys(settings).some(function(key) {
-							return uci.get('ppe-update', 'main', key) !== settings[key];
+							return (uci.get('ppe-update', 'main', key) || '') !== settings[key];
 						}))
 							throw new Error('保存后的配置与填写内容不一致');
-
 						auto.checked = settings.auto === '1';
 						hour.value = settings.hour;
 						delay.value = settings.delay;
-						ui.addNotification(null, E('p', '自动更新设置已保存'), 'info');
-						// Update status independently; GitHub availability is not a save result.
+						proxy.value = settings.github_proxy;
+						customProxy.value = settings.github_proxy_url;
+						toggleAuto();
+						toggleProxy();
+						ui.addNotification(null, E('p', '设置已保存'), 'info');
 						view.otaRefresh().catch(function() {});
 					}).catch(function(e) {
-						ui.addNotification(null, E('p', '保存自动更新设置失败：' + (e.message || e)), 'error');
+						ui.addNotification(null, E('p', '保存失败：' + (e.message || e)), 'error');
 					}).finally(function() { save.disabled = isReadonlyView; });
 			})
-		}, '保存自动更新设置');
+		}, '保存设置');
 		return E('div', [
 			row('启用自动更新', auto),
-			row('每天检查的小时', hour),
-			row('发布后等待天数', delay),
+			row('检查时间', hour),
+			row('延迟天数', delay),
+			row('GitHub 代理', proxy),
+			customRow,
 			E('div', { 'class': 'cbi-page-actions' }, save)
 		]);
 	},
@@ -188,43 +235,21 @@ return view.extend({
 		const root = this._otaInfo;
 		if (!root)
 			return;
-
 		this._otaStatus = info || {};
 		const st = this._otaStatus;
 		if (this._otaInstallButton)
 			this._otaInstallButton.disabled = isReadonlyView || st.update !== true;
-		const rows = [
-			customOTARow('固件渠道', 'RE-SS-01 PPE+NSS'),
-			customOTARow('当前固件', st.current || '—'),
-			customOTARow('最新发布', st.latest || (st.error ? '暂时不可用' : '—'))
-		];
 
+		const rows = [
+			customOTARow('当前版本', st.current || '—'),
+			customOTARow('最新版本', st.latest || '—')
+		];
 		if (st.latest_time)
 			rows.push(customOTARow('发布时间', fmtOTARelease(st.latest_time)));
-		const autoOn = st.auto === '1';
-		const hour = ('0' + (uci.get('ppe-update', 'main', 'hour') || '4')).slice(-2);
-		const delay = uci.get('ppe-update', 'main', 'delay') || '1';
-		if (st.update === true) {
-			rows.push(customOTARow('更新状态', E('strong',
-				autoOn ? '发现新版本，已开启自动更新' : '发现新版本，可立即手动升级')));
-			rows.push(customOTARow('自动更新', autoOn
-				? '每天 ' + hour + ' 点检查，发布满 ' + delay + ' 天后自动安装。'
-				: '未开启，可在下方启用自动更新。'));
-			if (st.extras)
-				rows.push(customOTARow('额外软件包', E('span', {},
-					'升级后将尝试恢复额外安装的软件包。')));
-			rows.push(customOTARow('升级校验', '升级前校验固件完整性与设备兼容性。'));
-		} else if (st.error) {
-			rows.push(customOTARow('检查结果', E('span', st.error)));
-		} else {
-			rows.push(customOTARow('检查结果', '当前已是最新版本'));
-			rows.push(customOTARow('自动更新', autoOn
-				? '已开启，每天 ' + hour + ' 点检查。'
-				: '未开启'));
-		}
+		rows.push(customOTARow('状态',
+			st.error || (st.update === true ? '发现新版本' : '已是最新版本')));
 		if (st.pending)
 			rows.push(customOTARow('待恢复软件包', st.pending));
-
 		root.replaceChildren(E('table', { 'class': 'table' }, rows));
 	},
 
@@ -268,7 +293,7 @@ return view.extend({
 
 	otaConfirmInstall() {
 		ui.showModal('正在更新固件', [
-			E('p', '正在下载并验证固件。升级期间请勿断电。原有配置将按普通 sysupgrade 规则尽量保留。'),
+			E('p', '正在下载并校验固件，请勿断电。'),
 			E('pre', {
 				'id': 'ppe-ota-progress-log',
 				'style': 'white-space:pre-wrap;max-height:17em;overflow:auto'
@@ -297,15 +322,12 @@ return view.extend({
 			ui.addNotification(null, E('p', '当前账户没有固件升级权限。'), 'error');
 			return;
 		}
-		const extraInfo = st.extras
-			? '升级后将尝试恢复额外软件包；部分插件可能需要手动安装。'
-			: '将使用当前配置升级固件。';
+		const extraInfo = st.extras ? '升级后将尝试恢复额外软件包。' : null;
 
 		ui.showModal('确认在线固件更新', [
-			E('p', ['即将升级至：', E('strong', st.latest)]),
-			E('p', '安装前将验证设备兼容性和镜像完整性。'),
-			E('p', extraInfo),
-			E('p', '请先通过本页的“生成备份”将配置下载到电脑，升级将导致路由器重启。'),
+			E('p', ['升级到：', E('strong', st.latest)]),
+			E('p', '请先备份配置，升级时勿断电。'),
+			extraInfo ? E('p', extraInfo) : '',
 			E('div', { 'class': 'right' }, [
 				E('button', {
 					'class': 'btn',
@@ -343,17 +365,17 @@ return view.extend({
 			'class': 'cbi-section'
 		}, [
 			E('h3', '在线固件更新'),
-			E('div', { 'class': 'cbi-section-descr' }, '检查新版本并在线下载安装。'),
 			E('div', { 'class': 'cbi-section-node' }, [
-				row('在线更新状态', this._otaInfo),
-				row('检查更新', E('button', {
-					'type': 'button',
-					'class': 'cbi-button cbi-button-action',
-					'disabled': isReadonlyView || null,
-					'click': ui.createHandlerFn(this, 'otaRefresh')
-				}, '重新检查')),
-				row('安装更新', this._otaInstallButton),
-				row('自动更新设置', this.otaScheduleWidget())
+				this._otaInfo,
+				E('div', { 'class': 'cbi-page-actions' }, [
+					E('button', {
+						'type': 'button',
+						'class': 'cbi-button cbi-button-action',
+						'disabled': isReadonlyView || null,
+						'click': ui.createHandlerFn(this, 'otaRefresh')
+					}, '重新检查'), ' ', this._otaInstallButton
+				]),
+				this.otaScheduleWidget()
 			])
 		]);
 	},
