@@ -83,8 +83,11 @@ jobs:
         run: |
           set -Eeuo pipefail
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Release tag already exists. Refusing to overwrite or mutate a published firmware."
-            exit 1
+            # Revalidate already published immutable assets without modifying them.
+            gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" |
+              jq -e --arg tag "$TAG" '.tag_name == $tag and .draft == false and .prerelease == false' >/dev/null
+            echo "::notice::Matching stable MX4200 OTA already exists; do not republish"
+            exit 0
           fi
           published_utc="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           published_cn="$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S CST (UTC+08:00)')"
@@ -135,7 +138,14 @@ jobs:
             and any(.assets[]; .name == "immortalwrt-qualcommax-ipq807x-linksys_mx4200v1-squashfs-sysupgrade.bin")
             and any(.assets[]; .name == "immortalwrt-qualcommax-ipq807x-linksys_mx4200v1.manifest")
           ' "$RUNNER_TEMP/published.json"
-          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.draft == false and .prerelease == false and (.tag_name | startswith("imm-mx4200v1-")))' | grep -F ""tag_name": "$TAG"" >/dev/null || {
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" |
+            jq -e --arg tag "$TAG" '
+              any(.[];
+                .tag_name == $tag and .draft == false and .prerelease == false
+                and any(.assets[]; .name == "ota.json")
+                and any(.assets[]; .name == "immortalwrt-qualcommax-ipq807x-linksys_mx4200v1-squashfs-sysupgrade.bin")
+                and any(.assets[]; .name == "immortalwrt-qualcommax-ipq807x-linksys_mx4200v1.manifest")
+              )' >/dev/null || {
             echo "::error::New firmware is not in the stable OTA release listing"; exit 1;
           }
           mkdir -p "$RUNNER_TEMP/published-ota"
