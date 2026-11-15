@@ -18,16 +18,6 @@ uci() {
         *) return 1 ;;
     esac
 }
-uclient-fetch() {
-    printf '%s\n' "$6" >> "$FETCH_LOG"
-    if [ "$FAIL_DIRECT" = 1 ] && [ "$6" = "$ORIGINAL" ]; then
-        return 1
-    fi
-    if [ "$FAIL_PROXY" = 1 ] && [ "$6" != "$ORIGINAL" ]; then
-        return 1
-    fi
-    printf 'test content' > "$5"
-}
 curl() { return 1; } # no external requests, even on failed stub fetch
 fetch "$ORIGINAL" "$WORK/output"
 '''
@@ -56,6 +46,19 @@ def probe(mode, url, *, custom="", fail_direct=False, fail_proxy=False, ok=True)
             "FAIL_DIRECT": "1" if fail_direct else "0",
             "FAIL_PROXY": "1" if fail_proxy else "0",
         })
+        mock_fetch = Path(d) / "uclient-fetch"
+        mock_fetch.write_text("""#!/bin/sh
+printf '%s\n' "$6" >> "$FETCH_LOG"
+if [ "$FAIL_DIRECT" = 1 ] && [ "$6" = "$ORIGINAL" ]; then
+    exit 1
+fi
+if [ "$FAIL_PROXY" = 1 ] && [ "$6" != "$ORIGINAL" ]; then
+    exit 1
+fi
+printf 'test content' > "$5"
+""")
+        mock_fetch.chmod(0o755)
+        env["PATH"] = d + os.pathsep + env.get("PATH", "")
         result = subprocess.run(
             ["sh", "-c", script], env=env, capture_output=True, text=True)
         requests = (Path(d) / "requested.txt")
