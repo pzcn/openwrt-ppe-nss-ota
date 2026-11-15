@@ -164,8 +164,16 @@ ota_rootfs_file() {
     echo "::error::OTA content mismatch in squashfs: $path" >&2; exit 1;
   fi
 }
-ota_rootfs_file www/luci-static/resources/view/system/flash.js "native-integrated-ota"
-ota_rootfs_file www/luci-static/resources/view/system/flash.js "actions.appendChild(this.renderOTAPanel())"
+# Verify the *actual routed module* in the finished SquashFS. Checking
+# only the stock flash.js lets browsers reuse a cached non-OTA module.
+FLASH_MENU="$WORK/overlay/usr/share/luci/menu.d/zzzz-ota-flash-cache.json"
+FLASH_MODULE="$(jq -er '."admin/system/flash".action.path' "$FLASH_MENU")"
+[[ "$FLASH_MODULE" =~ ^system/flash-ota-b[0-9]+-[a-f0-9]{16}$ ]] || {
+  echo "::error::Invalid custom LuCI Flash module path"; exit 1;
+}
+ota_rootfs_file usr/share/luci/menu.d/zzzz-ota-flash-cache.json "$FLASH_MODULE"
+ota_rootfs_file "www/luci-static/resources/view/${FLASH_MODULE}.js" "native-integrated-ota"
+ota_rootfs_file "www/luci-static/resources/view/${FLASH_MODULE}.js" "actions.appendChild(this.renderOTAPanel())"
 ota_rootfs_file usr/sbin/ppe-update "mx4200v1-immortal-ppe-nss"
 ota_rootfs_file etc/immortal-ppe-ota-release "OTA_CHANNEL=mx4200v1-immortal-ppe-nss"
 echo "MX4200 image verified: integrated LuCI OTA view, backend and channel"
