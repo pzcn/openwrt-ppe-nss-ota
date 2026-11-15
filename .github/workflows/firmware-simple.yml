@@ -58,6 +58,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Verify OTA module URL changes with image build and content
+        run: python3 scripts/tests/test-luci-cache-identity.py
       - name: Verify native Backup/Flash OTA rendering
         run: node scripts/tests/test-embedded-ota-render.js
       - name: Check prerelease Builder and exact source compatibility
