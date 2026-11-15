@@ -128,8 +128,11 @@ with tempfile.TemporaryDirectory() as d:
     assert not (staging / "etc/uci-defaults/99-remove-ppe-update").exists()
     assert not (staging / "lib/upgrade/platform.sh").exists()
     assert not (staging / "etc/config/fstab").exists()
-    assert "MX4200 v1 PPE+NSS" in (
-        staging / "www/luci-static/resources/view/system/flash.js").read_text()
+    flash = (staging / "www/luci-static/resources/view/system/flash.js").read_text()
+    assert "在线固件更新" in flash and "GitHub 代理" in flash
+    assert "MX4200 v1 PPE+NSS" not in flash
+    assert "option github_proxy 'direct'" in (
+        staging / "etc/config/ppe-update").read_text()
     assert (staging / "usr/share/rpcd/acl.d/luci-app-ppe-update.json").is_file()
     assert not (staging / "usr/share/luci/menu.d/luci-app-pzcn-ota.json").exists()
     assert (staging / "etc/uci-defaults/98-mx4200v1-ota-manual-default").is_file()
