@@ -110,7 +110,7 @@ bash "$ROOT/scripts/stage-sing-box-pre.sh" "$WORK/overlay" "$OUT"
 }
 IMM_SHA="$(jq -er '.immortalwrt_commit' "$BASE_META")"
 PPE_SHA="$(jq -er '.ppe_nss_commit' "$BASE_META")"
-bash "$ROOT/mx4200v1/ota-artifacts.sh" prepare "$WORK/overlay" "$OUT" "$IMM_SHA" "$PPE_SHA"
+MX_OTA_SNAPSHOT_LOCK="$BASE_LOCK" bash "$ROOT/mx4200v1/ota-artifacts.sh" prepare "$WORK/overlay" "$OUT" "$IMM_SHA" "$PPE_SHA"
 
 export HYBRID_TARGET=qualcommax/ipq807x
 export HYBRID_IMAGE_PROFILE=linksys_mx4200v1
