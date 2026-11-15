@@ -339,7 +339,7 @@ return view.extend({
 		}, '下载并安装新版本');
 
 		return E('div', {
-			'id': 'pzcn-integrated-ota',
+			'id': 'native-integrated-ota',
 			'class': 'cbi-section'
 		}, [
 			E('h3', '在线固件更新'),
