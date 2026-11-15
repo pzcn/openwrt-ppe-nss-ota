@@ -58,7 +58,7 @@ jobs:
             local -a found=()
             mapfile -d '' -t found < <(find "$dir" -type f -name "$name" -print0)
             [[ "${#found[@]}" -eq 1 ]] || { echo "::error::Expected exactly one $name in $dir"; exit 1; }
-            cp "${found[0]}" "$dest/$name"
+            cp "${found[0]}" "$dest/$(basename "${found[0]}")"
           }
           prefix="immortalwrt-qualcommax-ipq807x-linksys_mx4200v1"
           # Reconstitute the exact original checksum manifest before altering metadata.
