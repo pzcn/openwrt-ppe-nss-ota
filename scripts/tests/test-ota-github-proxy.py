@@ -63,7 +63,7 @@ printf 'test content' > "$5"
             ["sh", "-c", script], env=env, capture_output=True, text=True)
         requests = (Path(d) / "requested.txt")
         requested = requests.read_text().splitlines() if requests.exists() else []
-        assert (result.returncode == 0) == ok, (mode, url, result.stderr)
+        assert (result.returncode == 0) == ok, (mode, url, requested, result.stdout, result.stderr, (Path(d) / "fetch-error.log").read_text() if (Path(d) / "fetch-error.log").exists() else "")
         return requested
 
 
