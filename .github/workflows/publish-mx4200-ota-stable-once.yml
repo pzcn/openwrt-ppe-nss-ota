@@ -1,0 +1,146 @@
+name: Publish MX4200 OTA stable from verified ImageBuilder artifact (one time)
+
+# This one-off publisher does not build or repackage any firmware.
+# Remove after its single successful publication.
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-mx4200-ota-stable-once.yml
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: mx4200v1-stable-ota-promotion-43705850093
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_SHA: 183c6d508abe1c560549dabc95c87deaab9f2b21
+      BUILDER_TAG: mx4200-builder-9246a1f31f0b9401dbd44e11
+      FW_DIR: out-mx4200v1-fast-repack
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download tested MX4200 artifacts from already successful dual-device run
+        uses: actions/download-artifact@v4
+        with:
+          name: mx4200v1-firmware
+          run-id: 43705850093
+          github-token: ${{ github.token }}
+          path: ${{ env.FW_DIR }}
+      - name: Install verification tools
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jq
+      - name: Validate artifact hashes, OTA channel, source commit, Builder and release tag
+        id: validate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          prefix="immortalwrt-qualcommax-ipq807x-linksys_mx4200v1"
+          image="$prefix-squashfs-sysupgrade.bin"
+          factory="$prefix-squashfs-factory.bin"
+          manifest="$prefix.manifest"
+          cd "$FW_DIR"
+          sha256sum --check sha256sums
+          jq -e --arg s "$SOURCE_SHA" --arg img "$image" --arg manifest "$manifest" '
+            .schema == 1 and .channel == "mx4200v1-immortal-ppe-nss"
+            and .repository == "pzcn/openwrt-ppe-nss-ota"
+            and .source_commit == $s and .board == "linksys,mx4200v1"
+            and .profile == "linksys_mx4200v1" and .target == "qualcommax/ipq807x"
+            and .image == $img and .manifest == $manifest
+            and .build > 1794738025
+          ' ota.json
+          jq -e --arg s "$SOURCE_SHA" --arg b "$BUILDER_TAG" '
+            .schema == 1 and .target == "qualcommax/ipq807x"
+            and .profile == "linksys_mx4200v1"
+            and .repack_source_commit == $s
+            and .parent_builder_tag == $b
+            and .compiled_kernel == false
+            and .reused_imagebuilder == true
+          ' repack-metadata.json
+          jq -e --arg s "$SOURCE_SHA" '
+            .schema == 1 and .device == "mx4200v1" and .source_commit == $s
+          ' mx4200v1-ota-identity.json
+          tag="$(jq -er .tag ota.json)"
+          [[ "$tag" =~ ^imm-mx4200v1-[a-f0-9]{8}-[a-f0-9]{8}-g183c6d50-b[0-9]+$ ]]
+          test -s "$image"
+          test -s "$factory"
+          test -s "$manifest"
+          printf 'tag=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+          cd "$GITHUB_WORKSPACE"
+          MX_VERIFY_ONLY=true bash mx4200v1/publish-release.sh firmware "$FW_DIR"
+      - name: Publish matching MX4200 release as stable OTA (not a prerelease)
+        shell: bash
+        env:
+          TAG: ${{ steps.validate.outputs.tag }}
+        run: |
+          set -Eeuo pipefail
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Release tag already exists. Refusing to overwrite or mutate a published firmware."
+            exit 1
+          fi
+          published_utc="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+          published_cn="$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S CST (UTC+08:00)')"
+          cat > "$RUNNER_TEMP/mx-release-notes.md" <<EOF
+          MX4200 v1 ImmortalWrt PPE+NSS firmware (formal OTA channel).
+          
+          Published: $published_utc / $published_cn
+          Build source commit: $SOURCE_SHA
+          Verified prebuilt ImageBuilder: $BUILDER_TAG
+          Firmware build: $TAG
+          
+          Fix: LuCI Backup/Flash OTA page uses build-and-content-fingerprinted module URL,
+          preventing stale stock flash.js from hiding the OTA section after firmware update.
+          
+          Device: Linksys MX4200 v1 ONLY. This firmware is not for Arthur, MX4200 v2,
+          or any other board. All firmware images, target metadata, OTA metadata and
+          checksums were verified before publishing. Kernel/PPE/NSS was not recompiled.
+          
+          This is now a non-prerelease GitHub Release so the device-scoped manual OTA
+          lookup can find it. Automatic OTA remains disabled by default (auto=0).
+          Please test boot, LuCI, backup/restore, WAN, Wi-Fi, sysupgrade slot behavior
+          and recovery on real hardware. A successful artifact verification is not
+          a substitute for full hardware validation.
+          EOF
+          prefix="immortalwrt-qualcommax-ipq807x-linksys_mx4200v1"
+          dir="$FW_DIR"
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_SHA" --latest=false \
+            --title "MX4200 v1 ImmortalWrt PPE+NSS (OTA; $TAG)" \
+            --notes-file "$RUNNER_TEMP/mx-release-notes.md" \
+            "$dir/$prefix-squashfs-factory.bin" \
+            "$dir/$prefix-squashfs-sysupgrade.bin" \
+            "$dir/$prefix.manifest" \
+            "$dir/$prefix-squashfs-sysupgrade.metadata.json" \
+            "$dir/ota.json" "$dir/mx4200v1-ota-identity.json" \
+            "$dir/sha256sums" "$dir/snapshot-lock.json" \
+            "$dir/repack-metadata.json" "$dir/source-commits.txt"
+      - name: Verify published release is OTA-discoverable and attachments match
+        shell: bash
+        env:
+          TAG: ${{ steps.validate.outputs.tag }}
+        run: |
+          set -Eeuo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" > "$RUNNER_TEMP/published.json"
+          jq -e --arg tag "$TAG" '
+            .tag_name == $tag and .draft == false and .prerelease == false
+            and any(.assets[]; .name == "ota.json")
+            and any(.assets[]; .name == "immortalwrt-qualcommax-ipq807x-linksys_mx4200v1-squashfs-sysupgrade.bin")
+            and any(.assets[]; .name == "immortalwrt-qualcommax-ipq807x-linksys_mx4200v1.manifest")
+          ' "$RUNNER_TEMP/published.json"
+          gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[] | select(.draft == false and .prerelease == false and (.tag_name | startswith("imm-mx4200v1-")))' | grep -F ""tag_name": "$TAG"" >/dev/null || {
+            echo "::error::New firmware is not in the stable OTA release listing"; exit 1;
+          }
+          mkdir -p "$RUNNER_TEMP/published-ota"
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p ota.json -D "$RUNNER_TEMP/published-ota"
+          cmp "$FW_DIR/ota.json" "$RUNNER_TEMP/published-ota/ota.json"
+          echo "## MX4200 OTA is published and discoverable" >> "$GITHUB_STEP_SUMMARY"
+          echo "Stable tag: $TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "Official OTA channel: mx4200v1-immortal-ppe-nss" >> "$GITHUB_STEP_SUMMARY"
