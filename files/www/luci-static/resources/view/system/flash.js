@@ -188,7 +188,7 @@ return view.extend({
 					if (parsed.protocol !== 'https:' || !parsed.hostname ||
 						parsed.username || parsed.password || parsed.search || parsed.hash ||
 						settings.github_proxy_url.length > 200 ||
-						!/^[A-Za-z0-9][A-Za-z0-9.-]*$/.test(parsed.hostname)) {
+						!/^https:\/\/[A-Za-z0-9][A-Za-z0-9.-]*(?::[0-9]{1,5})?(?:\/[A-Za-z0-9._~\/-]*)?$/.test(settings.github_proxy_url)) {
 						ui.addNotification(null, E('p', '请输入有效的 HTTPS 代理前缀'), 'error');
 						return;
 					}
