@@ -108,6 +108,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       PUBLISH_RELEASE: ${{ github.ref == 'refs/heads/main' && (inputs.publish_policy == 'yes' || (inputs.publish_policy != 'no' && (github.event_name != 'workflow_dispatch' || inputs.publish_release))) }}
       SING_BOX_PRE_VERSION: ${{ inputs.sing_box_pre_version || '' }}
+      RELEASE_PRERELEASE: ${{ inputs.publish_policy == 'preview' }}
     steps:
       - uses: actions/checkout@v4
       - name: Find a published Builder and check if firmware changed

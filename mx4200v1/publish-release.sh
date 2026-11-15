@@ -126,6 +126,13 @@ for name in "${ASSETS[@]}"; do
   file "$name"
   files+=("$DIR/$name")
 done
+RELEASE_UTC="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+RELEASE_CN="$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S CST (UTC+08:00)')"
+NOTES="$NOTES
+
+Published at: $RELEASE_UTC / $RELEASE_CN
+GitHub created_at denotes the tag commit time; published_at is the actual release time."
 gh release create "$TAG" -R "$REPO" --prerelease --latest=false \
+  --target "${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD)}" \
   --title "$TITLE" --notes "$NOTES" "${files[@]}"
 echo "Published MX4200 $KIND as safe prerelease $TAG"

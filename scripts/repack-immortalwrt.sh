@@ -7,6 +7,7 @@ ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "$0")/.." && pwd)}"
 WORK="${RUNNER_TEMP:-/tmp}/immortal-image-repack"
 OUT="${IMMORTAL_OUT_DIR:-$ROOT/out-immortal}"
 PUBLISH_RELEASE="${PUBLISH_RELEASE:-false}"
+RELEASE_PRERELEASE="${RELEASE_PRERELEASE:-false}"
 REPO="${GITHUB_REPOSITORY:-pzcn/openwrt-ppe-nss-ota}"
 META="${BUILDER_META:?Set BUILDER_META to the downloaded builder-metadata.json}"
 ARCHIVE="${BUILDER_ARCHIVE:?Set BUILDER_ARCHIVE to the matching ImageBuilder .tar.zst}"
@@ -179,6 +180,8 @@ if [[ "$PUBLISH_RELEASE" == true ]]; then
     echo "::error::Refusing to publish from an unexpected repository" >&2
     exit 1
   }
+  RELEASE_UTC="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+  RELEASE_CN="$(TZ=Asia/Shanghai date '+%Y-%m-%d %H:%M:%S CST (UTC+08:00)')"
   cat > "$OUT/release-notes.md" <<EOF
 # ImmortalWrt + PPE/NSS customized RE-SS-01
 
@@ -187,13 +190,19 @@ if [[ "$PUBLISH_RELEASE" == true ]]; then
 - ABI-matched reusable ImageBuilder: $BUILDER_TAG
 - Optional verified userland layer: ${LAYER_TAG:-none}
 - Customized source: $SOURCE_REV
+- Published: $RELEASE_UTC / $RELEASE_CN
+- Release timestamp uses publication time, not the Git tag commit date.
 - Image: $IMAGE
 - F2FS overlay (p18) and separate ext4 storage (p27).
 
 All packages come from the matching standalone builder.
 The ImmortalWrt OTA channel remains independent of OpenWrt.
 EOF
-  gh release create "$TAG" --repo "$REPO" --latest=false \
+  release_flags=(--latest=false)
+  [[ "$RELEASE_PRERELEASE" == true ]] && release_flags+=(--prerelease)
+  # GitHub created_at is the tag commit date; pin the current source revision.
+  gh release create "$TAG" --repo "$REPO" "${release_flags[@]}" \
+    --target "${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD)}" \
     --title "RE-SS-01 ImmortalWrt PPE+NSS ($BUILD_NUMBER)" \
     --notes-file "$OUT/release-notes.md" \
     "$OUT/$IMAGE" "$OUT/$MANIFEST" "$OUT/ota.json" \
