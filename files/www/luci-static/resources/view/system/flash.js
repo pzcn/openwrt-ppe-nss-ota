@@ -319,6 +319,45 @@ return view.extend({
 		]);
 	},
 
+	// Native LuCI CBI section inside System > Backup / Flash. Using
+	// direct DOM rendering here avoids the nested SectionValue subtree and
+	// does not interfere with upstream Backup, Restore or sysupgrade forms.
+	renderOTAPanel() {
+		const row = function(label, widget) {
+			return E('div', { 'class': 'cbi-value' }, [
+				E('label', { 'class': 'cbi-value-title' }, label),
+				E('div', { 'class': 'cbi-value-field' }, widget)
+			]);
+		};
+
+		this._otaInfo = E('div', '准备检查…');
+		this._otaInstallButton = E('button', {
+			'type': 'button',
+			'class': 'cbi-button cbi-button-apply important',
+			'disabled': true,
+			'click': ui.createHandlerFn(this, 'otaAskInstall')
+		}, '下载并安装新版本');
+
+		return E('div', {
+			'id': 'native-integrated-ota',
+			'class': 'cbi-section'
+		}, [
+			E('h3', '在线固件更新'),
+			E('div', { 'class': 'cbi-section-descr' }, '检查新版本并在线下载安装。'),
+			E('div', { 'class': 'cbi-section-node' }, [
+				row('在线更新状态', this._otaInfo),
+				row('检查更新', E('button', {
+					'type': 'button',
+					'class': 'cbi-button cbi-button-action',
+					'disabled': isReadonlyView || null,
+					'click': ui.createHandlerFn(this, 'otaRefresh')
+				}, '重新检查')),
+				row('安装更新', this._otaInstallButton),
+				row('自动更新设置', this.otaScheduleWidget())
+			])
+		]);
+	},
+
 	handleBackup(ev) {
 		const form = E('form', {
 			method: 'post',
@@ -692,37 +731,8 @@ return view.extend({
 
 
 
-		// Sibling of "Flash new firmware image"; native form UI,
-		// without replacing any of LuCI's existing backup/restore actions.
-		o = s.option(form.SectionValue, 'online_upgrade', form.NamedSection,
-			'actions', 'actions', '在线固件更新',
-			'检查新版本并在线下载安装。');
-		ss = o.subsection;
-
-		o = ss.option(form.DummyValue, 'online_upgrade_status', '在线更新状态');
-		o.renderWidget = L.bind(function() {
-			this._otaInfo = E('div', { 'id': 'native-ota-panel' }, '准备检查…');
-			return this._otaInfo;
-		}, this);
-
-		o = ss.option(form.Button, 'online_upgrade_check', '检查更新');
-		o.inputstyle = 'action';
-		o.inputtitle = '重新检查';
-		o.onclick = L.bind(this.otaRefresh, this);
-
-		o = ss.option(form.DummyValue, 'online_upgrade_install', '安装更新');
-		o.renderWidget = L.bind(function() {
-			this._otaInstallButton = E('button', {
-				'type': 'button',
-				'class': 'cbi-button cbi-button-apply important',
-				'disabled': true,
-				'click': ui.createHandlerFn(this, 'otaAskInstall')
-			}, '下载并安装新版本');
-			return this._otaInstallButton;
-		}, this);
-
-		o = ss.option(form.DummyValue, 'online_upgrade_schedule', '自动更新设置');
-		o.renderWidget = L.bind(this.otaScheduleWidget, this);
+		// The OTA panel is attached to the rendered Actions tab after LuCI
+		// builds the form. No nested SectionValue or second menu is needed.
 
 		s = m.section(form.NamedSection, 'config', 'config', _('Configuration'), _('This is a list of shell glob patterns for matching files and directories to include during sysupgrade. Modified files in /etc/config/ and certain other configurations are automatically preserved.'));
 		s.render = L.bind(function(view /*, ... */) {
@@ -754,17 +764,16 @@ return view.extend({
 
 
 		return m.render().then(L.bind(function(node) {
-			// The GitHub request is async, never blocks backup/flash rendering.
+			// The CBI "Actions" tab has finished rendering. Insert the OTA
+			// panel into its visible section rather than a nested widget.
+			const actions = node.querySelector(
+				'[data-tab="actions"] .cbi-section-node[data-section-id="actions"]'
+			) || node.querySelector('[data-tab="actions"] .cbi-section-node');
+			if (!actions)
+				throw new Error('Cannot locate the LuCI flash Actions section');
+			actions.appendChild(this.renderOTAPanel());
+			// GitHub requests remain async and cannot block page rendering.
 			this.otaRefresh();
-			// The System > 在线固件更新 shortcut shares this native flash
-			// view. Focus OTA rather than showing backup controls first.
-			if (/(?:^|\/)online-upgrade\/?$/.test(window.location.pathname)) {
-				window.requestAnimationFrame(function() {
-					const panel = document.getElementById('native-ota-panel');
-					if (panel)
-						panel.scrollIntoView({ block: 'center' });
-				});
-			}
 			return node;
 		}, this));
 	},

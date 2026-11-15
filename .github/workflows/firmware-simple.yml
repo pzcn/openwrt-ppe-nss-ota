@@ -58,6 +58,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Verify native Backup/Flash OTA rendering
+        run: node scripts/tests/test-embedded-ota-render.js
       - name: Check prerelease Builder and exact source compatibility
         id: builder
         run: python3 mx4200v1/resolve-release.py

@@ -36,9 +36,10 @@ install -D -m 0644 "$ROOT/files/www/luci-static/resources/view/system/flash.js" 
 sed -i 's/RE-SS-01 PPE+NSS/MX4200 v1 PPE+NSS/g' \
   "$DEST/www/luci-static/resources/view/system/flash.js"
 
-# No duplicate Julius updater menu.
+# OTA is embedded in System > Backup / Flash, never a separate menu.
 rm -f -- "$DEST/www/luci-static/resources/view/system/ppe-update.js" \
-  "$DEST/usr/share/luci/menu.d/luci-app-ppe-update.json"
+  "$DEST/usr/share/luci/menu.d/luci-app-ppe-update.json" \
+  "$DEST/usr/share/luci/menu.d/luci-app-pzcn-ota.json"
 install -D -m 0755 "$ROOT/files/etc/uci-defaults/95-sing-box-tun-user" \
   "$DEST/etc/uci-defaults/95-sing-box-tun-user"
 

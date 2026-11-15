@@ -82,6 +82,7 @@ jobs:
           python3 scripts/tests/test-luci-i18n.py
           python3 scripts/tests/test-luci-native.py
           node scripts/tests/test-luci-autocheckboxes.js
+          node scripts/tests/test-embedded-ota-render.js
           node scripts/tests/test-ppe-nss-monitor.js
           python3 scripts/tests/test-ppe-nss-telemetry.py
           node scripts/tests/test-drcom-rpc.js
