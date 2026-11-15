@@ -52,6 +52,7 @@ jobs:
           set -Eeuo pipefail
           python3 mx4200v1/test_contract.py
           python3 mx4200v1/test_hybrid_contract.py
+          python3 mx4200v1/test_fast_repack.py
           python3 mx4200v1/test_release.py
           python3 mx4200v1/test_release_resolver.py
           python3 scripts/tests/test-ota-devices.py
