@@ -1,0 +1,43 @@
+name: Publish verified MX4200 OTA-menu firmware prerelease (no rebuild)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/publish-mx4200-ota-fixed-once.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish-mx4200:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      IMAGE_SOURCE_SHA: 95bf0e96fd79195497d2f2fa048108b5a307bb15
+      BUILDER_TAG: mx4200-builder-9246a1f31f0b9401dbd44e11
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mx4200v1-firmware
+          run-id: 43702176092
+          github-token: ${{ github.token }}
+          path: out-mx4200v1-fast-repack
+      - name: Verify OTA image provenance and publication contract
+        run: |
+          set -Eeuo pipefail
+          jq -e --arg source "$IMAGE_SOURCE_SHA" --arg builder "$BUILDER_TAG" '
+            .repack_source_commit == $source and
+            .parent_builder_tag == $builder and
+            .compiled_kernel == false and .reused_imagebuilder == true
+          ' out-mx4200v1-fast-repack/repack-metadata.json
+          jq -e --arg source "$IMAGE_SOURCE_SHA" '.source_commit == $source' \
+            out-mx4200v1-fast-repack/mx4200v1-ota-identity.json
+          MX_VERIFY_ONLY=true bash mx4200v1/publish-release.sh firmware out-mx4200v1-fast-repack
+      - name: Publish new MX4200 prerelease from verified artifact
+        env:
+          GITHUB_SHA: 95bf0e96fd79195497d2f2fa048108b5a307bb15
+        run: bash mx4200v1/publish-release.sh firmware out-mx4200v1-fast-repack
