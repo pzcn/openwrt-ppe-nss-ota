@@ -101,6 +101,7 @@ jobs:
           python3 scripts/tests/test-firmware-inputs.py
           python3 scripts/tests/test-hybrid-layer.py
           python3 scripts/tests/test-immortalwrt-builder.py
+          python3 scripts/tests/test-arthur-builder-resolver.py
           python3 scripts/tests/test-immortalwrt-sdk.py
           python3 scripts/tests/test-immortalwrt-sdk-apks.py
           python3 scripts/tests/test-immortalwrt-compat.py
@@ -129,33 +130,56 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          if [[ -n "$REQUESTED_TAG" ]]; then
-            [[ "$REQUESTED_TAG" =~ ^imm-builder-[a-zA-Z0-9._-]+$ ]] || { echo "::error::Invalid Builder tag"; exit 1; }
-            TAG="$REQUESTED_TAG"
-          else
-            TAG="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-              --jq '[.[] | select(.draft == false and .prerelease == false and (.tag_name | startswith("imm-builder-")))] | sort_by(.published_at) | last | .tag_name // empty')"
-          fi
-          if [[ -z "$TAG" ]]; then
-            echo "needs_image=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::No published ImageBuilder exists. Run the weekly/manual Builder workflow first."
-            exit 0
-          fi
+          # Stable Hybrid is preferred; while none has passed hardware
+          # validation, test only the explicitly pinned CI-built Hybrid
+          # prerelease. Never silently return to the old Full Source Builder.
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/arthur-releases.json"
+          SELECTION="$(python3 scripts/arthur_builder_resolver.py \
+            --releases "$RUNNER_TEMP/arthur-releases.json" \
+            --policy config/arthur-builder-policy.json \
+            --requested-tag "$REQUESTED_TAG")"
+          TAG="$(jq -er .tag <<< "$SELECTION")"
+          BUILDER_PRERELEASE="$(jq -er .prerelease <<< "$SELECTION")"
+          BUILDER_HYBRID="$(jq -er .hybrid <<< "$SELECTION")"
           echo "builder_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "builder_prerelease=$BUILDER_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "builder_hybrid=$BUILDER_HYBRID" >> "$GITHUB_OUTPUT"
+          echo "Builder selection: $SELECTION"
           mkdir -p "$RUNNER_TEMP/imm-builder-download"
           gh release download "$TAG" -R "$GITHUB_REPOSITORY" \
             -D "$RUNNER_TEMP/imm-builder-download" -p builder-metadata.json
           META="$RUNNER_TEMP/imm-builder-download/builder-metadata.json"
-          # Firmware always consumes the latest published Builder. Release
-          # metadata describes THAT compiled ABI, not today's Git recipe.
-          # Check the release's own profile/tag/format; the following repack
-          # job verifies SHA256 of the archive, overlay and package list.
-          META_TAG="$(jq -er '.tag' "$META")"
+          # Check immutable provenance independently of the current source
+          # checkout. The archive/package checks are repeated at repack time.
+          META_TAG="$(jq -er .tag "$META")"
           [[ "$META_TAG" == "$TAG" ]] || {
-            echo "::error::Selected Builder release tag differs from its metadata."
-            exit 1
+            echo "::error::Selected Builder tag differs from metadata"; exit 1;
           }
           python3 scripts/immortalwrt_builder.py check --metadata "$META"
+          MODE="$(jq -er '.build_mode // "full"' "$META")"
+          if [[ "$BUILDER_HYBRID" == true ]]; then
+            [[ "$MODE" == hybrid ]] || {
+              echo "::error::Hybrid release does not contain Hybrid Builder metadata"; exit 1;
+            }
+            gh release download "$TAG" -R "$GITHUB_REPOSITORY" \
+              -D "$RUNNER_TEMP/imm-builder-download" -p snapshot-lock.json
+            LOCK="$RUNNER_TEMP/imm-builder-download/snapshot-lock.json"
+            jq -e --slurpfile meta "$META" '
+              .schema == 2 and .target == "qualcommax/ipq60xx" and
+              .snapshot_version == $meta[0].official_snapshot.snapshot_version and
+              .lock_fingerprint == $meta[0].official_snapshot.lock_fingerprint and
+              .target_commit == $meta[0].official_snapshot.target_commit
+            ' "$LOCK" >/dev/null || {
+              echo "::error::Hybrid Builder official Snapshot lock mismatch"; exit 1;
+            }
+          else
+            [[ "$MODE" == full && "$BUILDER_PRERELEASE" == false ]] || {
+              echo "::error::Legacy fallback must be an explicitly requested stable Full Source Builder"; exit 1;
+            }
+          fi
+          if [[ "$BUILDER_PRERELEASE" == true ]]; then
+            echo "::warning::Hybrid Builder is prerelease: CI image artifact ONLY; no stable OTA"
+          fi
           # A layer points to one immutable Builder and never replaces its SDK.
           LAYER=""
           if [[ "$REQUESTED_LAYER" != none ]]; then
@@ -237,6 +261,7 @@ jobs:
           echo "## Repack firmware" >> "$GITHUB_STEP_SUMMARY"
           echo "Builder: $TAG" >> "$GITHUB_STEP_SUMMARY"
           echo "Layer: ${LAYER:-none}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Builder type: $MODE (prerelease=$BUILDER_PRERELEASE)" >> "$GITHUB_STEP_SUMMARY"
           echo "Source: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Install ImageBuilder repack dependencies
@@ -280,6 +305,9 @@ jobs:
         if: steps.resolve.outputs.needs_image == 'true'
         env:
           LAYER_TAG: ${{ steps.resolve.outputs.layer_tag }}
+          # PRE-RELEASE Builder may produce an inspectable artifact, never a
+          # stable OTA release visible to installed devices.
+          PUBLISH_RELEASE: ${{ steps.resolve.outputs.builder_prerelease == 'true' && 'false' || env.PUBLISH_RELEASE }}
         run: |
           set -Eeuo pipefail
           DIR="$RUNNER_TEMP/imm-builder-download"
