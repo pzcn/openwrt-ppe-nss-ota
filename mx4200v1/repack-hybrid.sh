@@ -147,7 +147,7 @@ jq -e '
 }
 
 # Check the FINAL packaged squashfs, not only staged overlay sources:
-# an absent LuCI menu can otherwise pass all metadata and package checks.
+# verify OTA integration in native flash page and backend, not a separate menu.
 command -v unsquashfs >/dev/null 2>&1 || {
   echo "::error::Install squashfs-tools to verify the actual OTA UI" >&2; exit 1;
 }
@@ -164,11 +164,11 @@ ota_rootfs_file() {
     echo "::error::OTA content mismatch in squashfs: $path" >&2; exit 1;
   fi
 }
-ota_rootfs_file usr/share/luci/menu.d/luci-app-pzcn-ota.json '"admin/system/online-upgrade"'
-ota_rootfs_file www/luci-static/resources/view/system/flash.js "online_upgrade_status"
+ota_rootfs_file www/luci-static/resources/view/system/flash.js "pzcn-integrated-ota"
+ota_rootfs_file www/luci-static/resources/view/system/flash.js "actions.appendChild(this.renderOTAPanel())"
 ota_rootfs_file usr/sbin/ppe-update "mx4200v1-immortal-ppe-nss"
 ota_rootfs_file etc/immortal-ppe-ota-release "OTA_CHANNEL=mx4200v1-immortal-ppe-nss"
-echo "MX4200 image verified: custom LuCI OTA menu, view, backend and channel"
+echo "MX4200 image verified: integrated LuCI OTA view, backend and channel"
 
 for required in kmod-nss-wifi-drv qca-ppe-qos ppe-help luci-app-qca-ppe-qos \
     luci-theme-aurora sqm-scripts autocore luci-app-sing-box sing-box \
