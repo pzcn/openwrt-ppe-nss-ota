@@ -107,7 +107,7 @@ assert "L.url('admin/system/ppe-update')" not in flash
 assert not (overlay / "usr/share/luci/menu.d/luci-app-ppe-update.json").exists()
 ota_shortcut = json.loads((overlay / "usr/share/luci/menu.d/luci-app-pzcn-ota.json").read_text())
 assert ota_shortcut["admin/system/online-upgrade"]["action"]["path"] == "admin/system/flash"
-assert "pzcn-ota-panel" in flash
+assert "native-ota-panel" in flash
 assert "scrollIntoView({ block: 'center' })" in flash
 assert "c.login_url !== target.login" in campus.read_text()
 assert "reject: true" in campus.read_text()
