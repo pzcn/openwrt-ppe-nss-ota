@@ -48,9 +48,320 @@ github_proxy_base() {
 	*) log 'invalid GitHub proxy selection'; return 2 ;;
 	esac
 	base="${base%/}"
+	# Do not let grep validate just one line of a multiline UCI value.
+	case "$base" in *[[:space:]]*) log 'invalid GitHub proxy URL'; return 2 ;; esac
 	[ "${#base}" -le 200 ] &&
 		printf '%s\n' "$base" |
-			grep -Eq '^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?(/[A-Za-z0-9._~!$&()+,;=:%-]*)?$' || {
+			grep -Eq '^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?
+		log 'invalid GitHub proxy URL (HTTPS base only)'
+		return 2
+	}
+	printf '%s\n' "$base"
+}
+
+fetch_once() {
+	local url="$1" dest="$2"
+	rm -f "$dest"
+	if uclient-fetch -q -T 30 -O "$dest" "$url" 2>>"$WORK/fetch-error.log" &&
+		[ -s "$dest" ]; then
+		return 0
+	fi
+	rm -f "$dest"
+	if command -v curl >/dev/null 2>&1 &&
+		curl -fLsS --retry 2 --connect-timeout 10 --max-time 60 \
+			-o "$dest" "$url" 2>>"$WORK/fetch-error.log" &&
+		[ -s "$dest" ]; then
+		return 0
+	fi
+	rm -f "$dest"
+	return 1
+}
+
+fetch() {
+	local url="$1" dest="$2" base='' result=0
+	base="$(github_proxy_base)" || result=$?
+	[ "$result" -ne 2 ] || return 1
+	case "$url" in
+	https://api.github.com/*)
+		fetch_once "$url" "$dest" && return 0
+		if [ -n "$base" ]; then
+			fetch_once "$base/$url" "$dest" && return 0
+		fi
+		;;
+	https://github.com/*)
+		if [ -n "$base" ]; then
+			fetch_once "$base/$url" "$dest" && return 0
+		fi
+		fetch_once "$url" "$dest" && return 0
+		;;
+	*)
+		fetch_once "$url" "$dest" && return 0
+		;;
+	esac
+	return 1
+}
+
+valid_integer() {
+	case "$1" in '' | *[!0-9]*) return 1 ;; *) return 0 ;; esac
+}
+
+valid_hash() {
+	[ "${#1}" -eq 64 ] || return 1
+	case "$1" in *[!0123456789abcdef]*) return 1 ;; esac
+}
+
+# The upstream /etc/ppe-release is left intact for matching kernel APK feeds.
+# Our independent /etc/pzcn-ota-release identifies the complete customized
+# image and is generated before the ROM image is assembled.
+# Query the selected latest *public* release, not the upstream PPE+NSS site.
+# Every candidate must ship an ota.json that matches our device/channel.
+index() {
+	[ -n "$OTA_TAG" ] && valid_integer "$OTA_BUILD" &&
+		[ "$OTA_CHANNEL" = "$RELEASE_CHANNEL" ] ||
+		die "missing local firmware update identity"
+	[ "$BOARD" = "$EXPECTED_BOARD" ] &&
+		[ "$GROUP" = "$EXPECTED_GROUP" ] ||
+		die "board or PPE group mismatch: refusing OTA"
+	mkdir -p "$WORK"
+	: >"$WORK/fetch-error.log"
+	fetch "$RELEASE_API" "$WORK/github.json" || die "cannot reach custom GitHub Releases API"
+	LATEST=$(jsonfilter -i "$WORK/github.json" -e '@.tag_name')
+	case "$LATEST" in
+	ota-ppe-nss-*) ;;
+	*) die "latest firmware release is not on the expected channel" ;;
+	esac
+	case "$LATEST" in *[!a-zA-Z0-9._-]*) die "unsafe release tag" ;; esac
+	# We do not trust arbitrary names or paths from a release.
+	fetch "$RELEASE_ASSETS/$LATEST/ota.json" "$WORK/ota.json" ||
+		die "failed to fetch latest OTA metadata asset from GitHub"
+	jq -e 'type == "object"' "$WORK/ota.json" >/dev/null 2>&1 ||
+		die "invalid OTA metadata JSON"
+	meta() { jsonfilter -i "$WORK/ota.json" -e "@.$1"; }
+	[ "$(meta schema)" = 1 ] &&
+		[ "$(meta channel)" = "$RELEASE_CHANNEL" ] &&
+		[ "$(meta repository)" = "$RELEASE_REPO" ] &&
+		[ "$(meta tag)" = "$LATEST" ] &&
+		[ "$(meta board)" = "$EXPECTED_BOARD" ] &&
+		[ "$(meta profile)" = "$EXPECTED_PROFILE" ] &&
+		[ "$(meta group)" = "$EXPECTED_GROUP" ] ||
+		die "custom OTA metadata does not match this device"
+	[ "$(meta image)" = "$EXPECTED_IMAGE" ] &&
+		[ "$(meta manifest)" = "$EXPECTED_MANIFEST" ] ||
+		die "unexpected firmware or manifest asset in custom release"
+	LATEST_BUILD=$(meta build)
+	LATEST_TIME=$(meta epoch)
+	LATEST_UPSTREAM=$(meta upstream_tag)
+	SHA256=$(meta image_sha256)
+	MANIFEST_SHA256=$(meta manifest_sha256)
+	SIZE=$(meta image_size)
+	valid_integer "$LATEST_BUILD" && valid_integer "$LATEST_TIME" &&
+		valid_integer "$SIZE" && valid_hash "$SHA256" &&
+		valid_hash "$MANIFEST_SHA256" ||
+		die "invalid build, timestamp, size or checksum"
+	[ "$LATEST_BUILD" -gt 0 ] && [ "$SIZE" -gt 1000000 ] &&
+		[ "$LATEST_TIME" -gt 0 ] ||
+		die "invalid OTA release metadata values"
+	case "$LATEST_UPSTREAM" in
+	ppe-nss-*) ;;
+	*) die "invalid upstream PPE+NSS tag" ;;
+	esac
+	case "$LATEST_UPSTREAM" in *[!a-zA-Z0-9._-]*) die "unsafe upstream release tag" ;; esac
+	IMAGE="$EXPECTED_IMAGE"
+	MANIFEST="$EXPECTED_MANIFEST"
+	NEWGROUP="$EXPECTED_GROUP"
+}
+
+# The current build number is embedded in ROM. No string tag comparisons:
+# an older release promoted as "latest" must never downgrade the device.
+newer() {
+	[ "$LATEST" != "$OTA_TAG" ] && [ "$LATEST_BUILD" -gt "$OTA_BUILD" ]
+}
+
+# Save only package names, never release-controlled shell code.
+lookup() {
+	index
+	[ -z "$1" ] || [ "$1" = "$LATEST" ] ||
+		die "requested release is not the latest verified custom release"
+	[ "$LATEST" != "$OTA_TAG" ] || return 0
+	fetch "$RELEASE_ASSETS/$LATEST/$MANIFEST" "$WORK/manifest.full" ||
+		die "custom release package manifest is missing"
+	[ "$(sha256sum "$WORK/manifest.full" | cut -d' ' -f1)" = "$MANIFEST_SHA256" ] ||
+		die "package manifest checksum mismatch"
+	awk 'NF >= 2 { print $1 }' "$WORK/manifest.full" >"$WORK/manifest"
+	[ -s "$WORK/manifest" ] || die "empty package manifest"
+}
+
+
+# World entries the new image does not install by itself, and the packages of
+# this image that were removed, as conflicts so the new image drops them too.
+# Repository tags go: the ImageBuilder's @snapshot is not a feed on the router.
+extras() {
+	sed 's/[@<>=~].*//' /etc/apk/world | sort -u >"$WORK/world"
+	{
+		grep -vxF -f "$WORK/manifest" "$WORK/world"
+		sed 's/[@<>=~].*//' /rom/etc/apk/world 2>/dev/null | grep -v '^!' |
+			grep -vxF -f "$WORK/world" | sed 's/^/!/'
+	} | sort -u
+}
+
+cmd_status() {
+	auto=$(uci -q get ppe-update.main.auto 2>/dev/null)
+	[ -n "$auto" ] || auto=0
+	pending=""
+	[ ! -r "$STATE/packages" ] || pending=$(tr '\n' ' ' <"$STATE/packages")
+	mkdir -p "$WORK"
+	# Preserve the real reason for failure. A missing channel release is not
+	# a router networking failure; neither are invalid metadata or API errors.
+	if status_json=$(
+		lookup ""
+		# Discovery must not depend on APK mirror health or compatibility checks.
+		if newer; then
+			avail=true
+		else
+			avail=false
+		fi
+		printf '{"board":"%s","current":"%s","build":%s,"group":"%s","latest":"%s","latest_time":%s,"update":%s,"image":"%s","size":%s,"extras":"%s","missing":"","checked":false,"pending":"%s","auto":"%s","source":"%s"}\n' \
+			"$BOARD" "$OTA_TAG" "$OTA_BUILD" "$GROUP" "$LATEST" "$LATEST_TIME" "$avail" "$IMAGE" "$SIZE" \
+			"$(extras | tr '\n' ' ')" "$pending" "$auto" "GitHub Releases"
+	) 2>"$WORK/status-error.log"; then
+		printf '%s\n' "$status_json"
+		return 0
+	fi
+
+	# Error messages below are fixed strings so that the RPC reply stays
+	# valid JSON even when GitHub returns unexpected content.
+	if grep -Fq 'no ImmortalWrt firmware release' "$WORK/status-error.log"; then
+		reason='暂无可用固件'
+	elif grep -Fq 'cannot reach custom GitHub Releases API' "$WORK/status-error.log"; then
+		reason='GitHub API 连接失败'
+	elif grep -Eq 'invalid GitHub Releases API response|failed to parse GitHub firmware release index' "$WORK/status-error.log"; then
+		reason='GitHub API 响应异常'
+	elif grep -Fq 'failed to fetch latest OTA metadata asset from GitHub' "$WORK/status-error.log"; then
+		reason='更新信息下载失败'
+	elif grep -Fq 'custom release package manifest is missing' "$WORK/status-error.log"; then
+		reason='软件包清单下载失败'
+	elif grep -Eq 'metadata|checksum|not on the expected channel|unexpected firmware|missing local firmware|board or PPE group mismatch' "$WORK/status-error.log"; then
+		reason='固件信息或设备不匹配'
+	else
+		reason='检查失败，请运行 ppe-update check'
+	fi
+	printf '{"board":"%s","current":"%s","group":"%s","error":"%s","pending":"%s","auto":"%s","source":"%s"}\n' \
+		"$BOARD" "$OTA_TAG" "$GROUP" "$reason" "$pending" "$auto" "GitHub Releases"
+}
+
+cmd_check() {
+	lookup ""
+	if newer; then
+		echo "firmware update available: $OTA_TAG -> $LATEST"
+		echo "The firmware image will be verified and extra packages restored after reboot."
+		return 0
+	fi
+	echo "firmware is up to date: $OTA_TAG"
+	return 1
+}
+
+cmd_update() {
+	[ "$2" != "-f" ] || die "sysupgrade -F is not supported"
+	policy="${3:-manual}"
+	case "$policy" in manual | auto) ;; *) die "unknown OTA policy" ;; esac
+	lookup "$1"
+	newer || { echo "up to date: $OTA_TAG"; return 1; }
+
+	# Save extra package names for post-upgrade restoration. APK mirror
+	# availability has no bearing on installing the verified firmware.
+	extras >"$WORK/extras" ||
+		{ : >"$WORK/extras"; log "额外软件包列表读取失败"; }
+	if [ -s "$WORK/extras" ]; then
+		log "升级后将尝试恢复额外软件包"
+	fi
+
+	# Check actual free download space, not an arbitrary 3x RAM requirement.
+	need_kb=$((SIZE / 1024 + 8192))
+	avail_kb=$(df -Pk "$WORK" 2>/dev/null | awk 'NR == 2 {print $4}')
+	if valid_integer "$avail_kb" && [ "$avail_kb" -gt 0 ] &&
+	   [ "$avail_kb" -lt "$need_kb" ]; then
+		die "not enough free space: need ${need_kb}K, have ${avail_kb}K"
+	fi
+
+	log "正在下载固件：$LATEST"
+	fetch "$RELEASE_ASSETS/$LATEST/$IMAGE" "$WORK/$IMAGE" || die "download failed"
+	[ "$(sha256sum "$WORK/$IMAGE" | cut -d' ' -f1)" = "$SHA256" ] ||
+		{ rm -f "$WORK/$IMAGE"; die "image SHA256 mismatch"; }
+	sysupgrade -T "$WORK/$IMAGE" >/dev/null 2>&1 ||
+		{ rm -f "$WORK/$IMAGE"; die "sysupgrade rejected image"; }
+
+	mkdir -p "$STATE"
+	cp "$WORK/extras" "$STATE/packages"
+	[ -s "$STATE/packages" ] || rm -f "$STATE/packages"
+	log "开始刷写固件：$LATEST"
+	sysupgrade "$WORK/$IMAGE"
+}
+
+cmd_start() {
+	: > /tmp/ppe-update.log
+	(cmd_update "" "$1" manual </dev/null >/tmp/ppe-update.log 2>&1; echo "exit $?" >>/tmp/ppe-update.log) &
+}
+
+cmd_auto() {
+	[ "$(uci -q get ppe-update.main.auto)" = 1 ] || return 0
+	lookup ""
+	newer || return 0
+	delay=$(uci -q get ppe-update.main.delay || echo 1)
+	valid_integer "$delay" || die "invalid automatic update delay"
+	now=$(date +%s)
+	[ "$now" -ge $((LATEST_TIME + delay * 86400)) ] || return 0
+	cmd_update "$LATEST" "" auto
+}
+
+# Installs the kept list in one transaction. When that fails, each package is
+# tried on its own, with the removals beside it so a replacement can go in (pbr
+# taking ip-full for ip-tiny); what still fails stays in the list for the next
+# boot and is shown in LuCI.
+cmd_restore() {
+	[ -s "$STATE/packages" ] || return 0
+	lock -n /var/lock/ppe-update || return 0
+	# The network comes up after boot; retry for up to an hour.
+	i=0
+	until apk update >/dev/null 2>&1; do
+		i=$((i + 1))
+		[ $i -lt 120 ] || die "no package feed reachable; the list stays in $STATE/packages"
+		sleep 30
+	done
+	# shellcheck disable=SC2046
+	if apk add $(cat "$STATE/packages"); then
+		log "reinstalled: $(tr '\n' ' ' <"$STATE/packages")"
+		rm -f "$STATE/packages"
+		return 0
+	fi
+	del=$(grep '^!' "$STATE/packages")
+	: >"$WORK.left"
+	grep -v "^!" "$STATE/packages" | while read -r p; do
+		# shellcheck disable=SC2086
+		apk add $del "$p" >/dev/null 2>&1 || apk add "$p" || echo "$p" >>"$WORK.left"
+	done
+	# shellcheck disable=SC2086
+	[ -z "$del" ] || apk add $del || echo "$del" >>"$WORK.left"
+	if [ -s "$WORK.left" ]; then
+		mv "$WORK.left" "$STATE/packages"
+		die "not reinstalled: $(tr '\n' ' ' <"$STATE/packages")- the list stays in $STATE/packages"
+	fi
+	log "reinstalled: $(tr '\n' ' ' <"$STATE/packages")"
+	rm -f "$STATE/packages" "$WORK.left"
+}
+
+# Tests source the functions without starting an update.
+[ -n "$PPE_UPDATE_LIB" ] && return 0
+
+case "$1" in
+status | check | auto | restore) "cmd_$1" ;;
+update) cmd_update "" "$2" ;;
+start) cmd_start "$2" ;;
+*)
+	echo "usage: ppe-update {status|check|update|start|auto|restore}" >&2
+	exit 2
+	;;
+esac
+ || {
 		log 'invalid GitHub proxy URL (HTTPS base only)'
 		return 2
 	}
