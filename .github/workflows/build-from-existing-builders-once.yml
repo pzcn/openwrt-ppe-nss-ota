@@ -1,0 +1,33 @@
+name: Build Arthur and MX4200 firmware from existing Builders
+
+# One-off test job: never compile kernels, publish Releases or flash devices.
+on:
+  push:
+    branches: [ci/build-from-existing-builders-20261115]
+    paths:
+      - .github/workflows/build-from-existing-builders-once.yml
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  arthur:
+    name: Arthur - repack released ipq60xx Builder (no kernel compilation)
+    uses: ./.github/workflows/firmware-immortalwrt.yml
+    with:
+      builder_tag: "imm-builder-a4ba8240-d2eea368-5796d271-g5d96bd472f3d-p8d78d583-f3a7075a6-sd21482dd"
+      layer_tag: "none"
+      force_firmware: true
+      publish_release: false
+      publish_policy: "no"
+    secrets: inherit
+
+  mx4200v1:
+    name: MX4200 v1 - repack verified ipq807x ImageBuilder (no kernel compilation)
+    uses: ./.github/workflows/mx4200v1-fast-repack.yml
+    with:
+      source_run_id: "43623226982"
+      source_commit: "915c3dff6a5b10b041fc6c630c7753609e9dbcee"
+      sing_box_pre_version: ""
+    secrets: inherit
