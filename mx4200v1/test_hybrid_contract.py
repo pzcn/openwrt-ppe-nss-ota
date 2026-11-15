@@ -72,10 +72,12 @@ assert 'HYBRID_IMAGE_PROFILE' in common and 'HYBRID_REQUIRED_IMAGE_PKGS' in comm
 assert '--config "$TOOLCHAIN_TARGET"' in toolchain and 'qualcommax/ipq807x' in toolchain
 assert '"feat/mx4200v1-hybrid-builder"' in workflow
 assert "if: github.event_name != 'pull_request'" in workflow
-assert "contents: read" in workflow
+assert "contents: write" in workflow
 assert "workflow_dispatch:" in workflow
 assert "actions/upload-artifact@v4" in workflow
-assert "gh release" not in workflow and "gh workflow run" not in workflow
+assert "mx4200v1/publish-release.sh builder" in workflow
+assert "if: success() && github.ref == 'refs/heads/main'" in workflow
+assert "gh workflow run" not in workflow
 assert "schedule:" not in workflow
 assert "workflow_dispatch:" in old
 assert (root / "mx4200v1/remove.txt").read_text().lstrip().startswith("#")
