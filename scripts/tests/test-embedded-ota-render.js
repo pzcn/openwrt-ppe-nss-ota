@@ -61,8 +61,8 @@ const deps = [
 ];
 
 const load = new Function('view', 'dom', 'form', 'rpc', 'fs', 'ui', 'uci',
-  'E', 'L', source);
-const page = load(...deps);
+  'E', 'L', '_', source);
+const page = load(...deps, x => x);
 let calls = 0;
 page.otaRefresh = function() { calls++; return Promise.resolve(); };
 
