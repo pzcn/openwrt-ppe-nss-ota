@@ -31,7 +31,7 @@
 
 | 工作流 | 自动触发 | 产物 |
 | --- | --- | --- |
-| [固件打包 Firmware](../../actions/workflows/firmware-immortalwrt.yml) | `main` 的代码、LuCI、OTA、插件配置变化；每天检查一次 | 从已发布 Builder 重打包 `imm-ppe-nss-...` 固件 |
+| [固件打包 Firmware](../../actions/workflows/firmware-immortalwrt.yml) | `main` 的代码、LuCI、OTA、插件配置变化；每天检查一次 | 从已发布 Builder 重打包 `imm-arthur-SNAPSHOT2611-YYYYMMDDHHMM` 固件 |
 | [源码 Builder + SDK](../../actions/workflows/builder-immortalwrt.yml)（后备） | 仅手动触发 | 同一轮源码编译发布 `imm-builder-...` ImageBuilder、匹配 SDK 和 feed 锁定文件 |
 | [Hybrid Builder](../../actions/workflows/builder-immortalwrt-hybrid.yml)（默认） | 每天检查；`add.txt` 等改动推送时 | 内核侧不变时只替换官方 APK（不编译，约 10 分钟）；PPE/内核侧变化时只编内核、kmod 和定制包。新内核以 prerelease 发布，见 [docs/HYBRID-BUILDER.md](docs/HYBRID-BUILDER.md) |
 
@@ -58,7 +58,7 @@ Hybrid Builder 每天先用几十秒判断：无变化跳过；只有官方用�
 - **p18 / rootfs**：SquashFS + F2FS `rootfs_data`。
 - **p27**：已有 ext4 数据分区。固件使用 ImmortalWrt 自身挂载逻辑，无专用 extroot 或自动格式化配置。
 
-升级之前请导出配置并备份重要数据。首次从旧固件升级，建议手动选择正确的 `imm-ppe-nss-...` 镜像并确认分区状态。
+升级之前请导出配置并备份重要数据。首次从旧固件升级，建议手动选择正确的 `imm-arthur-SNAPSHOT2611-YYYYMMDDHHMM` 镜像并确认分区状态。
 
 ```sh
 df -h /overlay
