@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory() as d:
         "available=true", f"tag={tag}", f"source_commit={source_sha}"
     ], contents
     assert git.call_count == 2
-    assert all(args[0][0] == "git" for args in git.call_args_list)
+    assert all(call.args[0][0] == "git" for call in git.call_args_list)
     assert all(args[0][0] == "gh" for args in calls)
 
     # No Builder is available. Pushes are skipped, NEVER auto-compile.
