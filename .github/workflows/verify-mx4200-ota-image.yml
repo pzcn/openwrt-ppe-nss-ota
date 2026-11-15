@@ -1,0 +1,50 @@
+name: Inspect MX4200 LuCI OTA files in previously published firmware
+
+on:
+  push:
+    branches: [fix/mx4200-luci-ota-visibility]
+    paths:
+      - .github/workflows/verify-mx4200-ota-image.yml
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: mx4200v1-fast-repacked-firmware-test
+          run-id: 43699585527
+          github-token: ${{ github.token }}
+          path: parent
+      - name: Inspect original built squashfs
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq squashfs-tools
+          mkdir -p unpack
+          tar -xf parent/*-sysupgrade.bin -C unpack
+          root="$(find unpack -type f -name root -print -quit)"
+          test -s "$root"
+          echo "ROOTFS: $(file "$root")"
+          echo "==== OTA FILES PRESENT IN THE ACTUAL ROOTFS ===="
+          unsquashfs -ll "$root" | grep -Ei 'ppe-update|flash.js|online.?upgrade|menu.d' | tail -n 55 || true
+          for file in \
+            www/luci-static/resources/view/system/flash.js \
+            usr/sbin/ppe-update \
+            etc/immortal-ppe-ota-release \
+            etc/config/ppe-update \
+            etc/uci-defaults/99-remove-ppe-update \
+            usr/share/luci/menu.d/luci-app-ppe-update.json; do
+            echo "==== $file ===="
+            if unsquashfs -cat "$root" "$file" > /tmp/ota-check-file 2>/dev/null; then
+              wc -c /tmp/ota-check-file
+              grep -nE '在线固件更新|mx4200v1|OTA_CHANNEL|remove-ppe-update|admin/system' /tmp/ota-check-file | head -n 12 || true
+            else
+              echo "MISSING"
+            fi
+          done
