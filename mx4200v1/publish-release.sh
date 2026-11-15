@@ -132,7 +132,20 @@ NOTES="$NOTES
 
 Published at: $RELEASE_UTC / $RELEASE_CN
 GitHub created_at denotes the tag commit time; published_at is the actual release time."
-gh release create "$TAG" -R "$REPO" --prerelease --latest=false \
+release_flags=(--prerelease --latest=false)
+if [[ "$KIND" == firmware && "${MX_RELEASE_STABLE:-false}" == true ]]; then
+  # Only the explicitly marked stable publication from main can reach
+  # device-scoped OTA. Retain all image, trailer, and SHA256 gates above.
+  [[ "${GITHUB_EVENT_NAME:-}" == push &&
+     "${GITHUB_REF:-}" == refs/heads/main &&
+     "${GITHUB_EVENT_RELEASE_MARKER:-}" == release-snapshot-20261115 ]] || {
+    echo "::error::Stable MX release requires the one-time marked main push"; exit 1;
+  }
+  release_flags=(--latest=false)
+  TITLE="MX4200 v1 ImmortalWrt PPE+NSS (stable)"
+  NOTES="Official MX4200 v1 OTA firmware, CI-verified with device-specific metadata and SHA256; new hardware acceptance and recovery testing remain recommended. Automatic OTA is disabled by default."
+fi
+gh release create "$TAG" -R "$REPO" "${release_flags[@]}" \
   --target "${GITHUB_SHA:-$(git -C "$ROOT" rev-parse HEAD)}" \
   --title "$TITLE" --notes "$NOTES" "${files[@]}"
 echo "Published MX4200 $KIND as safe prerelease $TAG"
