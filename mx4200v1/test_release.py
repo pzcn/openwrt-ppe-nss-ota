@@ -56,6 +56,7 @@ with tempfile.TemporaryDirectory(prefix="mx4200-release-test-") as temp:
         "schema": 1, "target": "qualcommax/ipq807x",
         "profile": "linksys_mx4200v1",
         "identity": "a" * 64, "kernel_identity": "b" * 64,
+        "source_commit": "e" * 40,
         "immortalwrt_commit": "c" * 40, "ppe_nss_commit": "d" * 40,
         "hardware_tested": False, "publishable": False,
         "imagebuilder": ib, "sdk": sdk,
