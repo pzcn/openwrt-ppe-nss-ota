@@ -47,8 +47,8 @@ github_proxy_base() {
 	custom) base="$(uci -q get ppe-update.main.github_proxy_url 2>/dev/null)" || base='' ;;
 	*) log 'invalid GitHub proxy selection'; return 2 ;;
 	esac
-	base="\${base%/}"
-	[ "\${#base}" -le 200 ] &&
+	base="${base%/}"
+	[ "${#base}" -le 200 ] &&
 		printf '%s\n' "$base" |
 			grep -Eq '^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?(/[A-Za-z0-9._~!$&()+,;=:%-]*)?$' || {
 		log 'invalid GitHub proxy URL (HTTPS base only)'
