@@ -80,7 +80,7 @@ jobs:
           set -Eeuo pipefail
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
-            jq zstd rsync make file python3 gawk
+            jq zstd rsync make file python3 gawk squashfs-tools
       - name: Download immutable matching MX Hybrid ImageBuilder
         uses: actions/download-artifact@v4
         with:

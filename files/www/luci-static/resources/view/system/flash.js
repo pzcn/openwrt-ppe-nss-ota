@@ -701,7 +701,7 @@ return view.extend({
 
 		o = ss.option(form.DummyValue, 'online_upgrade_status', '在线更新状态');
 		o.renderWidget = L.bind(function() {
-			this._otaInfo = E('div', '准备检查…');
+			this._otaInfo = E('div', { 'id': 'native-ota-panel' }, '准备检查…');
 			return this._otaInfo;
 		}, this);
 
@@ -756,6 +756,15 @@ return view.extend({
 		return m.render().then(L.bind(function(node) {
 			// The GitHub request is async, never blocks backup/flash rendering.
 			this.otaRefresh();
+			// The System > 在线固件更新 shortcut shares this native flash
+			// view. Focus OTA rather than showing backup controls first.
+			if (/(?:^|\/)online-upgrade\/?$/.test(window.location.pathname)) {
+				window.requestAnimationFrame(function() {
+					const panel = document.getElementById('native-ota-panel');
+					if (panel)
+						panel.scrollIntoView({ block: 'center' });
+				});
+			}
 			return node;
 		}, this));
 	},

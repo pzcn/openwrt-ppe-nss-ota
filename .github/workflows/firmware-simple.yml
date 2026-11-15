@@ -65,7 +65,7 @@ jobs:
         if: steps.builder.outputs.available == 'true'
         run: |
           sudo apt-get update -qq
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq zstd rsync make file python3 gawk
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends jq zstd rsync make file python3 gawk squashfs-tools
       - name: Download immutable Builder assets
         if: steps.builder.outputs.available == 'true'
         env:
