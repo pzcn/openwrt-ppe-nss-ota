@@ -24,7 +24,7 @@ BUILDER_TAG="$(jq -er '.tag' "$META")"
 SOURCE_REV="$(git -C "$ROOT" rev-parse --short=8 HEAD)"
 BUILD_NUMBER="${OTA_BUILD_EPOCH:-$(date -u +%s)}"
 [[ "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "::error::Invalid OTA build epoch"; exit 1; }
-TAG="$(python3 "$ROOT/scripts/ota_version.py" arthur "$BUILD_NUMBER")"
+TAG="$(python3 "$ROOT/scripts/ota_version.py" arthur "$BUILD_NUMBER" --builder-metadata "$META")"
 IMAGE="immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
 MANIFEST="immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest"
 
