@@ -1,6 +1,6 @@
-name: Release Arthur and MX4200 firmware (verified Builder repack)
+name: Publish MX4200 v1 verified firmware (retry release only)
 
-# One-shot publication; remove this workflow after both releases succeed.
+# Reuse completed images from the successful build. No new Builder or repack.
 on:
   push:
     branches: [main]
@@ -12,50 +12,26 @@ permissions:
   actions: read
 
 jobs:
-  arthur:
-    name: Arthur - repack and publish PRE-release
-    uses: ./.github/workflows/firmware-immortalwrt.yml
-    with:
-      builder_tag: "imm-builder-a4ba8240-d2eea368-5796d271-g5d96bd472f3d-p8d78d583-f3a7075a6-sd21482dd"
-      layer_tag: "none"
-      force_firmware: true
-      publish_release: true
-      publish_policy: "preview"
-    secrets: inherit
-
-  mx4200v1:
-    name: MX4200 v1 - repack existing ImageBuilder
-    uses: ./.github/workflows/mx4200v1-fast-repack.yml
-    with:
-      source_run_id: "43623226982"
-      source_commit: "915c3dff6a5b10b041fc6c630c7753609e9dbcee"
-      sing_box_pre_version: ""
-    secrets: inherit
-
   release-mx4200v1:
-    name: MX4200 v1 - verify and publish PRE-release
-    needs: mx4200v1
-    if: needs.mx4200v1.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    permissions:
-      contents: write
-      actions: read
     env:
-      GH_TOKEN: \${{ github.token }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: mx4200v1-fast-repacked-firmware-test
+          run-id: 43699585527
+          github-token: ${{ github.token }}
           path: out-mx4200v1-fast-repack
       - name: Install verification dependency
         run: |
           sudo apt-get update -qq
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq jq
-      - name: Verify MX4200 images and metadata
-        run: |
-          set -Eeuo pipefail
-          MX_VERIFY_ONLY=true bash mx4200v1/publish-release.sh firmware out-mx4200v1-fast-repack
-      - name: Publish isolated MX4200 prerelease
+      - name: Verify MX4200 images, sysupgrade metadata, and SHA256
+        run: MX_VERIFY_ONLY=true bash mx4200v1/publish-release.sh firmware out-mx4200v1-fast-repack
+      - name: Publish only the already-built MX4200 prerelease
+        env:
+          GITHUB_SHA: "30543538d969decb5bd4b8f6ca3e691428eba58f"
         run: bash mx4200v1/publish-release.sh firmware out-mx4200v1-fast-repack
