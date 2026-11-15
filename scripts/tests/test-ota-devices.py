@@ -122,11 +122,7 @@ with tempfile.TemporaryDirectory() as d:
     assert "MX4200 v1 PPE+NSS" in (
         staging / "www/luci-static/resources/view/system/flash.js").read_text()
     assert (staging / "usr/share/rpcd/acl.d/luci-app-ppe-update.json").is_file()
-    menu = json.loads((staging / "usr/share/luci/menu.d/luci-app-pzcn-ota.json").read_text())
-    assert menu["admin/system/online-upgrade"]["title"] == "在线固件更新"
-    assert menu["admin/system/online-upgrade"]["action"] == {
-        "type": "alias", "path": "admin/system/flash"
-    }
+    assert not (staging / "usr/share/luci/menu.d/luci-app-pzcn-ota.json").exists()
     assert (staging / "etc/uci-defaults/98-mx4200v1-ota-manual-default").is_file()
     assert "auto='0'" in (
         staging / "etc/uci-defaults/98-mx4200v1-ota-manual-default").read_text()
