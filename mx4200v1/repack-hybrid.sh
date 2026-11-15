@@ -146,6 +146,30 @@ jq -e '
   echo "::error::Invalid OpenWrt sysupgrade metadata for MX4200 v1"; exit 1;
 }
 
+# Check the FINAL packaged squashfs, not only staged overlay sources:
+# an absent LuCI menu can otherwise pass all metadata and package checks.
+command -v unsquashfs >/dev/null 2>&1 || {
+  echo "::error::Install squashfs-tools to verify the actual OTA UI" >&2; exit 1;
+}
+ROOTFS="$WORK/repacked-root.squashfs"
+tar -xOf "$OUT/$(basename "$SYSUPGRADE")" \
+  sysupgrade-linksys_mx4200v1/root > "$ROOTFS"
+[[ -s "$ROOTFS" ]] || { echo "::error::Firmware has no root squashfs"; exit 1; }
+ota_rootfs_file() {
+  local path="$1" expected="$2" extracted="$WORK/ota-rootfs-file"
+  if ! unsquashfs -cat "$ROOTFS" "$path" > "$extracted" 2>/dev/null; then
+    echo "::error::Firmware is missing OTA file: $path" >&2; exit 1;
+  fi
+  if ! grep -Fq "$expected" "$extracted"; then
+    echo "::error::OTA content mismatch in squashfs: $path" >&2; exit 1;
+  fi
+}
+ota_rootfs_file usr/share/luci/menu.d/luci-app-pzcn-ota.json '"admin/system/online-upgrade"'
+ota_rootfs_file www/luci-static/resources/view/system/flash.js "online_upgrade_status"
+ota_rootfs_file usr/sbin/ppe-update "mx4200v1-immortal-ppe-nss"
+ota_rootfs_file etc/immortal-ppe-ota-release "OTA_CHANNEL=mx4200v1-immortal-ppe-nss"
+echo "MX4200 image verified: custom LuCI OTA menu, view, backend and channel"
+
 for required in kmod-nss-wifi-drv qca-ppe-qos ppe-help luci-app-qca-ppe-qos \
     luci-theme-aurora sqm-scripts autocore luci-app-sing-box sing-box \
     kmod-inet-diag kmod-tun; do
