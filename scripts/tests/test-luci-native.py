@@ -101,14 +101,15 @@ assert "'当前已是最新版本'" in flash
 assert "'当前已是最新版本。'" not in flash
 assert "this._otaInstallButton.disabled = isReadonlyView || st.update !== true;" in flash
 assert "this._otaInstallButton.disabled = true;" in flash
-assert "return this._otaInstallButton;" in flash
+assert "this._otaInstallButton = E('button'" in flash
 assert "'click': ui.createHandlerFn(this, 'otaAskInstall')" in flash
 assert "L.url('admin/system/ppe-update')" not in flash
 assert not (overlay / "usr/share/luci/menu.d/luci-app-ppe-update.json").exists()
-ota_shortcut = json.loads((overlay / "usr/share/luci/menu.d/luci-app-pzcn-ota.json").read_text())
-assert ota_shortcut["admin/system/online-upgrade"]["action"]["path"] == "admin/system/flash"
-assert "native-ota-panel" in flash
-assert "scrollIntoView({ block: 'center' })" in flash
+assert "renderOTAPanel()" in flash
+assert "actions.appendChild(this.renderOTAPanel())" in flash
+assert "pzcn-integrated-ota" in flash
+assert "s.option(form.SectionValue, 'online_upgrade'" not in flash
+assert not (overlay / "usr/share/luci/menu.d/luci-app-pzcn-ota.json").exists()
 assert "c.login_url !== target.login" in campus.read_text()
 assert "reject: true" in campus.read_text()
 assert campus.read_text().count("reject: true") == 7
