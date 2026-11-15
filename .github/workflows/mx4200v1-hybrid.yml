@@ -56,6 +56,7 @@ jobs:
           python3 mx4200v1/test_release.py
           python3 mx4200v1/test_release_resolver.py
           python3 scripts/tests/test-ota-devices.py
+          node scripts/tests/test-embedded-ota-render.js
           python3 scripts/tests/test-hybrid-snapshot.py
           python3 scripts/tests/test-hybrid-builder.py
           python3 scripts/tests/test-fit-configs.py
