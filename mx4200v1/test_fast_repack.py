@@ -15,7 +15,7 @@ must = (
     "make -s -C \"$IB\" manifest", '\"$FWTOOL\" -i \"$FW_META\"',
     'index("linksys,mx4200v1")', "local-apks.txt", "sha256sum -c sha256sums",
     'publishable:false', 'hardware_tested:false',
-    "unsquashfs -cat", "luci-app-pzcn-ota.json",
+    "unsquashfs -cat", "pzcn-integrated-ota",
     "OTA_CHANNEL=mx4200v1-immortal-ppe-nss",
 )
 for value in must:
