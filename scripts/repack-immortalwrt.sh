@@ -22,8 +22,9 @@ IMM_SHA="$(jq -er '.immortalwrt_commit' "$META")"
 PPE_SHA="$(jq -er '.ppe_nss_commit' "$META")"
 BUILDER_TAG="$(jq -er '.tag' "$META")"
 SOURCE_REV="$(git -C "$ROOT" rev-parse --short=8 HEAD)"
-BUILD_NUMBER="$(date -u +%s)"
-TAG="imm-ppe-nss-${IMM_SHA:0:8}-${PPE_SHA:0:8}-g${SOURCE_REV}-b$BUILD_NUMBER"
+BUILD_NUMBER="${OTA_BUILD_EPOCH:-$(date -u +%s)}"
+[[ "$BUILD_NUMBER" =~ ^[1-9][0-9]*$ ]] || { echo "::error::Invalid OTA build epoch"; exit 1; }
+TAG="$(python3 "$ROOT/scripts/ota_version.py" arthur "$BUILD_NUMBER")"
 IMAGE="immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
 MANIFEST="immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest"
 
