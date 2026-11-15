@@ -83,12 +83,14 @@ jobs:
           python3 scripts/tests/test-luci-native.py
           node scripts/tests/test-luci-autocheckboxes.js
           node scripts/tests/test-embedded-ota-render.js
+          node scripts/tests/test-ota-proxy-ui.js
           node scripts/tests/test-ppe-nss-monitor.js
           python3 scripts/tests/test-ppe-nss-telemetry.py
           node scripts/tests/test-drcom-rpc.js
           python3 scripts/tests/test-drcom.py
           python3 scripts/tests/test-extra-apps.py
           python3 scripts/tests/test-immortalwrt-ota.py
+          python3 scripts/tests/test-ota-github-proxy.py
           python3 scripts/tests/test-ota-devices.py
           python3 scripts/tests/test-luci-cache-identity.py
           python3 scripts/tests/test-sing-box-pre.py

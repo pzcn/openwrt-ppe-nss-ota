@@ -62,6 +62,10 @@ jobs:
         run: python3 scripts/tests/test-luci-cache-identity.py
       - name: Verify native Backup/Flash OTA rendering
         run: node scripts/tests/test-embedded-ota-render.js
+      - name: Validate GitHub proxy transport and LuCI settings
+        run: |
+          python3 scripts/tests/test-ota-github-proxy.py
+          node scripts/tests/test-ota-proxy-ui.js
       - name: Check prerelease Builder and exact source compatibility
         id: builder
         run: python3 mx4200v1/resolve-release.py

@@ -32,10 +32,6 @@ install -D -m 0644 "$ROOT/files/usr/share/rpcd/acl.d/luci-app-ppe-update.json" \
 install -D -m 0644 "$ROOT/files/www/luci-static/resources/view/system/flash.js" \
   "$DEST/www/luci-static/resources/view/system/flash.js"
 
-# The native LuCI backup/flash page includes OTA; only update its static label.
-sed -i 's/RE-SS-01 PPE+NSS/MX4200 v1 PPE+NSS/g' \
-  "$DEST/www/luci-static/resources/view/system/flash.js"
-
 # OTA is embedded in System > Backup / Flash, never a separate menu.
 rm -f -- "$DEST/www/luci-static/resources/view/system/ppe-update.js" \
   "$DEST/usr/share/luci/menu.d/luci-app-ppe-update.json" \

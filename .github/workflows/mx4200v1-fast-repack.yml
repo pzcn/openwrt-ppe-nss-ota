@@ -60,6 +60,7 @@ jobs:
           python3 mx4200v1/test_contract.py
           python3 mx4200v1/test_hybrid_contract.py
           python3 scripts/tests/test-ota-devices.py
+          python3 scripts/tests/test-ota-github-proxy.py
           python3 scripts/tests/test-sing-box-pre.py
 
   repack:

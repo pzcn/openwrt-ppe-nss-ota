@@ -140,18 +140,20 @@ async function testOta() {
 	const box = only(elements, n => n.tag === 'input' && n.attributes.type === 'checkbox');
 	assert.equal(box.checked, false, 'OTA disabled in UCI must render unchecked');
 	assert(elements.some(n => n.children === '启用自动更新'), 'OTA label not updated');
-	let options = elements.filter(n => n.tag === 'option');
+	const hour = only(elements, n => n.tag === 'select' &&
+		Array.isArray(n.children) && n.children.some(opt => opt.value === '9'));
+	const options = hour.children;
 	assert.equal(options.filter(n => n.selected).length, 1, 'only one check hour may be selected');
 	assert.equal(options.find(n => n.selected).value, '9');
 
-	const button = only(elements, n => n.tag === 'button' && n.children === '保存自动更新设置');
+	const button = only(elements, n => n.tag === 'button' && n.children === '保存设置');
 	box.checked = true;
 	await button.attributes.click();
 	assert.equal(store.auto, '1');
 	assert.equal(store.hour, '9');
 	assert.equal(store.delay, '2');
 	assert.deepEqual(events, ['save', 'commit', 'unload', 'load']);
-	assert(notices.some(n => n.text === '自动更新设置已保存'));
+	assert(notices.some(n => n.text === '设置已保存'));
 	assert.equal(makeView(file, store).methods.otaScheduleWidget !== undefined, true);
 	const afterEnable = makeView(file, store);
 	afterEnable.methods.otaScheduleWidget();
@@ -171,7 +173,7 @@ async function testOta() {
 	await button.attributes.click();
 	assert.equal(events.filter(x => x === 'commit').length, 3);
 	assert.equal(notices.length, count + 1);
-	assert.equal(notices.at(-1).text, '自动更新设置已保存');
+	assert.equal(notices.at(-1).text, '设置已保存');
 
 	// A rejected UCI commit must not be reported as a successful save.
 	const failed = makeView(file, store, { failCommit: true });
@@ -179,11 +181,11 @@ async function testOta() {
 	failed.methods.otaScheduleWidget();
 	const failedBox = only(failed.elements, n => n.tag === 'input' && n.attributes.type === 'checkbox');
 	failedBox.checked = true;
-	const failedButton = only(failed.elements, n => n.tag === 'button' && n.children === '保存自动更新设置');
+	const failedButton = only(failed.elements, n => n.tag === 'button' && n.children === '保存设置');
 	await failedButton.attributes.click();
 	assert.equal(store.auto, '0');
 	assert(failed.notices.some(n => n.level === 'error' && n.text.includes('UCI commit failed')));
-	assert(!failed.notices.some(n => n.text === '自动更新设置已保存'));
+	assert(!failed.notices.some(n => n.text === '设置已保存'));
 
 	// RPC returns success but an altered/missing persisted setting is detected.
 	const corrupted = makeView(file, store, { skipPersistence: true });
@@ -191,7 +193,7 @@ async function testOta() {
 	corrupted.methods.otaScheduleWidget();
 	const badBox = only(corrupted.elements, n => n.tag === 'input' && n.attributes.type === 'checkbox');
 	badBox.checked = true;
-	const badButton = only(corrupted.elements, n => n.tag === 'button' && n.children === '保存自动更新设置');
+	const badButton = only(corrupted.elements, n => n.tag === 'button' && n.children === '保存设置');
 	await badButton.attributes.click();
 	assert.equal(store.auto, '0');
 	assert(corrupted.notices.some(n => n.level === 'error' && n.text.includes('保存后的配置与填写内容不一致')));
@@ -200,9 +202,9 @@ async function testOta() {
 	const unavailable = makeView(file, store);
 	unavailable.methods.otaRefresh = async () => { throw Error('GitHub unavailable'); };
 	unavailable.methods.otaScheduleWidget();
-	const offlineSave = only(unavailable.elements, n => n.tag === 'button' && n.children === '保存自动更新设置');
+	const offlineSave = only(unavailable.elements, n => n.tag === 'button' && n.children === '保存设置');
 	await offlineSave.attributes.click();
-	assert(unavailable.notices.some(n => n.text === '自动更新设置已保存'));
+	assert(unavailable.notices.some(n => n.text === '设置已保存'));
 	assert(!unavailable.notices.some(n => n.level === 'error'));
 }
 
