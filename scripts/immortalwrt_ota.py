@@ -62,6 +62,48 @@ def replace_once(source: str, before: str, after: str) -> str:
     return source.replace(before, after)
 
 
+
+def fingerprint_flash_view(overlay: Path, build: int) -> str:
+    """Change the *module URL*, not just the OTA release tag.
+
+    LuCI caches modules at module.js?v=<luci-base-pkg-version>. That query is
+    unchanged when only the ImageBuilder FILES overlay changes. A stock
+    flash.js may therefore stay cached after flashing new custom firmware.
+    Keep the original route admin/system/flash and redirect its view action
+    to a build- and content-fingerprinted copy using a late menu.d override.
+    """
+    if not isinstance(build, int) or build < 1:
+        raise ValueError("Invalid OTA build number for LuCI cache identity")
+    directory = overlay / "www/luci-static/resources/view/system"
+    original = directory / "flash.js"
+    if not original.is_file():
+        raise ValueError(f"Missing customized LuCI flash view: {original}")
+
+    content = original.read_bytes()
+    digest = hashlib.sha256(content).hexdigest()[:16]
+    module = f"system/flash-ota-b{build}-{digest}"
+    target = directory / f"{module.split('/')[-1]}.js"
+
+    # Avoid leaving stale copies in the ImageBuilder FILES overlay, without
+    # ever removing the stock flash.js (fallback/debugging).
+    for older in directory.glob("flash-ota-b*.js"):
+        older.unlink()
+    target.write_bytes(content)
+
+    menu = overlay / "usr/share/luci/menu.d/zzzz-ota-flash-cache.json"
+    menu.parent.mkdir(parents=True, exist_ok=True)
+    # LuCI dispatcher merges menu.d entries in filename order. This late file
+    # overrides ONLY the existing admin/system/flash action. It creates no
+    # extra menu entry, retains the original ACL and keeps the original URL.
+    menu.write_text(json.dumps({
+        "admin/system/flash": {
+            "action": {"type": "view", "path": module},
+            "depends": {"acl": ["luci-mod-system-flash"]}
+        }
+    }, ensure_ascii=False, indent=2) + "\n")
+    return module
+
+
 def prepare(overlay: Path, tag: str, build: int, device: str = "arthur") -> None:
     spec = device_spec(device)
     if not TAG_PATTERN.fullmatch(tag) or not tag.startswith(spec["tag_prefix"]) or build < 1:
@@ -116,6 +158,7 @@ LATEST=$(jq -r --arg image "$EXPECTED_IMAGE" --arg manifest "$EXPECTED_MANIFEST"
         f"OTA_BUILD={build}\n"
         f"OTA_CHANNEL={shlex.quote(spec['channel'])}\n"
     )
+    fingerprint_flash_view(overlay, build)
 
 
 def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,

@@ -90,6 +90,7 @@ jobs:
           python3 scripts/tests/test-extra-apps.py
           python3 scripts/tests/test-immortalwrt-ota.py
           python3 scripts/tests/test-ota-devices.py
+          python3 scripts/tests/test-luci-cache-identity.py
           python3 scripts/tests/test-sing-box-pre.py
           python3 scripts/tests/test-firmware-inputs.py
           python3 scripts/tests/test-hybrid-layer.py

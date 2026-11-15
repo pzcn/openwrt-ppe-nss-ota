@@ -98,6 +98,14 @@ python3 "$ROOT/scripts/build_luci_i18n.py" \
   --output "$I18N_DIR/ppe-update.zh-cn.lmo" --min-entries 2
 python3 "$ROOT/scripts/immortalwrt_ota.py" prepare \
   --overlay "$WORK/overlay" --tag "$TAG" --build "$BUILD_NUMBER"
+# The same source OTA view is served at a new module URL on each image.
+# A stale browser cache of stock flash.js must never shadow the new UI.
+FLASH_MENU="$WORK/overlay/usr/share/luci/menu.d/zzzz-ota-flash-cache.json"
+FLASH_MODULE="$(jq -er '."admin/system/flash".action.path' "$FLASH_MENU")"
+[[ "$FLASH_MODULE" =~ ^system/flash-ota-b[0-9]+-[a-f0-9]{16}$ ]] || {
+  echo "::error::Invalid custom LuCI Flash module path"; exit 1;
+}
+test -s "$WORK/overlay/www/luci-static/resources/view/${FLASH_MODULE}.js"
 for script in \
   "$WORK/overlay/usr/sbin/ppe-update" \
   "$WORK/overlay/etc/init.d/ppe-update"; do
