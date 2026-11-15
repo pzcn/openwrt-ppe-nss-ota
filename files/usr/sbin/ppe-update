@@ -33,9 +33,32 @@ die() { log "$*"; exit 2; }
 # Release assets redirect through a different host than api.github.com.
 # If uclient-fetch cannot follow that HTTPS chain, retry with curl. Do not
 # conflate failed download with a missing/mismatched device or OTA channel.
-fetch() {
-	url="$1"
-	dest="$2"
+
+# Prefix-style proxies accept BASE/https://github.com/owner/repo/...
+# Status requests prefer the official API (mirrors may reject api.github.com).
+github_proxy_base() {
+	local mode base
+	mode="$(uci -q get ppe-update.main.github_proxy 2>/dev/null)" || mode='direct'
+	case "$mode" in
+	''|direct) return 1 ;;
+	ghfast) base='https://ghfast.top' ;;
+	ghproxy) base='https://ghproxy.net' ;;
+	gh_proxy) base='https://gh-proxy.com' ;;
+	custom) base="$(uci -q get ppe-update.main.github_proxy_url 2>/dev/null)" || base='' ;;
+	*) log 'invalid GitHub proxy selection'; return 2 ;;
+	esac
+	base="\${base%/}"
+	[ "\${#base}" -le 200 ] &&
+		printf '%s\n' "$base" |
+			grep -Eq '^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?(/[A-Za-z0-9._~!$&()+,;=:%-]*)?$' || {
+		log 'invalid GitHub proxy URL (HTTPS base only)'
+		return 2
+	}
+	printf '%s\n' "$base"
+}
+
+fetch_once() {
+	local url="$1" dest="$2"
 	rm -f "$dest"
 	if uclient-fetch -q -T 30 -O "$dest" "$url" 2>>"$WORK/fetch-error.log" &&
 		[ -s "$dest" ]; then
@@ -49,6 +72,30 @@ fetch() {
 		return 0
 	fi
 	rm -f "$dest"
+	return 1
+}
+
+fetch() {
+	local url="$1" dest="$2" base='' result=0
+	base="$(github_proxy_base)" || result=$?
+	[ "$result" -ne 2 ] || return 1
+	case "$url" in
+	https://api.github.com/*)
+		fetch_once "$url" "$dest" && return 0
+		if [ -n "$base" ]; then
+			fetch_once "$base/$url" "$dest" && return 0
+		fi
+		;;
+	https://github.com/*)
+		if [ -n "$base" ]; then
+			fetch_once "$base/$url" "$dest" && return 0
+		fi
+		fetch_once "$url" "$dest" && return 0
+		;;
+	*)
+		fetch_once "$url" "$dest" && return 0
+		;;
+	esac
 	return 1
 }
 
@@ -182,19 +229,19 @@ cmd_status() {
 	# Error messages below are fixed strings so that the RPC reply stays
 	# valid JSON even when GitHub returns unexpected content.
 	if grep -Fq 'no ImmortalWrt firmware release' "$WORK/status-error.log"; then
-		reason='当前尚未发布 ImmortalWrt 固件（已有 Builder 不等于已有固件）'
+		reason='暂无可用固件'
 	elif grep -Fq 'cannot reach custom GitHub Releases API' "$WORK/status-error.log"; then
-		reason='无法访问 GitHub Releases API，请检查路由器网络或 DNS'
+		reason='GitHub API 连接失败'
 	elif grep -Eq 'invalid GitHub Releases API response|failed to parse GitHub firmware release index' "$WORK/status-error.log"; then
-		reason='GitHub Releases API 返回数据异常（可能是访问限制）'
+		reason='GitHub API 响应异常'
 	elif grep -Fq 'failed to fetch latest OTA metadata asset from GitHub' "$WORK/status-error.log"; then
-		reason='GitHub Release 附件 ota.json 下载失败（网络、TLS 或重定向）'
+		reason='更新信息下载失败'
 	elif grep -Fq 'custom release package manifest is missing' "$WORK/status-error.log"; then
-		reason='GitHub Release 附件 manifest 下载失败（网络或资源不可用）'
+		reason='软件包清单下载失败'
 	elif grep -Eq 'metadata|checksum|not on the expected channel|unexpected firmware|missing local firmware|board or PPE group mismatch' "$WORK/status-error.log"; then
-		reason='更新渠道、设备或固件元数据不匹配'
+		reason='固件信息或设备不匹配'
 	else
-		reason='固件检查失败，请通过 SSH 执行 ppe-update check 查看原因'
+		reason='检查失败，请运行 ppe-update check'
 	fi
 	printf '{"board":"%s","current":"%s","group":"%s","error":"%s","pending":"%s","auto":"%s","source":"%s"}\n' \
 		"$BOARD" "$OTA_TAG" "$GROUP" "$reason" "$pending" "$auto" "GitHub Releases"
