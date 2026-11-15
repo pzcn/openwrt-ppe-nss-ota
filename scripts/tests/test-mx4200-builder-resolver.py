@@ -66,6 +66,50 @@ for invalid_run in [
     assert resolver.choose_parent(
         [invalid_run], lambda _: artifacts(), lambda _: True) is None
 
+# Regression for actual main run #43623226982: GitHub's umbrella run was
+# marked failure, yet the MX4200 full-build job passed and all three verified
+# Builder/firmware/diagnostic artifacts were uploaded. This is safe to reuse.
+failed_parent = run(43623226982, sha3, conclusion="failure")
+valid_mx_jobs = {"jobs": [{
+    "name": "MX4200 v1 - full PPE/NSS Builder + OTA factory/sysupgrade / "
+            "Build ipq807x PPE/NSS and test MX4200 v1 factory/sysupgrade",
+    "status": "completed", "conclusion": "success",
+}]}
+assert resolver.completed_mx_build(valid_mx_jobs)
+selected = resolver.choose_parent(
+    [failed_parent], lambda _: artifacts(), lambda _: True,
+    lambda _: valid_mx_jobs)
+assert selected == (43623226982, sha3), selected
+for bad_jobs in [
+    {"jobs": [{"name": valid_mx_jobs["jobs"][0]["name"],
+               "status": "completed", "conclusion": "failure"}]},
+    {"jobs": [{"name": "Arthur - isolated OTA firmware",
+               "status": "completed", "conclusion": "success"}]},
+    {"jobs": []},
+]:
+    assert not resolver.completed_mx_build(bad_jobs)
+    assert resolver.choose_parent(
+        [failed_parent], lambda _: artifacts(), lambda _: True,
+        lambda _: bad_jobs) is None
+# Even when parent passed its own build, never accept an expired artifact.
+assert resolver.choose_parent(
+    [failed_parent], lambda _: artifacts(expired=True), lambda _: True,
+    lambda _: valid_mx_jobs) is None
+# A cancelled/incomplete run cannot be reused, irrespective of its jobs.
+assert resolver.choose_parent(
+    [run(501, sha1, status="completed", conclusion="cancelled")],
+    lambda _: artifacts(), lambda _: True,
+    lambda _: valid_mx_jobs) is None
+
+with patch.object(resolver, "github_json", side_effect=lambda repo, ep:
+                  {"workflow_runs": [failed_parent]} if "runs?" in ep else
+                  valid_mx_jobs if "/jobs?" in ep else artifacts()), \
+     patch.object(resolver, "compatible_source", return_value=True):
+    result = resolver.resolve("pzcn/openwrt-ppe-nss-ota", "auto", 1)
+    assert result["mode"] == "repack", result
+    assert result["parent_run"] == "43623226982"
+    assert result["parent_sha"] == sha3
+
 # No compatible parent: full MX Builder instead of trying outdated artifacts.
 with patch.object(resolver, "github_json", return_value={"workflow_runs": [old]}), \
      patch.object(resolver, "compatible_source", return_value=False):
