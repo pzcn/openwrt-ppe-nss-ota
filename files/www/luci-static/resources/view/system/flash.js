@@ -758,7 +758,7 @@ return view.extend({
 			this.otaRefresh();
 			// The System > 在线固件更新 shortcut shares this native flash
 			// view. Focus OTA rather than showing backup controls first.
-			if (/(?:^|\\/)online-upgrade\\/?$/.test(window.location.pathname)) {
+			if (/(?:^|\/)online-upgrade\/?$/.test(window.location.pathname)) {
 				window.requestAnimationFrame(function() {
 					const panel = document.getElementById('pzcn-ota-panel');
 					if (panel)
