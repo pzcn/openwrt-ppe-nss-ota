@@ -21,6 +21,9 @@ def prepare_sample(root: Path, device: str):
     image = root / "overlay"
     (image / "usr/sbin").mkdir(parents=True)
     (image / "usr/sbin/ppe-update").write_text(source)
+    flash = image / "www/luci-static/resources/view/system/flash.js"
+    flash.parent.mkdir(parents=True)
+    flash.write_bytes((ROOT / "files/www/luci-static/resources/view/system/flash.js").read_bytes())
     name = ota.DEVICES[device]["tag_prefix"] + "test-1"
     ota.prepare(image, name, 12345, device=device)
     return image, name
@@ -48,6 +51,12 @@ with tempfile.TemporaryDirectory() as d:
         rel = (arthur if device == "arthur" else mx) / "etc/immortal-ppe-ota-release"
         assert "OTA_TAG=" + tag in rel.read_text()
         assert "OTA_CHANNEL=" + cfg["channel"] in rel.read_text()
+        menu = json.loads(((arthur if device == "arthur" else mx) /
+                           "usr/share/luci/menu.d/zzzz-ota-flash-cache.json").read_text())
+        action = menu["admin/system/flash"]["action"]
+        assert action["type"] == "view"
+        assert action["path"].startswith("system/flash-ota-b12345-")
+        assert len(menu) == 1  # no second OTA menu or changed router URL
     assert "imm-mx4200v1-" not in src_arthur
     assert "imm-ppe-nss-" not in src_mx
     assert "jdcloud,re-ss-01" not in src_mx
