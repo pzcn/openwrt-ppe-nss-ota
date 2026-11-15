@@ -36,7 +36,9 @@ if [[ "$ACTION" == prepare ]]; then
   [[ -s "$OVERLAY/etc/immortal-ppe-ota-release" ]]
   grep -Fq 'linksys,mx4200v1' "$OVERLAY/usr/sbin/ppe-update"
   grep -Fq 'mx4200v1-immortal-ppe-nss' "$OVERLAY/usr/sbin/ppe-update"
-  grep -Fq 'MX4200 v1 PPE+NSS' "$OVERLAY/www/luci-static/resources/view/system/flash.js"
+  # Confirm the shared OTA UI and proxy selector are present, not an obsolete label.
+  grep -Fq '在线固件更新' "$OVERLAY/www/luci-static/resources/view/system/flash.js"
+  grep -Fq 'GitHub 代理' "$OVERLAY/www/luci-static/resources/view/system/flash.js"
   sh -n "$OVERLAY/usr/sbin/ppe-update"
   jq -n --arg tag "$TAG" --arg imm "$IMM" --arg ppe "$PPE" \
     --arg source "$SOURCE" --argjson build "$BUILD" \
