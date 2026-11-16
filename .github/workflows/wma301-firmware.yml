@@ -406,6 +406,7 @@ jobs:
       SOURCE_RUN_ID: '43862485217'
       SOURCE_COMMIT: 'c80014bdf87f1e965dc16f471128d3dc43d874c3'
     steps:
+      - uses: actions/checkout@v4
       - name: Validate provenance of the completed main-branch build
         run: |
           set -euo pipefail
