@@ -34,7 +34,11 @@ on:
   push:
     branches: [main]
     paths:
-      - 'wma301/**'
+      # Documentation-only edits never repack a 6.18 FIT.
+      - 'wma301/device/**'
+      - 'wma301/configs/**'
+      - 'wma301/scripts/**'
+      - 'wma301/files/**'
       - '.github/workflows/wma301-firmware.yml'
       - 'scripts/immortalwrt_ota.py'
       - 'scripts/ota_version.py'
@@ -131,7 +135,7 @@ jobs:
 
   fast-build:
     needs: [metadata, offline-tests]
-    if: needs.metadata.outputs.required == 'true' && (github.event_name != 'pull_request' || github.head_ref == 'feat/wma301-unified-ota')
+    if: needs.metadata.outputs.required == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:

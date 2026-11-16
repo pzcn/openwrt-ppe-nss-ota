@@ -1,5 +1,7 @@
 # WMA301 v2.0 migration to ImmortalWrt master / Linux 6.18
 
+> **主仓库集成说明：** 2026-11-16 起构建适配层收录于 `wma301/`；实际构建入口改为 [主仓库独立 WMA301 Action](../../.github/workflows/wma301-firmware.yml)，与两台 Qualcomm 设备共用 OTA 发行索引，但不共用设备树或内核。
+
 ## Purpose and status
 
 - Use official `immortalwrt/immortalwrt` `master`, retaining the open-source `mt76/mt7915e` + PPE/WED driver architecture.

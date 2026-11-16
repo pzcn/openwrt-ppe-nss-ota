@@ -1,5 +1,7 @@
 # WMA301 official ImageBuilder fast-path (master / 6.18)
 
+> **主仓库集成说明（2026-11-16）：** 本文保留原独立仓库的历史调试记录。当前 WMA301 专用构建入口是 [主仓库 WMA301 Action](../../.github/workflows/wma301-firmware.yml)，默认生成统一 OTA 测试 Artifact；老的独立 `wma301-ota` 发布代码不再打包。最新架构以 [WMA301 README](../README.md) 为准。
+
 > Migration 2026-11-16: the master snapshot ImageBuilder/SDK archive names have no 25.12 prefix. Use `https://downloads.immortalwrt.org/snapshots/targets/mediatek/filogic/` and the exact snapshot's source SHA, not an unrelated live master HEAD.
 
 The experimental workflow [official-builder.yml](../.github/workflows/official-builder.yml)

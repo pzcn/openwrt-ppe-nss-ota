@@ -1,5 +1,7 @@
 # WMA301 固件构建：长期计划与操作流程
 
+> **主仓库集成说明（2026-11-16）：** 本文保留原独立仓库的历史调试记录。当前 WMA301 专用构建入口是 [主仓库 WMA301 Action](../../.github/workflows/wma301-firmware.yml)，默认生成统一 OTA 测试 Artifact；老的独立 `wma301-ota` 发布代码不再打包。最新架构以 [WMA301 README](../README.md) 为准。
+
 > **master/6.18 迁移说明（2026-11-16）：** 下文 2026-11-13 成功的 CI 运行属于此前的 25.12 路线，不代表 6.18 已构建或实机验证。新快构建以官方 `snapshots/targets/mediatek/filogic` 的 SHA256、版本信息和 6.18 内核为准；完整构建跟踪 `master` HEAD。详见 [迁移检查单](MASTER-MIGRATION.md)。
 
 > 策略：**官方 ImmortalWrt ImageBuilder 优先；只增量编译 WMA301 设备树；完整源码编译作为人工后备。** 不 Fork 上游；快速构建校验通过后上传验证 Artifact；OTA 功能及其自动发布目前默认屏蔽，代码保留。
