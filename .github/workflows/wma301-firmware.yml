@@ -131,7 +131,7 @@ jobs:
 
   fast-build:
     needs: [metadata, offline-tests]
-    if: needs.metadata.outputs.required == 'true' && github.event_name != 'pull_request'
+    if: needs.metadata.outputs.required == 'true' && (github.event_name != 'pull_request' || github.head_ref == 'feat/wma301-unified-ota')
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
