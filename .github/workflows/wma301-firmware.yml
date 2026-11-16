@@ -406,8 +406,8 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE_RUN_ID: '43862485217'
-      SOURCE_COMMIT: 'c80014bdf87f1e965dc16f471128d3dc43d874c3'
+      SOURCE_RUN_ID: '43868401046'
+      SOURCE_COMMIT: '4ec03f07e050111019debbc9067866e41ed517af'
     steps:
       - uses: actions/checkout@v4
       - name: Validate provenance of the completed main-branch build
@@ -434,6 +434,7 @@ jobs:
           test -f dist/manifest.json
           test -f dist/SHA256SUMS
           test -f out-wma301-ota/sha256sums
+          test -f out-wma301-ota/luci-theme-aurora-1.4.0-r1.apk
           (cd dist && sha256sum -c SHA256SUMS)
           cd out-wma301-ota
           sha256sum -c sha256sums
@@ -468,6 +469,17 @@ jobs:
           ' manifest.json >/dev/null
           cmp manifest.json ../dist/manifest.json
           cmp official-provenance.json ../official-provenance.json
+          jq -e '
+            .installed_theme.name == "luci-theme-aurora" and
+            .installed_theme.version == "1.4.0-r1" and
+            .installed_theme.architecture == "noarch" and
+            .installed_theme.install_method == "imagebuilder-local-native-apk" and
+            (.installed_theme.sha256 | test("^[a-f0-9]{64}$"))
+          ' manifest.json >/dev/null
+          printf '%s  %s\n' "$(jq -r '.installed_theme.sha256' manifest.json)" \
+            luci-theme-aurora-1.4.0-r1.apk | sha256sum -c -
+          grep -Fxq 'luci-theme-aurora - 1.4.0-r1' \
+            immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest
           if grep -Eiq '^(sing-box|tailscale|luci-app-tailscale-community|luci-app-ddns-go|luci-app-sing-box|luci-app-ppe-qos|luci-app-ppe-nss-monitor|kmod-qca-nss[^[:space:]]*)[[:space:]]' immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest; then
             echo "::error::Forbidden package in WMA301 manifest"
             exit 1
@@ -494,6 +506,8 @@ jobs:
           Back up settings and confirm U-Boot recovery, UBI volumes, WLAN and network functionality.
           Do not use on stock A/B layouts or WMA301 v2.1.
           OTA installation stays manual-only. No unattended upgrades.
+          Aurora v1.4.0 is installed as a native noarch APK and is published as
+          luci-theme-aurora-1.4.0-r1.apk for independent package management.
           Excludes sing-box, Tailscale, DDNS-Go and Qualcomm PPE/NSS-specific packages.
           NOTES
           cd "$RUNNER_TEMP/wma301-approved/out-wma301-ota"
@@ -503,7 +517,8 @@ jobs:
             --notes-file "$RUNNER_TEMP/wma301-release-notes.md" \
             immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb \
             immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest \
-            ota.json sha256sums manifest.json official-provenance.json
+            ota.json sha256sums manifest.json official-provenance.json \
+            luci-theme-aurora-1.4.0-r1.apk
           gh release view "$WMA301_TAG" --repo "$GITHUB_REPOSITORY" \
             --json tagName,isPrerelease,assets \
             --jq '{tag:.tagName,prerelease:.isPrerelease,assets:(.assets|map(.name))}'
