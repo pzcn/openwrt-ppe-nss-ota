@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Publish an immutable, *pre-release* MX4200 v1 Builder or OTA firmware.
-# Runtime OTA never sees prereleases; promotion to stable is an explicit
-# hardware-validation decision made separately in the GitHub Release UI.
+# Publish an immutable prerelease Builder or device-scoped MX4200 firmware.
+# Runtime OTA never sees prereleases; stable firmware requires an explicitly
+# marked main-branch push and strong CI checks. Hardware tests are recommended.
 # Usage: publish-release.sh builder|firmware DIR
 set -Eeuo pipefail
 ROOT="${GITHUB_WORKSPACE:-$(cd "$(dirname "$0")/.." && pwd)}"
@@ -138,7 +138,7 @@ if [[ "$KIND" == firmware && "${MX_RELEASE_STABLE:-false}" == true ]]; then
   # device-scoped OTA. Retain all image, trailer, and SHA256 gates above.
   [[ "${GITHUB_EVENT_NAME:-}" == push &&
      "${GITHUB_REF:-}" == refs/heads/main &&
-     "${GITHUB_EVENT_RELEASE_MARKER:-}" == release-official-r-20261115 ]] || {
+     "${GITHUB_EVENT_RELEASE_MARKER:-}" == release-ota-stable ]] || {
     echo "::error::Stable MX release requires the one-time marked main push"; exit 1;
   }
   release_flags=(--latest=false)

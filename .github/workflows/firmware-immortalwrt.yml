@@ -178,7 +178,7 @@ jobs:
             }
           fi
           if [[ "$BUILDER_PRERELEASE" == true ]]; then
-            echo "::warning::Hybrid Builder is prerelease: CI image artifact ONLY; no stable OTA"
+            echo "::warning::Hybrid Builder is prerelease; stable OTA requires explicit publish_policy=yes on main"
           fi
           # A layer points to one immutable Builder and never replaces its SDK.
           LAYER=""
@@ -305,9 +305,9 @@ jobs:
         if: steps.resolve.outputs.needs_image == 'true'
         env:
           LAYER_TAG: ${{ steps.resolve.outputs.layer_tag }}
-          # PRE-RELEASE Builder may produce an inspectable artifact, never a
-          # stable OTA release visible to installed devices.
-          PUBLISH_RELEASE: ${{ steps.resolve.outputs.builder_prerelease == 'true' && 'false' || env.PUBLISH_RELEASE }}
+          # A prerelease Builder is approved by the pinned policy; only an
+          # explicit stable release request may publish its firmware to OTA.
+          PUBLISH_RELEASE: ${{ steps.resolve.outputs.builder_prerelease == 'true' && inputs.publish_policy != 'yes' && 'false' || env.PUBLISH_RELEASE }}
         run: |
           set -Eeuo pipefail
           DIR="$RUNNER_TEMP/imm-builder-download"

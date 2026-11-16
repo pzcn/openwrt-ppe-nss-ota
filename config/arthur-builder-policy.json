@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "preferred_prerelease_tag": "imm-builder-a4ba8240-7d65a3ed-5796d271-gc2dce4940324-p8d78d583-f3a7075a6-sd21482dd",
-  "rationale": "CI-built official Snapshot r42542 Hybrid Builder from the merged hybrid-official-snapshot work. Trial firmware only until on-device testing; do not choose arbitrary prereleases.",
+  "preferred_prerelease_tag": "imm-builder-2fe3065a-ec9306fa-5796d271-g827215b29490-pcae13671-f3a7075a6-sd21482dd",
+  "rationale": "Pin the latest successful 2026-11-16 Hybrid Builder with 100 ms NSS log shadow polling for Arthur. Explicit main-branch stable OTA publication was requested; the new kernel has not been hardware-validated.",
   "fallback": "Explicit builder_tag workflow input for legacy stable Builder; do not silently downgrade the default to Full Source."
 }
