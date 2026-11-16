@@ -50,6 +50,7 @@ on:
       - 'mx4200v1/files/etc/uci-defaults/zz-ppe-update'
 permissions:
   contents: write
+  actions: read
 concurrency:
   group: wma301-official-${{ github.ref }}
   cancel-in-progress: true
@@ -135,7 +136,7 @@ jobs:
 
   fast-build:
     needs: [metadata, offline-tests]
-    if: needs.metadata.outputs.required == 'true' && github.event_name != 'pull_request'
+    if: needs.metadata.outputs.required == 'true' && github.event_name != 'pull_request' && !(github.event_name == 'push' && contains(github.event.head_commit.message, '[release-wma301-stable]'))
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
@@ -394,3 +395,111 @@ jobs:
         with:
           path: wma301/fast-success.marker
           key: ${{ needs.metadata.outputs.fingerprint }}
+
+  promote-verified-wma301:
+    name: Publish verified WMA301 stable Release (explicit request)
+    needs: [offline-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && contains(github.event.head_commit.message, '[release-wma301-stable]')
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_RUN_ID: '43862485217'
+      SOURCE_COMMIT: 'c80014bdf87f1e965dc16f471128d3dc43d874c3'
+    steps:
+      - name: Validate provenance of the completed main-branch build
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = "pzcn/openwrt-ppe-nss-ota"
+          test "$GITHUB_REF" = "refs/heads/main"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > "$RUNNER_TEMP/source-run.json"
+          jq -e --arg sha "$SOURCE_COMMIT" '
+            .status == "completed" and .conclusion == "success" and
+            .head_branch == "main" and .head_sha == $sha and
+            .name == "WMA301 | Official ImageBuilder + unified OTA"
+          ' "$RUNNER_TEMP/source-run.json" >/dev/null
+          mkdir -p "$RUNNER_TEMP/wma301-approved"
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "WMA301_VERIFIED_UNIFIED_OTA" \
+            --dir "$RUNNER_TEMP/wma301-approved"
+
+      - name: Reverify FIT, OTA metadata and device isolation
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/wma301-approved"
+          test -f official-provenance.json
+          test -f dist/manifest.json
+          test -f dist/SHA256SUMS
+          test -f out-wma301-ota/sha256sums
+          (cd dist && sha256sum -c SHA256SUMS)
+          cd out-wma301-ota
+          sha256sum -c sha256sums
+          TAG="$(jq -r .tag ota.json)"
+          [[ "$TAG" =~ ^imm-wma301-SNAPSHOT-r[0-9]+-[0-9]{12}$ ]] || {
+            echo "::error::Invalid stable WMA301 Release tag"
+            exit 1
+          }
+          jq -e --arg source "$SOURCE_COMMIT" --arg tag "$TAG" '
+            .schema == 1 and
+            .repository == "pzcn/openwrt-ppe-nss-ota" and
+            .channel == "wma301-immortal-filogic" and
+            .tag == $tag and
+            .board == "tplink,wma301-v2" and
+            .profile == "tplink_wma301-v2" and
+            .target == "mediatek/filogic" and
+            .group == "filogic-mt7981-single-ubi" and
+            .layout == "oem-bl2-bl31-custom-bl33-single-ubi-v1" and
+            .source_commit == $source and
+            .image == "immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb" and
+            .manifest == "immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest"
+          ' ota.json >/dev/null
+          jq -e --arg sha "$SOURCE_COMMIT" '
+            .build == "official-imagebuilder-fast" and
+            .device == "tplink,wma301-v2" and
+            .local_sha == $sha and
+            .hardware_validation == "NOT_TESTED" and
+            .output.fit_hashes == "pass" and
+            .output.mode == "squashfs-persistent" and
+            .output.dts.compatible == "tplink,wma301-v2" and
+            .output.dts.factory_info_protected == true
+          ' manifest.json >/dev/null
+          cmp manifest.json ../dist/manifest.json
+          cmp official-provenance.json ../official-provenance.json
+          if grep -Eiq '^(sing-box|tailscale|luci-app-tailscale-community|luci-app-ddns-go|luci-app-sing-box|luci-app-ppe-qos|luci-app-ppe-nss-monitor|kmod-qca-nss[^[:space:]]*)[[:space:]]' immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest; then
+            echo "::error::Forbidden package in WMA301 manifest"
+            exit 1
+          fi
+          echo "WMA301_TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Publish immutable, non-prerelease WMA301 GitHub Release
+        run: |
+          set -euo pipefail
+          if gh release view "$WMA301_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::WMA301 Release tag already exists: $WMA301_TAG"
+            exit 1
+          fi
+          cat >"$RUNNER_TEMP/wma301-release-notes.md" <<'NOTES'
+          WMA301 v2.0 / MT7981 · ImmortalWrt master Linux 6.18
+
+          **Official GitHub Release (not prerelease).**
+
+          Built using the official mediatek/filogic ImageBuilder and a locally compiled WMA301 DTS.
+          CI verified the sysupgrade FIT, device tree, SHA256, provenance, software manifest and single-UBI identity.
+
+          **Hardware validation: NOT_TESTED.** The published status is not proof of safe flashing.
+          Only for WMA301 v2.0 already migrated to the 121 MiB single-UBI NAND layout.
+          Back up settings and confirm U-Boot recovery, UBI volumes, WLAN and network functionality.
+          Do not use on stock A/B layouts or WMA301 v2.1.
+          OTA installation stays manual-only. No unattended upgrades.
+          Excludes sing-box, Tailscale, DDNS-Go and Qualcomm PPE/NSS-specific packages.
+          NOTES
+          cd "$RUNNER_TEMP/wma301-approved/out-wma301-ota"
+          gh release create "$WMA301_TAG" --repo "$GITHUB_REPOSITORY" \
+            --target "$SOURCE_COMMIT" --latest=false \
+            --title "WMA301 v2.0 | ImmortalWrt 6.18 ($WMA301_TAG)" \
+            --notes-file "$RUNNER_TEMP/wma301-release-notes.md" \
+            immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb \
+            immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest \
+            ota.json sha256sums manifest.json official-provenance.json
+          gh release view "$WMA301_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isPrerelease,assets \
+            --jq '{tag:.tagName,prerelease:.isPrerelease,assets:(.assets|map(.name))}'
