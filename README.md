@@ -41,7 +41,7 @@
 | 系统与诊断 | LuCI 中文 / Aurora、文件管理、ttyd、nlbwmon、wifihistory、DDNS-Go、autoreboot、cpufreq、autocore、tcpdump |
 | OTA | 原生“系统 → 备份 / 升级”中的在线检查、手动更新、版本校验、GitHub 代理选择、可选自动检查/安装 |
 
-**不预装**：HomeProxy、DiskMan、Statistics 及对应语言包。Dr.COM 校园网登录源码保留在仓库，但当前固件不打包该功能。软件包清单分别位于 [`config/add.txt`](config/add.txt) / [`config/remove.txt`](config/remove.txt) 和 [`mx4200v1/packages.txt`](mx4200v1/packages.txt) / [`mx4200v1/remove.txt`](mx4200v1/remove.txt)。
+**常用 LuCI 页面（亚瑟 / MX4200）：** `VPN → Tailscale`、`服务 → sing-box`、`服务 → 网络唤醒`。WMA301 只提供其硬件适用的公共服务；代理及远程组网组件不安装。\n\n**不预装**：HomeProxy、DiskMan、Statistics 及对应语言包。Dr.COM 校园网登录源码保留在仓库，但当前固件不打包该功能。软件包清单分别位于 [`config/add.txt`](config/add.txt) / [`config/remove.txt`](config/remove.txt) 和 [`mx4200v1/packages.txt`](mx4200v1/packages.txt) / [`mx4200v1/remove.txt`](mx4200v1/remove.txt)。
 
 ## OTA 使用与安全
 
