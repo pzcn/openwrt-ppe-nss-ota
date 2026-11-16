@@ -1,0 +1,396 @@
+name: WMA301 | Official ImageBuilder + unified OTA
+
+# The legacy WMA301 OTA code is retained for migration only; it is not staged.
+env:
+  WMA301_ENABLE_OTA: 'false'
+
+defaults:
+  run:
+    working-directory: wma301
+
+on:
+  schedule:
+    - cron: '41 2 * * *'
+  workflow_dispatch:
+    inputs:
+      release_mode:
+        description: "none = verified artifact; prerelease = preview; stable = approved OTA"
+        type: choice
+        options: [none, prerelease, stable]
+        default: none
+      confirm_hardware_tested:
+        description: "Confirm physical WMA301 NAND/UBI and recovery tests for stable OTA"
+        type: boolean
+        default: false
+  pull_request:
+    branches: [main]
+    paths:
+      - 'wma301/**'
+      - '.github/workflows/wma301-firmware.yml'
+      - 'scripts/immortalwrt_ota.py'
+      - 'scripts/ota_version.py'
+      - 'files/usr/sbin/ppe-update'
+      - 'files/www/luci-static/resources/view/system/flash.js'
+  push:
+    branches: [main]
+    paths:
+      # Documentation-only edits never repack a 6.18 FIT.
+      - 'wma301/device/**'
+      - 'wma301/configs/**'
+      - 'wma301/scripts/**'
+      - 'wma301/files/**'
+      - '.github/workflows/wma301-firmware.yml'
+      - 'scripts/immortalwrt_ota.py'
+      - 'scripts/ota_version.py'
+      - 'files/usr/sbin/ppe-update'
+      - 'files/www/luci-static/resources/view/system/flash.js'
+      - 'files/usr/share/rpcd/acl.d/luci-app-ppe-update.json'
+      - 'mx4200v1/files/etc/init.d/ppe-update'
+      - 'mx4200v1/files/etc/config/ppe-update'
+      - 'mx4200v1/files/etc/uci-defaults/zz-ppe-update'
+permissions:
+  contents: write
+concurrency:
+  group: wma301-official-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  metadata:
+    runs-on: ubuntu-24.04
+    env:
+      BASE: https://downloads.immortalwrt.org/snapshots/targets/mediatek/filogic
+    outputs:
+      ib_sha: ${{ steps.resolve.outputs.ib_sha }}
+      fingerprint: ${{ steps.fingerprint.outputs.key }}
+      required: ${{ steps.decide.outputs.required }}
+      previous_success: ${{ steps.previous.outputs.cache-hit }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check official snapshot SHA256
+        id: resolve
+        run: |
+          set -euo pipefail
+          mkdir -p official-index
+          curl -fsSL --retry 3 -o official-index/version.buildinfo "$BASE/version.buildinfo"
+          curl -fsSL --retry 3 -o official-index/sha256sums "$BASE/sha256sums"
+          python3 scripts/official_builder.py resolve --index official-index --output official-provenance.json
+          sha="$(python3 -c 'import json; print(json.load(open("official-provenance.json"))["imagebuilder_sha256"])')"
+          echo "ib_sha=$sha" >> "$GITHUB_OUTPUT"
+      - name: Fingerprint official archive, local inputs and ISO week
+        id: fingerprint
+        env:
+          INPUT_SHA: ${{ hashFiles('wma301/device/**', 'wma301/configs/**', 'wma301/scripts/**', 'wma301/files/**', '.github/workflows/wma301-firmware.yml', 'scripts/immortalwrt_ota.py', 'scripts/ota_version.py', 'files/usr/sbin/ppe-update', 'files/www/luci-static/resources/view/system/flash.js', 'mx4200v1/files/etc/**') }}
+          IB_SHA: ${{ steps.resolve.outputs.ib_sha }}
+        run: |
+          set -euo pipefail
+          test -n "$INPUT_SHA"
+          week="$(date -u +%G-W%V)"
+          echo "key=wma301-fast-master-ok-v1-$IB_SHA-$INPUT_SHA-$week" >> "$GITHUB_OUTPUT"
+      - name: Lookup successful fingerprint without downloading cache
+        uses: actions/cache/restore@v4
+        id: previous
+        with:
+          path: wma301/fast-success.marker
+          key: ${{ steps.fingerprint.outputs.key }}
+          lookup-only: true
+      - name: Decide whether to build
+        id: decide
+        env:
+          HIT: ${{ steps.previous.outputs.cache-hit }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = schedule ] && [ "$HIT" = true ]; then
+            echo "required=false" >> "$GITHUB_OUTPUT"
+            echo "Unchanged official release and local inputs: already built this week."
+          else
+            echo "required=true" >> "$GITHUB_OUTPUT"
+            echo "Manual/push run or new snapshot: build required."
+          fi
+
+  offline-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Python, device geometry and safe package list
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/official_builder.py scripts/stage_files.py scripts/verify_official.py scripts/aurora.py
+          python3 scripts/test_official_builder.py
+          python3 scripts/test_master_migration.py
+          python3 scripts/test_stage_files.py
+          python3 scripts/test_aurora.py
+          python3 scripts/test_wma301_ota.py
+          python3 scripts/test_wma301_runtime.py
+          python3 scripts/test_unified_ota.py
+          python3 ../scripts/tests/test-ota-version.py
+          python3 ../scripts/tests/test-ota-devices.py
+          python3 -m py_compile scripts/stage_unified_ota.py scripts/pack_unified_ota.py
+          sh -n files/usr/libexec/ppe-update-wma301-preflight
+          sh -n files/usr/sbin/wma301-ota
+          node --check files/www/luci-static/resources/view/system/wma301-ota.js
+          python3 -m json.tool files/usr/share/luci/menu.d/luci-app-wma301-ota.json >/dev/null
+          python3 -m json.tool files/usr/share/rpcd/acl.d/luci-app-wma301-ota.json >/dev/null
+          sh -n files/etc/uci-defaults/95-luci-preferences
+          python3 scripts/test_layout.py
+          python3 scripts/test_arthur_packages.py
+          python3 scripts/official_builder.py packages --file configs/official-packages.txt
+
+  fast-build:
+    needs: [metadata, offline-tests]
+    if: needs.metadata.outputs.required == 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      BASE: https://downloads.immortalwrt.org/snapshots/targets/mediatek/filogic
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free unused disk for 6.18 master ImageBuilder
+        run: |
+          df -h /
+          sudo rm -rf /usr/local/lib/android /opt/hostedtoolcache/CodeQL /usr/share/dotnet /opt/ghc || true
+          df -h /
+      - name: Verify runner tools
+        run: |
+          set -euo pipefail
+          missing=""
+          for cmd in zstd gcc cpp make perl python3 rsync xz curl git unzip file gzip sha256sum tar gh; do
+            command -v "$cmd" >/dev/null 2>&1 || missing="$missing $cmd"
+          done
+          if [ -n "$missing" ]; then echo "::error::Missing tools:$missing"; exit 1; fi
+          df -h /
+      - name: Resolve matching upstream commit and detect snapshot race
+        id: source
+        env:
+          EXPECTED_IB_SHA: ${{ needs.metadata.outputs.ib_sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p official-index downloads kernel-source
+          curl -fsSL --retry 3 -o official-index/version.buildinfo "$BASE/version.buildinfo"
+          curl -fsSL --retry 3 -o official-index/sha256sums "$BASE/sha256sums"
+          python3 scripts/official_builder.py resolve --index official-index --output official-provenance.json
+          ACTUAL="$(python3 -c 'import json; print(json.load(open("official-provenance.json"))["imagebuilder_sha256"])')"
+          if [ "$ACTUAL" != "$EXPECTED_IB_SHA" ]; then
+            echo "::error::Official snapshot changed during this build. Retry."
+            exit 1
+          fi
+          SHORT="$(python3 -c 'import json; print(json.load(open("official-provenance.json"))["source_revision"])')"
+          SHA="$(gh api "repos/immortalwrt/immortalwrt/commits/$SHORT" --jq .sha)"
+          [[ "$SHA" == "$SHORT"* ]]
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        id: ib_cache
+        name: Restore checksum-keyed official ImageBuilder
+        with:
+          path: wma301/downloads/immortalwrt-imagebuilder-mediatek-filogic.Linux-x86_64.tar.zst
+          key: wma301-ib-master-v1-${{ runner.os }}-${{ needs.metadata.outputs.ib_sha }}
+      - name: Download missing Builder and always verify SHA256
+        run: |
+          set -euo pipefail
+          IB="$(python3 -c 'import json; print(json.load(open("official-provenance.json"))["imagebuilder"])')"
+          EXPECTED="$(python3 -c 'import json; print(json.load(open("official-provenance.json"))["imagebuilder_sha256"])')"
+          if [ ! -f "downloads/$IB" ]; then
+            curl -fL --retry 3 --retry-delay 5 -o "downloads/$IB" "$BASE/$IB"
+          else
+            echo "ImageBuilder cache hit: $IB"
+          fi
+          printf '%s  %s\n' "$EXPECTED" "downloads/$IB" | sha256sum -c -
+      - uses: actions/cache/save@v4
+        name: Save verified ImageBuilder archive
+        if: steps.ib_cache.outputs.cache-hit != 'true'
+        with:
+          path: wma301/downloads/immortalwrt-imagebuilder-mediatek-filogic.Linux-x86_64.tar.zst
+          key: wma301-ib-master-v1-${{ runner.os }}-${{ needs.metadata.outputs.ib_sha }}
+      - name: Extract official ImageBuilder
+        run: |
+          set -euo pipefail
+          IB="$(python3 -c 'import json; print(json.load(open("official-provenance.json"))["imagebuilder"])')"
+          mkdir -p builder-unpacked
+          tar --zstd -xf "downloads/$IB" -C builder-unpacked
+          test "$(find builder-unpacked -mindepth 1 -maxdepth 1 -type d | wc -l)" -eq 1
+      - name: Checkout the official matching integration source
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git init -q upstream
+          git -C upstream remote add origin https://github.com/immortalwrt/immortalwrt.git
+          git -C upstream fetch -q --depth 1 origin "$SOURCE_SHA"
+          git -C upstream -c advice.detachedHead=false checkout -q --detach FETCH_HEAD
+          test "$(git -C upstream rev-parse HEAD)" = "$SOURCE_SHA"
+      - name: Resolve Linux kernel source SHA
+        id: kernel
+        run: |
+          set -euo pipefail
+          test "$(sed -n 's/^KERNEL_PATCHVER:=//p' upstream/target/linux/mediatek/Makefile)" = 6.18
+          KFILE=upstream/target/linux/generic/kernel-6.18
+          PATCH="$(sed -nE 's/^LINUX_VERSION-6\.18 = \.([0-9]+)$/\1/p' "$KFILE")"
+          [[ "$PATCH" =~ ^[0-9]+$ ]]
+          VERSION="6.18.$PATCH"
+          EXPECTED="$(awk -F' = ' -v key="LINUX_KERNEL_HASH-$VERSION" '$1 == key {print $2}' "$KFILE")"
+          [[ "$EXPECTED" =~ ^[a-f0-9]{64}$ ]]
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "sha=$EXPECTED" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache/restore@v4
+        id: kernel_cache
+        name: Restore checksum-keyed Linux header source
+        with:
+          path: wma301/kernel-source/kernel.tar.xz
+          key: wma301-dt-headers-v1-${{ steps.kernel.outputs.sha }}
+      - name: Download missing Linux source and verify SHA256
+        env:
+          VERSION: ${{ steps.kernel.outputs.version }}
+          EXPECTED: ${{ steps.kernel.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ ! -f kernel-source/kernel.tar.xz ]; then
+            curl -fL --retry 3 --retry-delay 3 -o kernel-source/kernel.tar.xz \
+              "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$VERSION.tar.xz"
+          else
+            echo "Linux source cache hit: $VERSION"
+          fi
+          printf '%s  %s\n' "$EXPECTED" kernel-source/kernel.tar.xz | sha256sum -c -
+      - uses: actions/cache/save@v4
+        name: Save verified Linux source archive
+        if: steps.kernel_cache.outputs.cache-hit != 'true'
+        with:
+          path: wma301/kernel-source/kernel.tar.xz
+          key: wma301-dt-headers-v1-${{ steps.kernel.outputs.sha }}
+      - name: Extract only device tree headers and symlink target
+        id: headers
+        env:
+          VERSION: ${{ steps.kernel.outputs.version }}
+        run: |
+          set -euo pipefail
+          tar -xJf kernel-source/kernel.tar.xz -C kernel-source \
+            "linux-$VERSION/include/dt-bindings" \
+            "linux-$VERSION/include/uapi/linux/input-event-codes.h"
+          test -f "kernel-source/linux-$VERSION/include/dt-bindings/input/linux-event-codes.h"
+          echo "path=$PWD/kernel-source/linux-$VERSION/include" >> "$GITHUB_OUTPUT"
+      - name: Fetch and validate pinned Aurora v1.4.0 (prebuilt LuCI assets)
+        run: |
+          set -euo pipefail
+          git clone -q --depth 1 --branch v1.4.0 \
+            https://github.com/eamonxg/luci-theme-aurora.git aurora-theme
+          python3 scripts/aurora.py check --source aurora-theme
+      - name: Stage WMA301 profile, DTB and board-specific files
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          HEADERS: ${{ steps.headers.outputs.path }}
+        run: |
+          set -euo pipefail
+          BUILDER="$(find "$PWD/builder-unpacked" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          python3 scripts/official_builder.py stage --builder "$BUILDER" \
+            --upstream "$PWD/upstream" --overlay "$PWD/wma301-overlay" \
+            --expected-source "$SOURCE_SHA" --kernel-headers "$HEADERS" \
+            --aurora-source "$PWD/aurora-theme"
+          echo "BUILDER=$BUILDER" >> "$GITHUB_ENV"
+      - name: Stage shared OTA panel, version and WMA301-only NAND preflight
+        run: |
+          set -euo pipefail
+          BUILD="$(date -u +%s)"
+          REV="$(python3 -c 'import json; print(json.load(open("official-provenance.json"))["version"])')"
+          TAG="$(python3 ../scripts/ota_version.py wma301 "$BUILD" --revision "$REV")"
+          python3 scripts/stage_unified_ota.py --overlay "$PWD/wma301-overlay" --tag "$TAG" --build "$BUILD"
+          echo "WMA_OTA_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "WMA_OTA_BUILD=$BUILD" >> "$GITHUB_ENV"
+      - name: Repack FIT using official precompiled Linux kernel
+        run: |
+          set -euo pipefail
+          PACKAGES="$(python3 scripts/official_builder.py packages --file configs/official-packages.txt)"
+          mkdir -p "$PWD/images"
+          make -C "$BUILDER" info > builder-info.log
+          grep -q 'tplink_wma301-v2:' builder-info.log
+          make -C "$BUILDER" image PROFILE=tplink_wma301-v2 \
+            PACKAGES="$PACKAGES" FILES="$PWD/wma301-overlay" BIN_DIR="$PWD/images" \
+            > repack.log 2>&1 || { tail -n 200 repack.log; exit 1; }
+          tail -n 35 repack.log
+      - name: Verify FIT, actual packages and unified OTA provenance
+        env:
+          IMMORTALWRT_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_official.py --images images --output dist \
+            --provenance official-provenance.json --local-sha "$GITHUB_SHA" \
+            --packages-file configs/official-packages.txt \
+            --aurora-overlay "$PWD/wma301-overlay"
+          (cd dist && sha256sum -c SHA256SUMS)
+          test "$(find dist -maxdepth 1 -name '*.itb' | wc -l)" -eq 1
+          python3 scripts/pack_unified_ota.py \
+            --images images --dist dist --overlay "$PWD/wma301-overlay" \
+            --output out-wma301-ota --tag "$WMA_OTA_TAG" \
+            --build "$WMA_OTA_BUILD" --upstream "$IMMORTALWRT_SHA" \
+            --source "$GITHUB_SHA" --provenance official-provenance.json
+          (cd out-wma301-ota && sha256sum -c sha256sums)
+      - name: Upload verified FIT Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WMA301_VERIFIED_UNIFIED_OTA
+          path: |
+            wma301/dist/
+            wma301/out-wma301-ota/
+            wma301/official-provenance.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Publish to main repository OTA on explicit manual request only
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_mode != 'none'
+        env:
+          RELEASE_MODE: ${{ inputs.release_mode }}
+          HARDWARE_CONFIRMED: ${{ inputs.confirm_hardware_tested }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = pzcn/openwrt-ppe-nss-ota
+          case "$RELEASE_MODE" in
+            prerelease) flags=(--prerelease --latest=false) ;;
+            stable)
+              [[ "$HARDWARE_CONFIRMED" == true ]] || {
+                echo "::error::Stable WMA301 OTA requires explicit hardware validation confirmation"
+                exit 1
+              }
+              flags=(--latest=false)
+              ;;
+            *) echo "::error::Invalid release mode"; exit 1 ;;
+          esac
+          if gh release view "$WMA_OTA_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Immutable WMA301 OTA Release already exists: $WMA_OTA_TAG"
+            exit 1
+          fi
+          cd out-wma301-ota
+          sha256sum -c sha256sums
+          gh release create "$WMA_OTA_TAG" -R "$GITHUB_REPOSITORY" \
+            "${flags[@]}" --target "$GITHUB_SHA" \
+            --title "WMA301 v2.0 ImmortalWrt 6.18 ($WMA_OTA_TAG)" \
+            --notes "WMA301 v2.0 migrated single-UBI layout ONLY. Shared manual-only OTA on the main repository; verify boot, NAND/UBI layout, preserved U-Boot environment and recovery before flashing. No automatic installation. Hardware approval: $HARDWARE_CONFIRMED." \
+            immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb \
+            immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest \
+            ota.json sha256sums manifest.json official-provenance.json
+      - name: Summarize official source, cache reuse and artifact safety
+        env:
+          IB_CACHE: ${{ steps.ib_cache.outputs.cache-hit }}
+          KERNEL_CACHE: ${{ steps.kernel_cache.outputs.cache-hit }}
+          UPSTREAM_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          {
+            echo '## WMA301 official ImageBuilder + unified OTA result'
+            echo '| Item | Value |'
+            echo '| --- | --- |'
+            printf '| Official upstream commit | %s |\n' "$UPSTREAM_SHA"
+            printf '| Device integration commit | %s |\n' "$GITHUB_SHA"
+            printf '| Builder archive cache hit | %s |\n' "$IB_CACHE"
+            printf '| Linux source archive cache hit | %s |\n' "$KERNEL_CACHE"
+            echo '| Aurora | v1.4.0 pinned source / prebuilt assets |'
+            printf '| WMA301 OTA enabled | %s |\n' "$WMA301_ENABLE_OTA"
+            echo '| OTA feed | Unified main repository; manual publication only |'
+            echo '| Output | Verified sysupgrade FIT (no recovery) |'
+            echo '| Hardware validation | CI only, no unattended flashing |'
+            printf '\n[Download verified Artifact](https://github.com/%s/actions/runs/%s)\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Write successful fingerprint after artifact upload
+        if: needs.metadata.outputs.previous_success != 'true'
+        run: |
+          printf '%s\n' '${{ needs.metadata.outputs.fingerprint }}' > fast-success.marker
+      - uses: actions/cache/save@v4
+        name: Cache success marker only after verified artifact upload
+        if: needs.metadata.outputs.previous_success != 'true'
+        with:
+          path: wma301/fast-success.marker
+          key: ${{ needs.metadata.outputs.fingerprint }}

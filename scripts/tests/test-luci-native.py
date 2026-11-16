@@ -5,6 +5,7 @@ No router or external campus network required. UI moved to distinct view URLs
 so an old static resource cache cannot make a new firmware look unchanged.
 """
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -136,6 +137,11 @@ visible = [
 ]
 for item in visible:
     content = item.read_text(encoding="utf-8").lower()
+    # Repository URLs are transport destinations, not visible branding.
+    # Inspect Markdown link labels and prose, excluding their destinations.
+    if item.suffix == ".md":
+        content = re.sub(r'\]\([^\n)]*\)', ']()', content)
+        content = re.sub(r'https?://[^\s]+', '', content)
     assert "pzcn" not in content, f"Identity label in user-facing content: {item}"
     if item.name == "drcom-native.js":
         assert "注意事项" not in content

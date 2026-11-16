@@ -1,0 +1,188 @@
+#!/bin/sh
+# WMA301-only OTA; always manual and only for the migrated single-UBI layout.
+set -u
+REPO='pzcn/wma301-immortalwrt'
+BOARD='tplink,wma301-v2'
+PROFILE='tplink_wma301-v2'
+LAYOUT='oem-bl2-bl31-custom-bl33-single-ubi-v1'
+IMAGE='immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb'
+API="https://api.github.com/repos/$REPO/releases?per_page=100"
+ASSETS="https://github.com/$REPO/releases/download"
+WORK="${WMA301_OTA_WORK:-/tmp/wma301-ota}"
+RELEASE="${WMA301_OTA_RELEASE:-/etc/wma301-ota-release}"
+BOARD_FILE="${WMA301_OTA_BOARD:-/tmp/sysinfo/board_name}"
+
+die() { printf 'WMA301 OTA: %s\n' "$*" >&2; exit 2; }
+digits() { case "$1" in ''|*[!0-9]*) return 1 ;; esac; }
+hash_ok() { [ "${#1}" -eq 64 ] && ! printf '%s' "$1" | grep -q '[^a-f0-9]'; }
+tag_ok() {
+    case "$1" in
+        wma301-ota-r[1-9]*) digits "${1#wma301-ota-r}" ;;
+        *) return 1 ;;
+    esac
+}
+meta() { jq -r --arg key "$1" '.[$key] | if . == null then empty else . end' "$WORK/ota.json"; }
+identity() {
+    [ -r "$RELEASE" ] || die "Missing build-time WMA301 OTA identity"
+    . "$RELEASE"
+    [ "${OTA_SCHEMA:-}" = 2 ] &&
+    [ "${OTA_REPOSITORY:-}" = "$REPO" ] &&
+    [ "${OTA_BOARD:-}" = "$BOARD" ] &&
+    [ "${OTA_PROFILE:-}" = "$PROFILE" ] &&
+    [ "${OTA_LAYOUT:-}" = "$LAYOUT" ] &&
+    digits "${OTA_BUILD:-}" && [ "$OTA_BUILD" -gt 0 ] ||
+        die "Wrong firmware/OTA layout identity"
+    [ "$(cat "$BOARD_FILE" 2>/dev/null)" = "$BOARD" ] ||
+        die "Not a WMA301 v2.0 device"
+}
+fetch() {
+    # Both direct requests and redirected GitHub assets must stay on HTTPS.
+    curl --proto '=https' --proto-redir '=https' -fLsS --retry 2 \
+        --connect-timeout 10 --max-time 180 -o "$2" -- "$1" && [ -s "$2" ]
+}
+prepare_work() { umask 077; mkdir -p "$WORK" || die "Cannot create OTA work dir"; }
+lookup() {
+    identity
+    prepare_work
+    fetch "$API" "$WORK/releases.json" || die "Cannot reach GitHub Releases"
+    LATEST="$(jq -er --arg image "$IMAGE" '
+        [.[] | select(.draft == false and .prerelease == false and
+            (.tag_name | test("^wma301-ota-r[1-9][0-9]*$")) and
+            any(.assets[]?; .name == "ota.json") and
+            any(.assets[]?; .name == $image))]
+        | sort_by(.tag_name | ltrimstr("wma301-ota-r") | tonumber)
+        | last | .tag_name // empty
+    ' "$WORK/releases.json" 2>/dev/null)" ||
+        die "No verified WMA301 OTA firmware published yet"
+    tag_ok "$LATEST" || die "Untrusted OTA release tag"
+    fetch "$ASSETS/$LATEST/ota.json" "$WORK/ota.json" ||
+        die "Cannot download OTA metadata"
+    [ "$(meta schema)" = 3 ] &&
+    [ "$(meta repository)" = "$REPO" ] &&
+    [ "$(meta tag)" = "$LATEST" ] &&
+    [ "$(meta board)" = "$BOARD" ] &&
+    [ "$(meta profile)" = "$PROFILE" ] &&
+    [ "$(meta layout)" = "$LAYOUT" ] &&
+    [ "$(meta image)" = "$IMAGE" ] &&
+    [ "$(meta auto_upgrade)" = false ] ||
+        die "OTA metadata does not match WMA301"
+    LATEST_BUILD="$(meta build)"
+    SIZE="$(meta image_size)"
+    SHA256="$(meta image_sha256)"
+    digits "$LATEST_BUILD" && digits "$SIZE" && hash_ok "$SHA256" &&
+        [ "$LATEST_BUILD" -gt 0 ] &&
+        [ "$SIZE" -gt 1000000 ] && [ "$SIZE" -lt 100663296 ] ||
+        die "Invalid OTA version, image size or checksum"
+    [ "$LATEST" = "wma301-ota-r$LATEST_BUILD" ] ||
+        die "OTA tag/build mismatch"
+}
+newer() { [ "$LATEST_BUILD" -gt "$OTA_BUILD" ]; }
+armed() { [ "$(uci -q get wma301-ota.main.enable_flash 2>/dev/null)" = 1 ]; }
+check_ubi() {
+    [ "$(cat "$BOARD_FILE" 2>/dev/null)" = "$BOARD" ] ||
+        die "Wrong board"
+    grep -Eq '^mtd6: 07900000 00020000 "ubi"$' /proc/mtd ||
+        die "Unexpected raw NAND layout; refusing sysupgrade"
+    for wanted in fit ubootenv ubootenv2 rootfs_data; do
+        found=0
+        for vol in /sys/class/ubi/ubi[0-9]*_[0-9]*/name; do
+            [ -r "$vol" ] || continue
+            if [ "$(cat "$vol")" = "$wanted" ]; then
+                found=1
+                break
+            fi
+        done
+        [ "$found" -eq 1 ] ||
+            die "Missing UBI $wanted; refusing upgrade to protect env"
+    done
+}
+verify_cache() {
+    file="$WORK/$IMAGE"
+    [ -f "$file" ] && [ "$(wc -c < "$file" | tr -d ' ')" = "$SIZE" ] ||
+        die "No valid downloaded FIT"
+    [ "$(sha256sum "$file" | cut -d' ' -f1)" = "$SHA256" ] ||
+        die "FIT SHA256 mismatch"
+    sysupgrade -T "$file" >/dev/null 2>&1 ||
+        die "sysupgrade -T rejected this FIT"
+}
+status_ready() {
+    lookup
+    if newer; then has_update=true; else has_update=false; fi
+    downloaded=false
+    if [ -f "$WORK/$IMAGE" ] &&
+       [ "$(sha256sum "$WORK/$IMAGE" | cut -d' ' -f1)" = "$SHA256" ]; then
+        downloaded=true
+    fi
+    if armed; then allowed=true; else allowed=false; fi
+    jq -nc --arg current "$OTA_BUILD" \
+        --arg latest "$LATEST" --argjson latest_build "$LATEST_BUILD" \
+        --argjson size "$SIZE" --argjson update "$has_update" \
+        --argjson downloaded "$downloaded" --argjson allowed "$allowed" \
+        '{current:$current,latest:$latest,
+          latest_build:$latest_build,size:$size,update:$update,
+          downloaded:$downloaded,flash_enabled:$allowed,auto:false}'
+}
+status() {
+    if [ -r "$RELEASE" ]; then . "$RELEASE"; fi
+    current="${OTA_BUILD:-0}"
+    if answer="$("$0" _status_ready 2>"$WORK/status-error")"; then
+        printf '%s\n' "$answer"
+    else
+        reason="$(cat "$WORK/status-error" 2>/dev/null)"
+        jq -nc --arg current "$current" \
+            --arg error "$reason" \
+            '{current:$current,update:false,
+              downloaded:false,flash_enabled:false,auto:false,error:$error}'
+    fi
+}
+download() {
+    lookup
+    newer || die "No newer WMA301 firmware"
+    [ ! -e "$WORK/operation.lock" ] || die "Another OTA operation is active"
+    mkdir "$WORK/operation.lock" || die "OTA lock busy"
+    trap 'rmdir "$WORK/operation.lock" 2>/dev/null || true' EXIT
+    file="$WORK/$IMAGE"
+    rm -f "$file"
+    need=$((SIZE / 1024 + 8192))
+    free="$(df -Pk "$WORK" | awk 'NR == 2 { print $4 }')"
+    digits "$free" && [ "$free" -ge "$need" ] ||
+        die "Insufficient temporary space"
+    fetch "$ASSETS/$LATEST/$IMAGE" "$file" ||
+        die "Firmware download failed"
+    verify_cache
+    printf 'Verified %s (%s bytes) SHA256 %s\n' "$LATEST" "$SIZE" "$SHA256"
+}
+apply() {
+    armed || die "Manual flash is disabled (wma301-ota.main.enable_flash=1)"
+    [ -d "$WORK/operation.lock" ] || die "Start manual OTA using the start command"
+    trap 'rmdir "$WORK/operation.lock" 2>/dev/null || true' EXIT
+    lookup
+    newer || die "Refusing downgrade/same version"
+    check_ubi
+    verify_cache
+    logger -t wma301-ota "Operator-initiated upgrade $OTA_BUILD -> $LATEST_BUILD"
+    # Preserve configuration by sysupgrade default; never use -F or raw mtd.
+    sysupgrade "$WORK/$IMAGE"
+}
+start() {
+    armed || die "Manual flash is not enabled"
+    [ ! -e "$WORK/operation.lock" ] || die "OTA is busy"
+    lookup
+    newer || die "No newer version"
+    check_ubi
+    verify_cache
+    # Hold the same lock as download until sysupgrade completes. Concurrent
+    # downloads may otherwise truncate a FIT while it is being flashed.
+    mkdir "$WORK/operation.lock" || die "Another OTA operation is active"
+    (nohup "$0" apply </dev/null >"$WORK/update.log" 2>&1 &)
+    printf '{"started":true,"auto":false}\n'
+}
+case "${1:-}" in
+    status) prepare_work; status ;;
+    check) lookup; if newer; then echo "New: $LATEST"; else echo "Up to date"; fi ;;
+    download) download ;;
+    start) start ;;
+    apply) apply ;;
+    _status_ready) status_ready ;;
+    *) echo 'usage: wma301-ota {status|check|download|start}' >&2; exit 2 ;;
+esac

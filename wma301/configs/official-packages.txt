@@ -1,0 +1,66 @@
+# WMA301 v2.0: portable packages adapted from pzcn/openwrt-ppe-nss-ota.
+# MT7981 + 256 MiB RAM + 121 MiB UBI; do not import QCA NSS/eMMC drivers.
+# One package per line; a leading '-' removes unwanted default packages.
+# No sing-box, its LuCI panel, or proxy prerequisites are installed.
+
+# LuCI, simplified Chinese and everyday diagnostics.
+luci
+luci-theme-bootstrap
+luci-i18n-base-zh-cn
+luci-i18n-firewall-zh-cn
+luci-i18n-package-manager-zh-cn
+luci-app-filemanager
+luci-i18n-filemanager-zh-cn
+luci-app-ttyd
+luci-i18n-ttyd-zh-cn
+luci-app-nlbwmon
+luci-i18n-nlbwmon-zh-cn
+luci-app-wifihistory
+luci-i18n-wifihistory-zh-cn
+luci-app-irqbalance
+luci-i18n-irqbalance-zh-cn
+luci-app-lldpd
+luci-i18n-lldpd-zh-cn
+luci-app-pbr
+luci-i18n-pbr-zh-cn
+luci-app-autoreboot
+luci-i18n-autoreboot-zh-cn
+
+# Network tools, VPN and traffic shaping.
+luci-proto-wireguard
+wireguard-tools
+tcpdump
+ip-full
+conntrack
+kmod-nf-conntrack-netlink
+curl
+jsonfilter
+jq
+luci-app-sqm
+sqm-scripts
+luci-i18n-sqm-zh-cn
+luci-app-bcp38
+luci-i18n-bcp38-zh-cn
+
+# Remote management and Wake-on-LAN.
+luci-app-wol
+etherwake
+luci-i18n-wol-zh-cn
+
+# Optional services are disabled, not deleted. Remove the leading '-' to restore.
+# kmod-tun was included specifically for Tailscale and is disabled with it.
+-tailscale
+-luci-app-tailscale-community
+-luci-i18n-tailscale-community-zh-cn
+-kmod-tun
+-luci-app-ddns-go
+-luci-i18n-ddns-go-zh-cn
+
+# Exclude conflicting or redundant defaults.
+-ip-tiny
+-luci-app-homeproxy
+-luci-i18n-homeproxy-zh-cn
+-luci-app-diskman
+-luci-i18n-diskman-zh-cn
+-luci-app-statistics
+-luci-i18n-statistics-zh-cn

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Shared OTA regression: two board IDs, two release namespaces, one engine."""
+"""Shared OTA regression: three board IDs, isolated release namespaces, one engine."""
 import importlib.util
 import json
 from pathlib import Path
@@ -14,7 +14,7 @@ spec.loader.exec_module(ota)
 
 source = (ROOT / "files/usr/sbin/ppe-update").read_text()
 assert "sysupgrade -T" in source and "cmd_auto()" in source
-assert set(ota.DEVICES) == {"arthur", "mx4200v1"}
+assert set(ota.DEVICES) == {"arthur", "mx4200v1", "wma301"}
 
 
 def prepare_sample(root: Path, device: str):
@@ -33,11 +33,13 @@ with tempfile.TemporaryDirectory() as d:
     root = Path(d)
     arthur, arthur_tag = prepare_sample(root / "arthur", "arthur")
     mx, mx_tag = prepare_sample(root / "mx", "mx4200v1")
+    wma, wma_tag = prepare_sample(root / "wma", "wma301")
     src_arthur = (arthur / "usr/sbin/ppe-update").read_text()
     src_mx = (mx / "usr/sbin/ppe-update").read_text()
     for device, backend, tag in [
         ("arthur", src_arthur, arthur_tag),
         ("mx4200v1", src_mx, mx_tag),
+        ("wma301", (wma / "usr/sbin/ppe-update").read_text(), wma_tag),
     ]:
         cfg = ota.DEVICES[device]
         assert cfg["channel"] in backend
@@ -48,10 +50,10 @@ with tempfile.TemporaryDirectory() as d:
         assert 'startswith("' + cfg["tag_prefix"] + '")' in backend
         assert 'sysupgrade -T' in backend
         assert 'apk add' in backend
-        rel = (arthur if device == "arthur" else mx) / "etc/immortal-ppe-ota-release"
+        rel = {"arthur": arthur, "mx4200v1": mx, "wma301": wma}[device] / "etc/immortal-ppe-ota-release"
         assert "OTA_TAG=" + tag in rel.read_text()
         assert "OTA_CHANNEL=" + cfg["channel"] in rel.read_text()
-        menu = json.loads(((arthur if device == "arthur" else mx) /
+        menu = json.loads((({"arthur": arthur, "mx4200v1": mx, "wma301": wma}[device]) /
                            "usr/share/luci/menu.d/zzzz-ota-flash-cache.json").read_text())
         action = menu["admin/system/flash"]["action"]
         assert action["type"] == "view"
@@ -62,7 +64,7 @@ with tempfile.TemporaryDirectory() as d:
     assert "jdcloud,re-ss-01" not in src_mx
     assert "linksys,mx4200v1" not in src_arthur
 
-    for device in ("arthur", "mx4200v1"):
+    for device in ("arthur", "mx4200v1", "wma301"):
         cfg = ota.DEVICES[device]
         base = root / ("meta-" + device)
         base.mkdir()
@@ -73,8 +75,9 @@ with tempfile.TemporaryDirectory() as d:
         manifest.write_text("pname - 2.0.0\n" * 20)
         data = base / "ota.json"
         tag = cfg["tag_prefix"] + "test-1"
-        ota.metadata(tag, 12345, "a" * 40, "b" * 40, image, manifest, data,
-                     source_commit="c" * 40, device=device)
+        ota.metadata(tag, 12345, "a" * 40,
+                     "" if device == "wma301" else "b" * 40,
+                     image, manifest, data, source_commit="c" * 40, device=device)
         result = json.loads(data.read_text())
         assert result["channel"] == cfg["channel"]
         assert result["board"] == cfg["board"]
@@ -97,6 +100,16 @@ with tempfile.TemporaryDirectory() as d:
             pass
         else:
             raise AssertionError("Cross-channel OTA image identity was accepted")
+
+    wma_shell = (wma / "usr/sbin/ppe-update").read_text()
+    assert "ppe-update-wma301-preflight" in wma_shell
+    assert "WMA301 unattended OTA is disabled" in wma_shell
+    assert "cmd_auto() {\n\t# WMA301 never installs unattended.\n\treturn 0" in wma_shell
+    assert 'meta layout' in wma_shell
+    assert "ppe-update-wma301-preflight" not in src_mx + src_arthur
+    assert 'imm-wma301-' not in src_mx + src_arthur
+    assert "ppe_nss_commit" not in json.loads((root / "meta-wma301/ota.json").read_text())
+    assert json.loads((root / "meta-wma301/ota.json").read_text())["layout"] == ota.DEVICES["wma301"]["layout"]
 
     # Staging MX only: no eMMC platform.sh, no inherited Arthur /etc/fstab,
     # and no old one-time script deleting the newly installed updater.

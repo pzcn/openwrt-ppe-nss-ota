@@ -1,0 +1,22 @@
+#!/bin/sh
+# Register Aurora only when its CSS and LuCI templates are in this image.
+# First install defaults to Aurora; keep an existing custom theme choice.
+# Bootstrap remains installed as the recovery choice.
+if [ -f /etc/config/luci ]; then
+    uci -q set luci.main.lang='zh_cn'
+    if [ -s /www/luci-static/aurora/main.css ] &&
+       [ -s /usr/share/ucode/luci/template/themes/aurora/header.ut ]; then
+        previous="$(uci -q get luci.themes.Aurora 2>/dev/null || true)"
+        current="$(uci -q get luci.main.mediaurlbase 2>/dev/null || true)"
+        uci -q set luci.themes.Aurora='/luci-static/aurora'
+        if [ -z "$previous" ]; then
+            case "$current" in
+                ''|/luci-static/bootstrap)
+                    uci -q set luci.main.mediaurlbase='/luci-static/aurora'
+                    ;;
+            esac
+        fi
+    fi
+    uci -q commit luci
+fi
+exit 0

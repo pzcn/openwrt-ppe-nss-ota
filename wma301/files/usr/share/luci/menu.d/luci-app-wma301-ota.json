@@ -1,0 +1,15 @@
+{
+  "admin/system/wma301-ota": {
+    "title": "WMA301 在线更新",
+    "order": 85,
+    "action": {
+      "type": "view",
+      "path": "system/wma301-ota"
+    },
+    "depends": {
+      "acl": [
+        "luci-app-wma301-ota"
+      ]
+    }
+  }
+}
