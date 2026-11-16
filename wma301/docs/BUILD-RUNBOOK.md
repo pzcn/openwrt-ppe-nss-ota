@@ -21,8 +21,8 @@
 3. 需要构建时，从 GitHub Actions Cache 精确恢复对应 SHA256 的官方 ImageBuilder 归档；未命中再下载，命中后也**必须再次做 SHA256 检查**。不以 `latest` 或未校验的分支名缓存内核。
 4. 重新读取官方索引，如与第一阶段的 Builder SHA256 不一致则终止，避免上游发布过程中的快照竞争。
 5. 根据官方 `version.buildinfo` 对应 commit 获取同版本 ImmortalWrt 源码作为设备适配输入。Linux 原始源码归档按上游公布的 SHA256 做缓存；只抽取匹配内核的设备树头文件（包括 input-event-codes.h 的软链接目标）。
-6. 使用 `scripts/official_builder.py` 注入设备 profile、WMA301 DTS、LAN/WAN、MAC、fw_env 和 FIT 升级逻辑，并从**固定 SHA 的 Aurora v1.4.0** 源码复制预编译的 LuCI 主题资源、注册默认主题。**不重新编译 Linux 内核、kmod、工具链，也不为了 Aurora 调用 SDK**。
-7. 从 `configs/official-packages.txt` 读取预装包（允许负号排除包）。只接受规范包名，避免拼接任意 shell 语句。ImageBuilder 从官方配套 APK 仓库安装；缺失包则失败，不混用 SDK 或 ABI。
+6. 使用 `scripts/official_builder.py` 注入设备 profile、WMA301 DTS、LAN/WAN、MAC、fw_env 和 FIT 升级逻辑，并从**固定 SHA 的 Aurora v1.4.0** 源码使用官方主机端 `apk mkpkg` 打包 `noarch` APK，再由 ImageBuilder 安装；默认主题仍由首次启动脚本注册。**不重编 Linux 内核、kmod、工具链，也不下载 SDK**。
+7. 从 `configs/official-packages.txt` 读取预装包（允许负号排除包）。只接受规范包名，避免拼接任意 shell 语句。ImageBuilder 从官方配套 APK 仓库安装通用包，并从其本地 `packages/` 安装 Aurora APK；缺失包则失败，不混用 SDK 或 ABI。
 8. 生成 `squashfs-sysupgrade.itb`，再运行 `scripts/verify_official.py`，检查 FIT、SquashFS、WMA301 分区范围和只读标志、UBI 根卷，并记录官方版本、本仓库 SHA、所选包及输出 SHA256。
 9. **全部通过且 Artifact 上传成功**之后，写入一条本周成功指纹缓存。失败不标记成功，以便下次自动重试。快速流程保留 14 天验证 Artifact，**默认不发布 OTA 固件源**，也不执行 sysupgrade、不写闪存。
 
@@ -76,7 +76,7 @@
 
 ## 亚瑟软件同步（WMA301 独立适配）
 
-通用插件与中文包已整理到 `configs/official-packages.txt`；Aurora v1.4.0 额外使用 [AURORA.md](AURORA.md) 所述固定源码与双路径安装；默认快速路径与完整源码路径应使用同一清单。WMA301 版本明确**不含 sing-box**，也不移植 Qualcomm NSS/PPE 和 eMMC/F2FS 代码。各项取舍参阅 [ARTHUR-SOFTWARE.md](ARTHUR-SOFTWARE.md)。
+通用插件与中文包已整理到 `configs/official-packages.txt`；Aurora v1.4.0 使用 [AURORA.md](AURORA.md) 所述固定源码生成 `noarch` APK，快速构建与完整源码路径均以软件包方式安装。WMA301 版本明确**不含 sing-box**，也不移植 Qualcomm NSS/PPE 和 eMMC/F2FS 代码。各项取舍参阅 [ARTHUR-SOFTWARE.md](ARTHUR-SOFTWARE.md)。
 
 ## WMA301 独立 OTA
 

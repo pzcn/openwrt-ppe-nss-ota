@@ -14,14 +14,14 @@ sysupgrade FIT images.
 
 * The official Linux Image, kernel ABI, kernel modules, base packages and LuCI.
 * The official ImageBuilder's FIT generation, filesystem tools and APK package repositories.
-* Aurora v1.4.0 theme's precompiled CSS/JS and Ucode templates at pinned commit `84c27b66952e6fc4be60128067a6b88bfd34afb5`. They are staged directly into the FILES overlay, without a third-party APK or matching SDK.
+* Aurora v1.4.0 theme's precompiled CSS/JS and Ucode templates at pinned commit `84c27b66952e6fc4be60128067a6b88bfd34afb5`. They are assembled into a native noarch APK using the official ImageBuilder host apk mkpkg, and installed from its local packages/ directory without a matching SDK.
 * The official source's board.d, sysupgrade and U-Boot environment utilities,
   with WMA301 board cases added using our existing source integration.
 
 Aurora Ucode templates receive the same version substitutions as LuCI's `SubstituteVersion` installation. First-boot defaults use Aurora only if the current theme remains Bootstrap, while keeping Bootstrap available for fallback. See [AURORA.md](AURORA.md).
 
 The fast-path compiles **only the WMA301 DTB**, and compresses the **existing**
-official kernel Image; it does not rebuild Linux or third-party APK packages.
+official kernel Image; it only packages the pure-asset Aurora theme as a native noarch APK and does not rebuild Linux or target ABI packages.
 
 ## Reproducibility and source identity
 
@@ -29,7 +29,7 @@ The workflow reads `version.buildinfo` and `sha256sums` from the same official
 filogic output directory, verifies the ImageBuilder tarball SHA256, and resolves
 the version's short Git revision to a **full upstream commit SHA**. The matching
 upstream source is checked out at that exact SHA; its device-specific shell
-files are staged into a FILES overlay, while the original source tree and
+platform files are staged into a FILES overlay; Aurora is installed via APK, while the original source tree and
 upstream firmware are left untouched.
 
 The official kernel's `include/dt-bindings` headers are obtained from
@@ -70,7 +70,7 @@ See [build plan, schedule, cache policy and maintenance procedure](BUILD-RUNBOOK
   Use the full-source build for `initramfs-recovery.itb`.
 * This phase uses the official packages and initially requests only `luci` from
   `configs/official-packages.txt`. Change that file to add future packages.
-  Third-party SDK APK compilation is intentionally not wired into the workflow
+  Target SDK APK compilation is intentionally not wired into the workflow; native noarch Aurora packaging uses bundled apk-tools
   yet. The official matching SDK name/SHA is recorded in provenance metadata.
 * This is **offline validation only**. Power-cycle persistence, actual flash
   reliability at 52 MHz, UBI environment retention, Ethernet, MAC addresses,

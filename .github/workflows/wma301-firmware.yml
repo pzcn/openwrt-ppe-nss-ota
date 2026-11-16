@@ -266,7 +266,7 @@ jobs:
             "linux-$VERSION/include/uapi/linux/input-event-codes.h"
           test -f "kernel-source/linux-$VERSION/include/dt-bindings/input/linux-event-codes.h"
           echo "path=$PWD/kernel-source/linux-$VERSION/include" >> "$GITHUB_OUTPUT"
-      - name: Fetch and validate pinned Aurora v1.4.0 (prebuilt LuCI assets)
+      - name: Fetch and validate pinned Aurora v1.4.0 (native APK source)
         run: |
           set -euo pipefail
           git clone -q --depth 1 --branch v1.4.0 \
@@ -312,14 +312,16 @@ jobs:
           python3 scripts/verify_official.py --images images --output dist \
             --provenance official-provenance.json --local-sha "$GITHUB_SHA" \
             --packages-file configs/official-packages.txt \
-            --aurora-overlay "$PWD/wma301-overlay"
+            --aurora-overlay "$PWD/wma301-overlay" \
+            --aurora-apk "$BUILDER/packages/luci-theme-aurora-1.4.0-r1.apk"
           (cd dist && sha256sum -c SHA256SUMS)
           test "$(find dist -maxdepth 1 -name '*.itb' | wc -l)" -eq 1
           python3 scripts/pack_unified_ota.py \
             --images images --dist dist --overlay "$PWD/wma301-overlay" \
             --output out-wma301-ota --tag "$WMA_OTA_TAG" \
             --build "$WMA_OTA_BUILD" --upstream "$IMMORTALWRT_SHA" \
-            --source "$GITHUB_SHA" --provenance official-provenance.json
+            --source "$GITHUB_SHA" --provenance official-provenance.json \
+            --aurora-apk "$BUILDER/packages/luci-theme-aurora-1.4.0-r1.apk"
           (cd out-wma301-ota && sha256sum -c sha256sums)
       - name: Upload verified FIT Artifact
         uses: actions/upload-artifact@v4
@@ -362,7 +364,8 @@ jobs:
             --notes "WMA301 v2.0 migrated single-UBI layout ONLY. Shared manual-only OTA on the main repository; verify boot, NAND/UBI layout, preserved U-Boot environment and recovery before flashing. No automatic installation. Hardware approval: $HARDWARE_CONFIRMED." \
             immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb \
             immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest \
-            ota.json sha256sums manifest.json official-provenance.json
+            ota.json sha256sums manifest.json official-provenance.json \
+            luci-theme-aurora-1.4.0-r1.apk
       - name: Summarize official source, cache reuse and artifact safety
         env:
           IB_CACHE: ${{ steps.ib_cache.outputs.cache-hit }}
@@ -378,7 +381,7 @@ jobs:
             printf '| Device integration commit | %s |\n' "$GITHUB_SHA"
             printf '| Builder archive cache hit | %s |\n' "$IB_CACHE"
             printf '| Linux source archive cache hit | %s |\n' "$KERNEL_CACHE"
-            echo '| Aurora | v1.4.0 pinned source / prebuilt assets |'
+            echo '| Aurora | v1.4.0 native noarch APK, installed by official ImageBuilder |'
             printf '| WMA301 OTA enabled | %s |\n' "$WMA301_ENABLE_OTA"
             echo '| OTA feed | Unified main repository; manual publication only |'
             echo '| Output | Verified sysupgrade FIT (no recovery) |'

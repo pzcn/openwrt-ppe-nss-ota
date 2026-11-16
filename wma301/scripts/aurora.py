@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Pin and bundle Aurora's *prebuilt* LuCI theme into a firmware overlay.
+"""Build pinned Aurora LuCI theme as a real noarch APK with official ImageBuilder tools.
 
-This is a no-SDK asset installation for the official ImageBuilder fast path.
-The full-source fallback compiles the same source as a normal LuCI package.
+The official ImageBuilder bundles OpenWrt apk-tools mkpkg. Aurora is static
+LuCI content, so this does not require SDK, compiler, or target ABI rebuild.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
@@ -15,6 +16,8 @@ from pathlib import Path
 
 VERSION = "1.4.0"
 TAG = f"v{VERSION}"
+PACKAGE_VERSION = f"{VERSION}-r1"
+PACKAGE_NAME = "luci-theme-aurora"
 COMMIT = "84c27b66952e6fc4be60128067a6b88bfd34afb5"
 SOURCE = "https://github.com/eamonxg/luci-theme-aurora.git"
 REQUIRED = (
@@ -29,7 +32,7 @@ REQUIRED = (
 )
 THEME_METADATA = {"name": "luci-theme-aurora", "version": VERSION,
                   "source": SOURCE, "commit": COMMIT,
-                  "fast_build_installation": "prebuilt-source-overlay-no-apk"}
+                  "fast_build_installation": "imagebuilder-local-noarch-apk"}
 
 
 def check_layout(source: Path) -> None:
@@ -62,7 +65,7 @@ def substitute_version(text: str) -> str:
 
 
 def stage_contents(source: Path, overlay: Path) -> list[str]:
-    """Copy only the paths installed by luci.mk, never developer resources."""
+    """Install upstream LuCI assets into an isolated package payload root."""
     check_layout(source)
     written: list[str] = []
     for source_prefix, destination_prefix in (
@@ -98,25 +101,71 @@ def stage_contents(source: Path, overlay: Path) -> list[str]:
     return written
 
 
-def stage(source: Path, overlay: Path) -> dict:
+def build_apk(source: Path, builder: Path) -> dict:
+    """Generate a native APK v3, indexed and installed by ImageBuilder.
+
+    Crucially, Aurora files do not go into FILES= overlay: all theme assets
+    must be owned by apk and appear in the installed package manifest.
+    """
     check_source(source)
-    files = stage_contents(source, overlay)
-    return {**THEME_METADATA, "files_staged": len(files)}
+    apk = builder / "staging_dir/host/bin/apk"
+    if not apk.is_file() or not apk.stat().st_mode & 0o111:
+        raise ValueError("Official ImageBuilder has no executable host apk mkpkg")
+    package_dir = builder / "packages"
+    if not package_dir.is_dir():
+        raise ValueError("Official ImageBuilder local packages directory missing")
+    payload = builder / "build_dir/aurora-noarch-payload"
+    if payload.exists():
+        raise ValueError("Refusing to reuse old Aurora APK payload")
+    payload.mkdir(parents=True)
+    files = stage_contents(source, payload)
+    if (payload / "etc/uci-defaults/30_luci-theme-aurora").exists():
+        raise ValueError("Aurora upstream UCI defaults must not override user theme")
+    target = package_dir / f"{PACKAGE_NAME}-{PACKAGE_VERSION}.apk"
+    if target.exists():
+        raise ValueError(f"Refusing to overwrite an existing APK: {target}")
+    command = [
+        str(apk), "mkpkg",
+        "--info", f"name:{PACKAGE_NAME}",
+        "--info", f"version:{PACKAGE_VERSION}",
+        "--info", "arch:noarch",
+        "--info", "license:Apache-2.0",
+        "--info", "description:Aurora theme for the LuCI web interface",
+        "--info", "origin:luci-theme-aurora",
+        "--info", "url:https://github.com/eamonxg/luci-theme-aurora",
+        "--info", "depends:luci-base",
+        "--files", str(payload),
+        "--output", str(target),
+    ]
+    subprocess.run(command, check=True)
+    if not target.is_file() or target.stat().st_size < 1024:
+        raise ValueError("Aurora APK build produced no valid archive")
+    digest = hashlib.sha256(target.read_bytes()).hexdigest()
+    metadata = {
+        **THEME_METADATA,
+        "package_version": PACKAGE_VERSION,
+        "architecture": "noarch",
+        "filename": target.name,
+        "sha256": digest,
+        "files_packaged": len(files),
+    }
+    print(json.dumps(metadata, indent=2))
+    return metadata
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("action", choices=["check", "stage"])
+    parser.add_argument("action", choices=["check", "apk"])
     parser.add_argument("--source", required=True, type=Path)
-    parser.add_argument("--overlay", type=Path)
+    parser.add_argument("--builder", type=Path)
     args = parser.parse_args()
     if args.action == "check":
         check_source(args.source)
         print(json.dumps(THEME_METADATA, indent=2))
     else:
-        if args.overlay is None:
-            parser.error("--overlay is required for stage")
-        print(json.dumps(stage(args.source, args.overlay), indent=2))
+        if args.builder is None:
+            parser.error("--builder is required for APK compilation")
+        build_apk(args.source, args.builder)
 
 
 if __name__ == "__main__":

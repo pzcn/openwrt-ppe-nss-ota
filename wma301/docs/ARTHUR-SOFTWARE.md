@@ -24,12 +24,12 @@
 ## 已移植的通用配置
 
 - `files/etc/uci-defaults/95-luci-preferences`：简体中文 + **仅在首次引入 Aurora 且当前为默认 Bootstrap 时**切换 Aurora。保留已选择的其他主题，Bootstrap 仍可回退。不改 Wi-Fi、密码或 OTA。
-- `Aurora v1.4.0`：从与亚瑟一致的上游源码、固定 SHA `84c27b66952e6fc4be60128067a6b88bfd34afb5` 获取。快速 ImageBuilder 使用带版本戳的预编译主题资源，不额外下载 SDK；完整源码后备安装标准 LuCI 主题包。见 [AURORA.md](AURORA.md)。
+- `Aurora v1.4.0`：从与亚瑟一致的上游源码、固定 SHA `84c27b66952e6fc4be60128067a6b88bfd34afb5` 获取。快速 ImageBuilder 使用自带 apk mkpkg 将带版本戳的主题资源构建为 noarch APK，再安装至固件；不额外下载 SDK。完整源码后备也安装标准 LuCI 包。见 [AURORA.md](AURORA.md)。
 
 ## Aurora 主题同步
 
 - 主题源码：`eamonxg/luci-theme-aurora`，版本 `v1.4.0`，与亚瑟同源，CI 校验提交 SHA。
-- 快速构建：向固件 overlay 添加原项目编译好的 `/www/luci-static/aurora`、LuCI JavaScript 与 Ucode 模板，带 Apache-2.0 LICENSE。**不是独立 APK，无法通过 `apk info luci-theme-aurora` 查看包安装状态。**
+- 快速构建：将原项目编译好的 LuCI 资源和 Apache-2.0 LICENSE 打包为 `luci-theme-aurora-1.4.0-r1.apk`，放入 ImageBuilder 本地软件包目录，参与标准 APK 安装并写入实际软件包 manifest。
 - 完整源码后备：从相同源码编译 `luci-theme-aurora` 标准包。
 - 保留 `luci-theme-bootstrap`；故障时可 SSH 恢复，详见 [AURORA.md](AURORA.md)。
 
