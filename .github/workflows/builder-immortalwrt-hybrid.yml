@@ -15,6 +15,12 @@ name: Hybrid Builder (official snapshot userland + local PPE/NSS kernel)
 # On PR #16's exact experiment branch, [ssh] forces full and enables a
 # bounded Tailscale SSH debugging window on failure (never auto-publish).
 on:
+  # Rebuild on kernel-source edits only; overlays, OTA and plugins stay fast.
+  push:
+    branches: [main]
+    paths:
+      - "scripts/patch-nss-log-poll.py"
+      - "scripts/port-ppe-nss-to-immortalwrt.sh"
   workflow_call:
     inputs:
       build_mode:
@@ -92,6 +98,7 @@ jobs:
           python3 scripts/tests/test-hybrid-builder.py
           python3 scripts/tests/test-hybrid-layer.py
           python3 scripts/tests/test-hybrid-ppe-source-sync.py
+          python3 scripts/tests/test-nss-log-poll.py
           python3 scripts/tests/test-immortalwrt-builder.py
           python3 scripts/tests/test-immortalwrt-sdk.py
           python3 scripts/tests/test-fit-configs.py

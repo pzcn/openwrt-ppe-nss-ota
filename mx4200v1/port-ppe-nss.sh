@@ -35,6 +35,11 @@ done
 
 # Take the complete compatible wireless datapath, not the old ECM/qca-nss-dp stack.
 copy_tree package/kernel/nss-wifi-drv
+# Preserve the firmware log ring, but avoid 5000 idle hrtimer wakeups/s.
+# Only nss_log_shadow_tick changes, not NAPI packet processing.
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+python3 "$REPO_ROOT/scripts/patch-nss-log-poll.py" \
+  "$imm/package/kernel/nss-wifi-drv/src/nss_ring.c"
 copy_tree package/network/config/qca-ppe-qos
 copy_tree package/utils/ppe-help
 copy_tree package/kernel/mac80211/patches/nss-wifi
