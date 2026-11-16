@@ -41,7 +41,7 @@
 | 系统与诊断 | LuCI 中文 / Aurora、文件管理、ttyd、nlbwmon、wifihistory、DDNS-Go、autoreboot、cpufreq、autocore、tcpdump |
 | OTA | 原生“系统 → 备份 / 升级”中的在线检查、手动更新、版本校验、GitHub 代理选择、可选自动检查/安装 |
 
-**不预装**：HomeProxy、DiskMan、Statistics 及对应语言包。Dr.COM 校园网登录源码保留在仓库，但不会打包进当前固件。软件包清单分别位于 [`config/add.txt`](config/add.txt) / [`config/remove.txt`](config/remove.txt) 和 [`mx4200v1/packages.txt`](mx4200v1/packages.txt) / [`mx4200v1/remove.txt`](mx4200v1/remove.txt)。
+**不预装**：HomeProxy、DiskMan、Statistics 及对应语言包。Dr.COM 校园网登录源码保留在仓库，但当前固件不打包该功能。软件包清单分别位于 [`config/add.txt`](config/add.txt) / [`config/remove.txt`](config/remove.txt) 和 [`mx4200v1/packages.txt`](mx4200v1/packages.txt) / [`mx4200v1/remove.txt`](mx4200v1/remove.txt)。
 
 ## OTA 使用与安全
 
@@ -82,7 +82,7 @@ cat /tmp/ppe-update.log
 
 最新 Builder：[`imm-builder-2fe3065a-ec9306fa-5796d271-...`（亚瑟）](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/tag/imm-builder-2fe3065a-ec9306fa-5796d271-g827215b29490-pcae13671-f3a7075a6-sd21482dd) 和 [`mx4200-builder-f1b46e2caf726290c0c42ca7`（MX4200）](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/tag/mx4200-builder-f1b46e2caf726290c0c42ca7)。**Builder 的 prerelease 状态与固件的 stable 状态是两回事**：新内核先以 Builder 预发布产物保存；经显式发布请求及 CI 校验后，才生成设备可发现的正式 OTA 固件。
 
-- `main` 的固件输入改动会触发双设备打包，但**普通推送不会自动把新内核发布到正式 OTA**。
+- `main` 的固件输入改动会触发双设备打包，但**普通推送只打包，且不自动发布新版内核至正式 OTA**。
 - 手动运行双设备固件工作流可选择设备和 `publish`；手动发布时 MX4200 使用预发布固件模式。**两台同时正式发布**使用受控的主分支显式发布标记 `[release-ota-stable]`，并经过各自校验。
 - 固件打包不重新编译内核；亚瑟若缺少特定插件 APK，可使用同一 Builder 配套 SDK 补编，失败时拒绝发布；MX4200 缺少兼容 APK 则拒绝打包，不从其他 ABI 拼包。
 
@@ -91,7 +91,7 @@ cat /tmp/ppe-update.log
 ## 存储与兼容补丁（亚瑟专用）
 
 - p18：SquashFS / F2FS `rootfs_data`，用于配置持久化。
-- p27：单独的 ext4 数据分区；不会因固件构建而自动格式化，也不作为旧式 extroot 强行挂载。
+- p27：单独的 ext4 数据分区；构建流程不自动格式化该分区，也不作为旧式 extroot 强行挂载。
 - 暂保留 **F2FS** 与 **sysupgrade 保留配置** 两项补丁，待上游修复并实机确认后移除。参考 [F2FS PR #26577](https://github.com/openwrt/openwrt/pull/26577) 和 [sysupgrade PR #26576](https://github.com/openwrt/openwrt/pull/26576)。
 
 排查：

@@ -50,8 +50,8 @@ OTA 后端模板位于 `files/usr/sbin/ppe-update`，由 `scripts/immortalwrt_ot
 
 ## WMA301 的特殊保护
 
-WMA301 的官方 Linux 6.18 / Filogic ImageBuilder 固件在独立的 [WMA301 Action](../.github/workflows/wma301-firmware.yml) 中构建，**默认只上传验证 Artifact**。主仓库正式 OTA Release 只能在手动选择 `release_mode=stable` 且确认完成真机验收后发布；`prerelease` 不会出现在设备的 OTA 更新列表中。
+WMA301 的官方 Linux 6.18 / Filogic ImageBuilder 固件在独立的 [WMA301 Action](../.github/workflows/wma301-firmware.yml) 中构建，**默认只上传验证 Artifact**。主仓库正式 OTA Release 只能在手动选择 `release_mode=stable` 且确认完成真机验收后发布；`prerelease` 不进入设备的 OTA 更新列表。
 
-WMA301 OTA 适用范围严格限定为**已完成单 UBI 分区迁移的 WMA301 v2.0**。它在调用 `sysupgrade` 前还检查 `mtd6` 与 `fit`、`ubootenv`、`ubootenv2`、`rootfs_data` 卷，并要求远端 `layout` 标识一致。发现原厂 A/B 布局、缺卷或错误板型时拒绝在线刷写。不会调用 `ubiformat`、裸 NAND 写入或 `sysupgrade -F`。
+WMA301 OTA 适用范围严格限定为**已完成单 UBI 分区迁移的 WMA301 v2.0**。它在调用 `sysupgrade` 前还检查 `mtd6` 与 `fit`、`ubootenv`、`ubootenv2`、`rootfs_data` 卷，并要求远端 `layout` 标识一致。发现原厂 A/B 布局、缺卷或错误板型时拒绝在线刷写。不执行 `ubiformat`、裸 NAND 写入或 `sysupgrade -F`。
 
-**WMA301 永不自动安装 OTA**：运行时 `cmd_auto` 被硬性关闭，LuCI 不显示自动升级设置；仍保留手动检查、GitHub 代理和人工下载/安装按钮。恢复旧 UCI 配置也不会开启自动刷写。WMA301 不安装 sing-box、Tailscale、DDNS-Go 或 Qualcomm 专属插件。详见 [WMA301 说明](../wma301/README.md)。
+**WMA301 永不自动安装 OTA**：运行时 `cmd_auto` 被硬性关闭，LuCI 不显示自动升级设置；仍保留手动检查、GitHub 代理和人工下载/安装按钮。恢复旧 UCI 配置依然禁止自动刷写。WMA301 不安装 sing-box、Tailscale、DDNS-Go 或 Qualcomm 专属插件。详见 [WMA301 说明](../wma301/README.md)。
