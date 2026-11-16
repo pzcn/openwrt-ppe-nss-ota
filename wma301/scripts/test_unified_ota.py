@@ -66,6 +66,7 @@ with TemporaryDirectory() as tmp:
     (dist / "SHA256SUMS").write_text(f"{digest}  {filename}\n")
     installed = [
         "luci - 1", "luci-app-filemanager - 1", "luci-app-wol - 1",
+        "autocore - 42",
         "luci-i18n-base-zh-cn - 1", "luci-app-pbr - 1",
         "wireguard-tools - 1", "kmod-mt7915e - 1",
         "kmod-mt7981-firmware - 1", "mt7981-wo-firmware - 1",
@@ -120,6 +121,16 @@ with TemporaryDirectory() as tmp:
     assert (out / IMAGE).read_bytes() == raw.read_bytes()
     assert (out / aurora_apk.name).read_bytes() == aurora_apk.read_bytes()
     assert "sha256sums" in [x.name for x in out.iterdir()]
+    # Reject regressions that silently remove the temperature RPC backend.
+    pkg.write_text("\n".join(p for p in installed if not p.startswith("autocore ")) + "\n")
+    try:
+        pack(images, dist, overlay, base / "bad-no-tempinfo", tag, build,
+             upstream, source, provfile, aurora_apk)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("accepted firmware without autocore temperature backend")
+    pkg.write_text("\n".join(installed) + "\n")
     # Never accept a synthetic package manifest based on the requested list.
     pkg.unlink()
     try:

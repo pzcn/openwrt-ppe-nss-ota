@@ -56,7 +56,7 @@ OTA 入口仍是 LuCI **系统 → 备份 / 升级 → 在线固件更新**；�
 
 ## 软件包策略
 
-沿用原来的精简 [`configs/official-packages.txt`](configs/official-packages.txt)：中文 LuCI / Aurora、WireGuard、WOL、PBR、SQM、filemanager、ttyd、nlbwmon、wifihistory、irqbalance、lldpd 等。**不预装** sing-box、HomeProxy、Tailscale、DDNS-Go、Qualcomm NSS / PPE QoS / 监控、F2FS/eMMC 专属包。与亚瑟 / MX4200 的同名可移植功能保持一致，但不强求 MT7981 固件体积或内存配置和 Qualcomm 路由器相同。
+沿用原来的精简 [`configs/official-packages.txt`](configs/official-packages.txt)：中文 LuCI / Aurora、`autocore`（为 LuCI 提供 `/sbin/tempinfo` 温度读取）、WireGuard、WOL、PBR、SQM、filemanager、ttyd、nlbwmon、wifihistory、irqbalance、lldpd 等。**不预装** sing-box、HomeProxy、Tailscale、DDNS-Go、Qualcomm NSS / PPE QoS / 监控、F2FS/eMMC 专属包。与亚瑟 / MX4200 的同名可移植功能保持一致，但不强求 MT7981 固件体积或内存配置和 Qualcomm 路由器相同。
 
 ## 文件位置
 

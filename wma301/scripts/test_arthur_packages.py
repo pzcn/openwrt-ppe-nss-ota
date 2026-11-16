@@ -8,7 +8,7 @@ names = read_packages(ROOT / "configs/official-packages.txt")
 selected = set(p for p in names if not p.startswith("-"))
 removed = set(p[1:] for p in names if p.startswith("-"))
 required = {
-    "luci", "luci-theme-bootstrap", "luci-i18n-base-zh-cn", "luci-i18n-firewall-zh-cn",
+    "luci", "luci-theme-bootstrap", "luci-i18n-base-zh-cn", "autocore", "luci-i18n-firewall-zh-cn",
     "luci-app-filemanager", "luci-app-ttyd", "luci-app-nlbwmon",
     "luci-app-wifihistory", "luci-app-irqbalance", "luci-app-lldpd",
     "luci-app-pbr", "luci-app-autoreboot", "luci-proto-wireguard",
