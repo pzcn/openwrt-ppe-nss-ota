@@ -1,85 +1,115 @@
-# 京东云亚瑟 RE-SS-01 ImmortalWrt PPE/NSS 固件
+# ImmortalWrt PPE/NSS 固件 · 京东云亚瑟 & Linksys MX4200 v1
 
-本仓库统一构建 **ImmortalWrt + Julius PPE/NSS** 定制固件，目标设备为京东云 RE-SS-01（亚瑟）。当前实机扩容到 **1 GiB RAM、64 GB eMMC**，编译继续采用兼容的 ipq60xx 512M NSS 内存配置。
+基于 [ImmortalWrt](https://github.com/immortalwrt/immortalwrt) 与 [Julius PPE/NSS](https://github.com/JuliusBairaktaris/openwrt-ppe-nss) 的定制固件。**亚瑟 RE-SS-01**（`qualcommax/ipq60xx`）和 **Linksys MX4200 v1**（`qualcommax/ipq807x`）使用相同的 LuCI 功能与 OTA 界面，但分别构建内核、ImageBuilder 和 SDK，**固件不能交叉刷写**。
 
-## 已集成的功能
+> 固件已在 GitHub Actions 完成构建与静态校验，并正式发布到各自 OTA 渠道；新内核的启动、无线、配置保留及故障恢复仍需真机验证。正式发布不等于已通过完整硬件验收。建议先手动升级，**自动安装默认关闭**。
 
-| 类型 | 组件 |
-| --- | --- |
-| 网络加速 | PPE 有线硬件卸载、NSS Wi-Fi、PPE QoS、SQM |
-| LuCI 与中文 | Aurora 主题、原生管理页、简体中文语言包 |
-| 网络工具 | WireGuard、PBR、LLDP、IRQ Balance、tcpdump、conntrack |
-| 管理插件 | filemanager、ttyd、nlbwmon、wifihistory、autoreboot、cpufreq、ddns-go、autocore |
-| 远程访问 | Tailscale、中文 LuCI 管理页面 |
-| 代理 | sing-box 内核、v0.4.7 中文 LuCI JSON 管理界面，默认关闭 |
-| 网络唤醒 | luci-app-wol、Etherwake、简体中文 |
-| 更新 | 在线检查、SHA256 与 `sysupgrade -T` 验证、自动更新与软件包恢复 |
+## 最新正式 OTA（2026-11-16）
 
-### 内置页面
-
-- **状态 → PPE / NSS 硬件加速**：硬件加速状态、连接统计、折叠诊断。
-- **系统 → 备份 / 升级**：手动升级、在线检查、自动更新设置。
-- **VPN → Tailscale**：远程组网和服务管理。
-- **服务 → sing-box**：JSON 配置、校验及服务控制。
-- **服务 → 网络唤醒**：通过 LAN 接口向指定 MAC 发送唤醒包。
-
-**校园网登录（Dr.COM）已从固件构建中排除。** LuCI 页面、RPC、认证脚本和自动登录的源码仍保存在仓库。参见 [Dr.COM 源码说明](docs/DRCOM-CAMPUS.md)。
-
-完整插件清单在 [config/add.txt](config/add.txt)，核心构建选项在 [config/immortalwrt-re-ss-01.config](config/immortalwrt-re-ss-01.config)，自动测试会检查必需插件是否齐全。
-
-## Actions
-
-| 工作流 | 自动触发 | 产物 |
+| 设备 | 固件版本 | 镜像下载 |
 | --- | --- | --- |
-| [固件打包 Firmware](../../actions/workflows/firmware-immortalwrt.yml) | `main` 的代码、LuCI、OTA、插件配置变化；每天检查一次 | 从已发布 Builder 重打包 `imm-arthur-SNAPSHOT-r<revision>-YYYYMMDDHHMM` 固件 |
-| [源码 Builder + SDK](../../actions/workflows/builder-immortalwrt.yml)（后备） | 仅手动触发 | 同一轮源码编译发布 `imm-builder-...` ImageBuilder、匹配 SDK 和 feed 锁定文件 |
-| [Hybrid Builder](../../actions/workflows/builder-immortalwrt-hybrid.yml)（默认） | 每天检查；`add.txt` 等改动推送时 | 内核侧不变时只替换官方 APK（不编译，约 10 分钟）；PPE/内核侧变化时只编内核、kmod 和定制包。新内核以 prerelease 发布，见 [docs/HYBRID-BUILDER.md](docs/HYBRID-BUILDER.md) |
+| 京东云亚瑟 RE-SS-01 · IPQ60xx | [`imm-arthur-SNAPSHOT-r42542-202611161651`](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/tag/imm-arthur-SNAPSHOT-r42542-202611161651) | [sysupgrade.bin](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/download/imm-arthur-SNAPSHOT-r42542-202611161651/immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin) |
+| Linksys MX4200 **v1** · IPQ807x | [`imm-mx4200v1-SNAPSHOT-r42541-202611161651`](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/tag/imm-mx4200v1-SNAPSHOT-r42541-202611161651) | [sysupgrade.bin](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/download/imm-mx4200v1-SNAPSHOT-r42541-202611161651/immortalwrt-qualcommax-ipq807x-linksys_mx4200v1-squashfs-sysupgrade.bin) · [factory.bin](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/download/imm-mx4200v1-SNAPSHOT-r42541-202611161651/immortalwrt-qualcommax-ipq807x-linksys_mx4200v1-squashfs-factory.bin) |
 
-Hybrid Builder 每天先用几十秒判断：无变化跳过；只有官方用户态或插件列表变化时复用上一版内核、ImageBuilder 和 SDK，仅替换官方 APK；PPE/NSS 或内核配方变化时才编译内核侧。非 prerelease 的 Builder 发布后自动触发固件工作流。固件工作流始终默认选用最新发布的 Builder（可手动指定），仅校验其设备型号、发行元数据与资产 SHA256，不比较当前代码的 Builder 核心指纹。固件工作流仍会在源码和 Builder 均未变化时跳过打包，且**只进行固件打包，不涉及内核编译**。
+- 两个 Release 都是 **正式版**（非 prerelease），分别包含 `ota.json`、软件包清单及 SHA256 校验文件，MX4200 额外包含 sysupgrade 设备元数据。
+- 两套固件共用一次打包任务的构建时间戳，但 **r42542 / r42541 是各自 Builder 锁定的 ImmortalWrt 修订号**，不代表可使用同一个内核或软件包。
+- 本轮固件将 NSS 日志 shadow hrtimer 的默认轮询周期设为 **100 ms**（`log_poll_us=100000`）；该参数控制日志轮询，不是 PPE/NSS 数据面转发频率。
+- 历史版本及匹配的 Builder/SDK 见 [GitHub Releases](https://github.com/pzcn/openwrt-ppe-nss-ota/releases)。完整打包记录：[Actions #43834663103](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43834663103)。
 
-- 修改 `files/`、LuCI、OTA、翻译或 `config/add.txt`：使用最新发布的 Builder 打包。
-- 添加已编译的插件 APK：直接重打包。若 Builder 缺少 APK，固件工作流自动使用同一 Release 配套 SDK 补编并加入离线仓库，无需重新编译内核；没有 SDK 的旧 Builder 缺包时需先手动完整编译一次。
-- 修改编译配置、内核或 PPE/NSS 代码：Hybrid Builder 编译新的内核侧，以 prerelease 发布，实机验证后在 Releases 页转正即生效。
-- [Releases](../../releases) 保存 Builder（包含配套 OpenWrt SDK）和固件，附 SHA256 与版本锁定信息；未来可用 SDK 补编与当前 Builder ABI 匹配的插件 APK。
+## 设备差异
 
-详细说明：[构建与版本判定](docs/IMMORTALWRT-PPE-NSS.md)。
+| 项目 | 亚瑟 RE-SS-01 | MX4200 v1 |
+| --- | --- | --- |
+| Target / profile | `qualcommax/ipq60xx` / `jdcloud_re-ss-01` | `qualcommax/ipq807x` / `linksys_mx4200v1` |
+| 存储 | eMMC：p18 SquashFS + F2FS 可写层；p27 可单独挂载 ext4 | 原生 NAND/UBI、Linksys 双镜像升级逻辑 |
+| 设备专用处理 | F2FS 工具、sysupgrade 配置保留兼容补丁 | 校验 6 MiB FIT 内核限制及 sysupgrade 元数据；不引入亚瑟的 eMMC 平台脚本 |
+| ImageBuilder / SDK | 独立 ipq60xx ABI | 独立 ipq807x ABI |
+| 硬件提示 | 项目测试机扩容到 **1 GiB RAM / 64 GB eMMC**；继续使用兼容的 512M NSS 内存配置 | 仅支持 **MX4200 v1**，不支持 v2；原机 512 MiB RAM |
 
-## 两个临时兼容补丁
+详细的 MX4200 镜像及 NAND/UBI 注意事项见 [MX4200 v1 README](mx4200v1/README.md)。
 
-构建时暂时保留：
+## 主要功能
 
-1. **F2FS 可写层**：为京东云 eMMC 设备补齐 `kmod-fs-f2fs` 和 `f2fs-tools`，保证 p18 的 rootfs_data 可持久写入。
-2. **sysupgrade 保留配置**：补齐 ipq60xx eMMC `platform_copy_config` 与 `emmc_copy_config` 的调用关系。
+两台设备尽量保持一致的软件包和 LuCI 体验；设备特有的存储、内核及刷写逻辑单独维护。
 
-上游对应 [F2FS PR #26577](https://github.com/openwrt/openwrt/pull/26577)、[sysupgrade PR #26576](https://github.com/openwrt/openwrt/pull/26576)。等 ImmortalWrt 上游合并修复并经设备验证后，分别移除本地兼容补丁。详见 [临时补丁管理](docs/TEMPORARY-PATCHES.md)。
+| 类型 | 功能 |
+| --- | --- |
+| 加速与无线 | PPE 有线硬件卸载、NSS Wi-Fi、PPE QoS、SQM，PPE/NSS 运行状态 |
+| 网络与远程管理 | WireGuard、Tailscale、PBR、LLDP、IRQ Balance、WOL / Etherwake |
+| 代理 | `sing-box` + `luci-app-sing-box` v0.4.7 中文 JSON 管理界面，默认不启用代理 |
+| 系统与诊断 | LuCI 中文 / Aurora、文件管理、ttyd、nlbwmon、wifihistory、DDNS-Go、autoreboot、cpufreq、autocore、tcpdump |
+| OTA | 原生“系统 → 备份 / 升级”中的在线检查、手动更新、版本校验、GitHub 代理选择、可选自动检查/安装 |
 
-## 存储与升级
+**不预装**：HomeProxy、DiskMan、Statistics 及对应语言包。Dr.COM 校园网登录源码保留在仓库，但不会打包进当前固件。软件包清单分别位于 [`config/add.txt`](config/add.txt) / [`config/remove.txt`](config/remove.txt) 和 [`mx4200v1/packages.txt`](mx4200v1/packages.txt) / [`mx4200v1/remove.txt`](mx4200v1/remove.txt)。
 
-- **p18 / rootfs**：SquashFS + F2FS `rootfs_data`。
-- **p27**：已有 ext4 数据分区。固件使用 ImmortalWrt 自身挂载逻辑，无专用 extroot 或自动格式化配置。
+## OTA 使用与安全
 
-升级之前请导出配置并备份重要数据。首次从旧固件升级，建议手动选择正确的 `imm-arthur-SNAPSHOT-r<revision>-YYYYMMDDHHMM` 镜像并确认分区状态。
+入口：**LuCI → 系统 → 备份 / 升级 → 在线固件更新**。两台设备共享界面及后端，按实际设备型号筛选不同的 Release 渠道：
+
+- 亚瑟：`imm-arthur-...` / `re-ss-01-immortal-ppe-nss`
+- MX4200 v1：`imm-mx4200v1-...` / `mx4200v1-immortal-ppe-nss`
+
+OTA 使用版本与设备标识校验、SHA256、`sysupgrade -T` 等检查；GitHub Release 下载优先使用 `curl`，失败时可回退 `uclient-fetch`。可选直连或 HTTPS GitHub 代理，但公共代理并不能提供独立的端到端真实性保证。
+
+已运行兼容 OpenWrt/ImmortalWrt 的设备应使用对应 **sysupgrade** 文件；MX4200 的 **factory** 镜像只用于支持该格式的原厂安装路径。**禁止在 MX4200 v2 上刷 v1 镜像，也不要通过 `sysupgrade -F` 绕过检查。**
+
+升级前先备份配置和重要数据，尤其要验证亚瑟 F2FS 可写层、MX4200 双镜像及配置保留。MX4200 默认关闭无人值守升级；在完成真实硬件升级与恢复测试前，不建议开启任何设备的自动安装。
+
+路由器上可检查：
+
+```sh
+ppe-update status
+ppe-update check
+cat /tmp/ppe-update.log
+```
+
+详见 [在线更新说明](docs/CUSTOM-OTA.md) 和 [临时兼容补丁](docs/TEMPORARY-PATCHES.md)。
+
+## 构建与发布
+
+**固件打包与 Builder 分离**：日常改动 LuCI、插件清单、翻译或 OTA 覆盖层时，优先复用各设备已发布、ABI 匹配的 ImageBuilder；不因为这些改动重新编译内核。
+
+| 工作流 | 职责 |
+| --- | --- |
+| [Firmware · Arthur & MX4200](.github/workflows/firmware-simple.yml) | **当前双设备固件入口**。独立解析两套已发布 Builder，打包并做回归校验；两设备共享时间戳，一台失败不触发另一台的内核重编 |
+| [Arthur Hybrid Builder](.github/workflows/builder-immortalwrt-hybrid.yml) | 按来源和指纹决定跳过、刷新官方 Snapshot 用户态 APK 或编译新内核 / PPE/NSS / 配套 ImageBuilder + SDK |
+| [MX4200 Hybrid Builder](.github/workflows/mx4200v1-hybrid.yml) | 独立编译 ipq807x PPE/NSS、6 MiB FIT、factory/sysupgrade；发布可复用的 MX4200 Builder 预发布版 |
+| [Arthur 独立重打包](.github/workflows/firmware-immortalwrt.yml) | 高级/单设备手动操作及双设备工作流内部调用 |
+| [旧版 Full Source Builder](.github/workflows/builder-immortalwrt.yml) | 手动后备构建，不是日常固件打包入口 |
+
+最新 Builder：[`imm-builder-2fe3065a-ec9306fa-5796d271-...`（亚瑟）](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/tag/imm-builder-2fe3065a-ec9306fa-5796d271-g827215b29490-pcae13671-f3a7075a6-sd21482dd) 和 [`mx4200-builder-f1b46e2caf726290c0c42ca7`（MX4200）](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/tag/mx4200-builder-f1b46e2caf726290c0c42ca7)。**Builder 的 prerelease 状态与固件的 stable 状态是两回事**：新内核先以 Builder 预发布产物保存；经显式发布请求及 CI 校验后，才生成设备可发现的正式 OTA 固件。
+
+- `main` 的固件输入改动会触发双设备打包，但**普通推送不会自动把新内核发布到正式 OTA**。
+- 手动运行双设备固件工作流可选择设备和 `publish`；手动发布时 MX4200 使用预发布固件模式。**两台同时正式发布**使用受控的主分支显式发布标记 `[release-ota-stable]`，并经过各自校验。
+- 固件打包不重新编译内核；亚瑟若缺少特定插件 APK，可使用同一 Builder 配套 SDK 补编，失败时拒绝发布；MX4200 缺少兼容 APK 则拒绝打包，不从其他 ABI 拼包。
+
+详细架构和兼容性说明：[Hybrid Builder](docs/HYBRID-BUILDER.md) · [ImmortalWrt / PPE/NSS 构建](docs/IMMORTALWRT-PPE-NSS.md)。
+
+## 存储与兼容补丁（亚瑟专用）
+
+- p18：SquashFS / F2FS `rootfs_data`，用于配置持久化。
+- p27：单独的 ext4 数据分区；不会因固件构建而自动格式化，也不作为旧式 extroot 强行挂载。
+- 暂保留 **F2FS** 与 **sysupgrade 保留配置** 两项补丁，待上游修复并实机确认后移除。参考 [F2FS PR #26577](https://github.com/openwrt/openwrt/pull/26577) 和 [sysupgrade PR #26576](https://github.com/openwrt/openwrt/pull/26576)。
+
+排查：
 
 ```sh
 df -h /overlay
 block info | grep mmcblk0p27
 logread | grep -Ei 'f2fs|overlay|mount_root'
-ubus call luci.ppe-nss-monitor get_status
 ```
 
-## 文档
+## 文档与目录
 
-- [ImmortalWrt 构建](docs/IMMORTALWRT-PPE-NSS.md)
+- [MX4200 v1 专项说明](mx4200v1/README.md)
+- [OTA 更新说明](docs/CUSTOM-OTA.md)
+- [Hybrid Builder](docs/HYBRID-BUILDER.md)
+- [构建与版本判定](docs/IMMORTALWRT-PPE-NSS.md)
 - [临时补丁](docs/TEMPORARY-PATCHES.md)
-- [Dr.COM 校园网](docs/DRCOM-CAMPUS.md)
-- [在线更新](docs/CUSTOM-OTA.md)
-- [PPE / NSS 监控](docs/PPE-NSS-MONITOR.md)
+- [PPE/NSS 监控](docs/PPE-NSS-MONITOR.md)
 - [Tailscale 与 WOL](docs/TAILSCALE-WOL.md)
-- [sing-box 配置管理](docs/SINGBOX.md)
+- [sing-box](docs/SINGBOX.md)
+- [Dr.COM 源码（不打包）](docs/DRCOM-CAMPUS.md)
 - [中文本地化](docs/CHINESE-LOCALIZATION.md)
 
-源码布局：`config/` 保存设备、插件与翻译配置；`files/` 为固件覆盖层；`scripts/` 保存源码构建、固件打包、补丁与测试代码。
-
-## Linksys MX4200 v1 (separate test target)
-
-The isolated `qualcommax/ipq807x` **MX4200 v1** PPE/NSS test build is under [`mx4200v1/`](mx4200v1/README.md). It has its own [GitHub Actions workflow](.github/workflows/mx4200v1.yml), source config, package list and build artifacts. This does not reuse Arthur's `ipq60xx` ImageBuilder or enable MX4200 OTA before hardware testing.
+目录：`config/` 为亚瑟配置和软件包清单，`files/` 为双设备共用的 LuCI/OTA 覆盖层，`mx4200v1/` 为 ipq807x 独立构建及设备覆盖层，`scripts/` 为构建、校验与测试。

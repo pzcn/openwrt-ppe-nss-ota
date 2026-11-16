@@ -1,153 +1,70 @@
-# Linksys MX4200 v1 — ImmortalWrt PPE + NSS
+# Linksys MX4200 v1 · ImmortalWrt PPE/NSS
 
-This isolated target is a **test build**, not a published OTA channel.
-It reuses ImmortalWrt master as the OS and JuliusBairaktaris/openwrt-ppe-nss
-(ppe-nss branch) for modern wired PPE/EDMA and ath11k NSS Wi-Fi.
+**MX4200 v1 已有独立的正式 OTA 固件**，与京东云亚瑟共用 LuCI 在线更新界面和大部分软件包，但使用 **ipq807x 专用内核、ImageBuilder、SDK、OTA 渠道**。完整项目说明见 [仓库首页](../README.md)。
 
-## Hardware and image contracts
+> **仅支持 MX4200 v1，不支持 v2。** 2026-11-16 版本通过 GitHub Actions 构建、元数据与 SHA256 校验；尚未因此证明真机启动、NAND 双镜像升级和恢复都安全。请保留可用的恢复手段，默认不要启用自动安装。
 
-- Device: Linksys MX4200 **v1 only** (IPQ8174, 512 MiB RAM, NAND/UBI).
-- Target: `qualcommax/ipq807x`, device `linksys_mx4200v1`.
-- Kernel FIT partition: **6144 KiB**; select REGULAR stack protection rather
-  than STRONG, following Julius' `ipq807x-6m-kernel` build profile.
-- Images: `squashfs-factory.bin` (for supported OEM install workflows) and
-  `squashfs-sysupgrade.bin` (for compatible running OpenWrt/ImmortalWrt).
-- v2 is intentionally excluded. Never install the v1 image on v2.
-- The original Linksys NAND/UBI and dual-image upgrade logic are inherited
-  from ImmortalWrt. No custom `platform.sh` is installed.
+## 最新正式固件（2026-11-16）
 
-## Actions
+- **Release**：[`imm-mx4200v1-SNAPSHOT-r42541-202611161651`](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/tag/imm-mx4200v1-SNAPSHOT-r42541-202611161651)
+- **OpenWrt / ImmortalWrt 升级**：[`immortalwrt-qualcommax-ipq807x-linksys_mx4200v1-squashfs-sysupgrade.bin`](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/download/imm-mx4200v1-SNAPSHOT-r42541-202611161651/immortalwrt-qualcommax-ipq807x-linksys_mx4200v1-squashfs-sysupgrade.bin)
+- **仅适用于受支持原厂安装流程**：[`immortalwrt-qualcommax-ipq807x-linksys_mx4200v1-squashfs-factory.bin`](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/download/imm-mx4200v1-SNAPSHOT-r42541-202611161651/immortalwrt-qualcommax-ipq807x-linksys_mx4200v1-squashfs-factory.bin)
+- **构建记录**：[双设备固件 Actions #43834663103](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43834663103)
+- **对应 Builder**：[`mx4200-builder-f1b46e2caf726290c0c42ca7`](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/tag/mx4200-builder-f1b46e2caf726290c0c42ca7)，含可复用 ImageBuilder、匹配 SDK、Snapshot 锁定信息及校验文件（Builder 本身仍是 prerelease）。
 
-Run [MX4200 v1 - ImmortalWrt PPE NSS test build](../.github/workflows/mx4200v1.yml)
-via GitHub Actions > Run workflow. Changes inside `mx4200v1/` also trigger it.
-The job produces two downloadable testing artifacts:
+正式 Release 包含 factory / sysupgrade、`ota.json`、`mx4200v1-ota-identity.json`、`snapshot-lock.json`、`sha256sums`、manifest 和 `sysupgrade.metadata.json`。安装前需确认设备确实是 v1，并使用正确镜像。
 
-1. `mx4200v1-firmware-test`: factory/sysupgrade firmware, manifest, checksums,
-   and the three upstream commit IDs.
-2. `mx4200v1-builder-sdk-test`: standalone ImageBuilder and ABI-matched SDK
-   compiled from **the same source checkout** for future incremental builds.
+## 设备和升级边界
 
-This workflow does not publish Releases, create OTA metadata, or flash routers.
-The existing Arthur (`ipq60xx`) workflows and releases remain unchanged.
+| 项目 | MX4200 v1 |
+| --- | --- |
+| SoC / RAM | Qualcomm IPQ8174 / 512 MiB |
+| Target / profile | `qualcommax/ipq807x` / `linksys_mx4200v1` |
+| 存储 / 升级 | 原生 NAND / UBI，沿用 ImmortalWrt / Linksys 双镜像逻辑 |
+| 内核分区 | FIT 6 MiB 限制（6144 KiB），构建时校验镜像大小、FIT 配置 |
+| OTA 渠道 | `mx4200v1-immortal-ppe-nss`；仅筛选 `imm-mx4200v1-...` 正式 Release |
+| 平台脚本 | 不覆写 `/lib/upgrade/platform.sh`，不引入亚瑟的 eMMC、F2FS 或分区修复 |
 
-## Initial software selection
+**旧的某些测试镜像缺少 `fwtool` 附加的 sysupgrade 元数据，不能安全用于升级。** 当前构建会用 `fwtool -i` 检验元数据尾部，检查 `supported_devices` 包含 `linksys,mx4200v1`，校验 FIT 及 SHA256；失败不发布镜像。**不要用 `sysupgrade -F` 绕过设备或元数据校验**，不要将 v1 镜像用于 v2。
 
-PPE wired hardware offload, NSS Wi-Fi, PPE QoS/SQM, Aurora, Simplified Chinese
-LuCI, WireGuard, Tailscale, WOL, file manager, ttyd, nlbwmon, PBR, LLDP, and
-diagnostic tools. The v1 has 512 MiB RAM, so zram-swap is included.
-Sing-box and Arthur's eMMC/F2FS patches are **not** part of this first image.
+## LuCI、软件包与 OTA
 
-Source packages and options live in `packages.txt` and `source.config`.
-The port script is `port-ppe-nss.sh`; `build.sh` compiles everything.
-The first run uses a locally compiled toolchain (the existing toolchain reuse
-script is pinned specifically to `ipq60xx` and must not be used here).
+与亚瑟保持一致的功能包括：PPE/NSS 加速及监控、PPE QoS / SQM、中文 LuCI / Aurora、Tailscale、WireGuard、WOL、PBR、DDNS-Go、sing-box + 中文 LuCI JSON 配置、filemanager、ttyd、nlbwmon、wifihistory、irqbalance、lldpd、autoreboot、cpufreq、autocore 和诊断工具。
 
-## Validation stages
+- 同一套 LuCI “**系统 → 备份 / 升级 → 在线固件更新**”与 `ppe-update` 后端，支持手动检查、SHA256、`sysupgrade -T`、GitHub HTTPS 代理切换与错误日志。
+- MX4200 在固件覆盖层中设置 `ppe-update.main.auto=0`；**默认禁止无人值守安装**。在配置保留、双镜像恢复和网络功能真机测试完成前，不建议开启。
+- 不包含亚瑟 F2FS 专用依赖；不包含 HomeProxy、DiskMan、Statistics、Dr.COM 登录程序。详细差异见 [`packages.txt`](packages.txt)、[`remove.txt`](remove.txt) 和 [主仓库说明](../README.md)。
+- LuCI 温度读取依赖 `autocore` 提供的 `/sbin/tempinfo`；若无温度，检查 `/sys/class/thermal/thermal_zone*/`。
+- 本轮 NSS 日志 shadow hrtimer 默认调整为 **100 ms**（`log_poll_us=100000`），不是加速转发轮询周期。
 
-- [x] Isolated profile and upstream port sources defined
-- [x] Offline contract checks in the workflow
-- [ ] Full successful GitHub Actions compilation and image inspection
-- [ ] Confirm the FIT kernel is within the 6 MiB flash partition
-- [ ] On-device: boot, WAN/LAN, three radios, NSS Wi-Fi, PPE flows
-- [ ] On-device: sysupgrade with config retention and dual-image recovery
-- [ ] Publish independently versioned MX4200 v1 Builder/SDK and OTA after tests
+## 当前构建流程
 
-**Do not use unattended upgrades or overwrite both stock boot slots during
-early testing.** Keep a known-good recovery route and backup configuration
-and flash calibration data before changing firmware.
+| 工作流 | 作用 |
+| --- | --- |
+| [双设备固件打包](../.github/workflows/firmware-simple.yml) | 日常固件入口；从最新兼容的 MX4200 **长期保存的 Builder Release** 取 ImageBuilder，快速重打包 factory / sysupgrade；不重新编译内核或 SDK |
+| [MX4200 Hybrid Builder](../.github/workflows/mx4200v1-hybrid.yml) | 内核、PPE/NSS、SDK 等变化后全量编译；通过校验后发布独立的不可变 Builder **预发布版**，同时上传手动测试固件 |
+| [MX4200 fast repack](../.github/workflows/mx4200v1-fast-repack.yml) | 专项测试/诊断，复用指定已有产物，不替代日常固件工作流 |
+| [原始全源码构建](../.github/workflows/mx4200v1.yml) | 手动后备或调试 |
+| [旧统一编排工作流](../.github/workflows/dual-device-immortalwrt.yml) | 保留手动诊断，不再作为日常自动编排入口 |
 
-## Hybrid Builder (experimental)
+`resolve-release.py` 检查 Builder Release 的来源提交、目标 profile、所需附件及与当前 MX4200 内核配置/端口/软件包清单的兼容性。无法找到匹配的 Builder 时，**固件工作流不会自行触发全量编译**；自动推送任务跳过，手动重打包失败并提示先运行 Hybrid Builder。
 
-The new [MX4200 v1 Hybrid test workflow](../.github/workflows/mx4200v1-hybrid.yml)
-uses official ImmortalWrt `qualcommax/ipq807x` Snapshot APKs and its own
-SHA256-pinned toolchain while compiling PPE/NSS kernel, kmods and custom
-packages locally. The target profile is `linksys_mx4200v1` only; it never
-mixes with Arthur's `qualcommax/ipq60xx` kernel or ImageBuilder.
+`repack-hybrid.sh` 校验 ImageBuilder、基础覆盖层、Snapshot 锁、同一 ABI 的 kmod 及产出的固件。两台设备的软件包列表尽量同步，但 `qualcommax/ipq807x` **不能复用** 亚瑟的 `qualcommax/ipq60xx` ImageBuilder、SDK、kmod 或升级脚本。
 
-Push to `feat/mx4200v1-hybrid-builder` for a test run. On success the workflow
-uploads factory/sysupgrade binaries and the matching standalone ImageBuilder/
-SDK as separate testing artifacts. It **does not publish a Release, generate
-OTA metadata, or flash the router**. The original
-[full-source workflow](../.github/workflows/mx4200v1.yml) stays as fallback.
+固件普通 `main` 推送只打包并上传供检查的 Actions artifact；**正式 OTA 需要显式发布请求**。手动 `publish=true` 对 MX4200 生成固件 prerelease；经明确的受控主分支发布标记 `[release-ota-stable]` 和 CI 校验才发布稳定 OTA。不要把 Builder 预发布版当成可刷写固件。
 
-Gates: 6 MiB FIT limit, FIT boot configuration, exact v1 package manifest,
-both factory and sysupgrade images, and SDK compile smoke. Successful CI is
-**not** proof that the router can boot or safely sysupgrade.
+核心配置与源码：[`source.config`](source.config)、[`port-ppe-nss.sh`](port-ppe-nss.sh)、[`build-hybrid.sh`](build-hybrid.sh)、[`stage-overlay.sh`](stage-overlay.sh)、[`ota-artifacts.sh`](ota-artifacts.sh)、[`publish-release.sh`](publish-release.sh)。
 
-### Required sysupgrade metadata
+## 手动升级建议
 
-The MX4200 v1 firmware built before the host-`fwtool` fix (Actions
-#43592253791) is **not safe to sysupgrade**: its ImageBuilder log includes
-`fwtool: command not found`, so the generated sysupgrade binary lacks
-the required OpenWrt metadata trailer. Do not bypass this with `sysupgrade -F`.
+先备份配置及重要数据，确认 MX4200 v1 型号、供电、网络和救援路径。从现有兼容 OpenWrt/ImmortalWrt 升级时选择官方 Release 的 **sysupgrade.bin**，保留配置与否按实际场景判断。升级后检查 LAN/WAN、所有无线、PPE/NSS、Tailscale、sing-box、配置持久化、双镜像切换与恢复；不要未经验证就无人值守升级。
 
-The Hybrid workflow now builds `package/system/fwtool/host/compile` before
-ImageBuilder packaging, checks that the ImageBuilder archive contains the
-host binary, and **requires `fwtool -i` to read the produced sysupgrade file**.
-CI also checks the metadata for the `linksys,mx4200v1` supported-device
-identifier. Any missing or invalid metadata fails the workflow before
-firmware artifacts are uploaded. Use `*-squashfs-sysupgrade.bin` from a
-successful **new** run for OpenWrt-to-OpenWrt upgrades; the
-`*-squashfs-factory.bin` has a different purpose.
+排查 OTA：
 
-## MX4200 v1: LuCI temperature, PPE update removal, sing-box
+```sh
+ppe-update status
+ppe-update check
+cat /tmp/ppe-update.log
+```
 
-- **Temperature:** install ImmortalWrt `autocore` to provide
-  `/sbin/tempinfo`. LuCI Status > Overview uses `luci.getTempInfo`.
-  The stock qualcommax kernel already has `CONFIG_QCOM_TSENS=y`.
-  After flashing, inspect `/sbin/tempinfo` and
-  `/sys/class/thermal/thermal_zone*/{type,temp}` if no valid reading.
-- **Remove Julius system updater:** strip the `ppe-update` service, config,
-  uci-default, keep.d, command, LuCI menu, ACL and view from the PPE base
-  overlay. A one-time UCI-default cleans any settings carried over by
-  sysupgrade. Standard System > Backup / Flash Firmware remains.
-- **sing-box:** use the same pinned `lauyv/luci-app-sing-box` v0.4.7 build
-  as Arthur, with official `sing-box`, `flock`, `kmod-inet-diag` and
-  `kmod-tun`, no HomeProxy.
-
-Both the MX4200 Hybrid build and the full-source fallback use the shared
-`mx4200v1/stage-overlay.sh` cleanup. Boot confirmation alone does not
-verify temperature readings, sing-box routing or upgrade behavior.
-
-## Fast firmware repack from a verified MX4200 Hybrid ImageBuilder
-
-The [unified firmware workflow](../.github/workflows/dual-device-immortalwrt.yml)
-now selects an ImageBuilder dynamically for MX4200 v1: it scans successful
-Hybrid runs, validates that the three parent Actions artifacts are present and
-not expired, and checks the original source commit against the **current**
-kernel configuration, PPE/NSS port, package list and exclusions.
-
-- Exact match: reuse that MX4200 v1 ImageBuilder and rebuild factory/sysupgrade
-  **without compiling kernel, PPE/NSS, SDK or toolchain**.
-- No match (including expired parent artifacts): automatically invoke the
-  MX4200-only full Hybrid Builder. Do not quietly reuse incompatible kernel
-  or silently omit a newly requested LuCI feature.
-- Explicit `mode=repack` fails early if no compatible parent exists.
-  The standalone fast-repack workflow requires the caller to supply an
-  explicit validated source run ID and corresponding source commit.
-
-The base ImageBuilder, original SHA256 manifest, base overlay and local kmod
-provenance are still checked after downloading. This implements safe automatic
-Builder selection; a proper official-APK delta layer is a separate future
-optimization for software-only package additions.
-
-- Successful reference repack: [Actions #43609137873](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43609137873),
-  artifact `mx4200v1-fast-repacked-firmware-test`. The actual sysupgrade
-  metadata was parsed using the ImageBuilder's `fwtool` and contains
-  `supported_devices: ["linksys,mx4200v1"]`.
-- `mx4200v1/repack-hybrid.sh` verifies SHA256 for the parent ImageBuilder,
-  overlay and official snapshot lock, checks the bundled 6 MiB FIT, keeps
-  Linksys upstream NAND/UBI upgrade files intact, rejects non-parent kmods,
-  and validates factory/sysupgrade outputs with a new SHA256 manifest.
-- Any changes to `source.config` or `port-ppe-nss.sh` require rebuilding the
-  MX4200 Builder. For userspace package additions, the requested APK must
-  already exist in the pinned offline ImageBuilder; missing packages cannot
-  silently fall back to another target or kernel ABI.
-- The unified scheduler and main pushes decide whether to repack or build
-  from scratch; the standalone workflow remains a manual troubleshooting tool.
-  Parent Actions artifacts currently retain for 14 days; an immutable
-  long-term MX Builder Release still needs to replace temporary artifacts.
-- This workflow is a **zero-delta reuse of the already pinned official APK
-  set**, not yet a new MX4200 official-APK delta layer. It does not publish
-  Release/OTA or flash any router. The prior full-source and full Hybrid
-  workflows remain available for new kernel/ABI builds.
+参考：[完整项目 README](../README.md) · [在线更新](../docs/CUSTOM-OTA.md) · [Actions 构建记录](https://github.com/pzcn/openwrt-ppe-nss-ota/actions/runs/43834663103)。
