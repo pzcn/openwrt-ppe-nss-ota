@@ -20,7 +20,9 @@ arthur = module.make_tag("arthur", epoch, "r43172-4765b657")
 mx = module.make_tag("mx4200v1", epoch, "r42542-e695009c15")
 assert arthur == "imm-arthur-SNAPSHOT-r43172-202611151925", arthur
 assert mx == "imm-mx4200v1-SNAPSHOT-r42542-202611151925", mx
-assert arthur.split("-")[-1] == mx.split("-")[-1]
+wma = module.make_tag("wma301", epoch, "r42542-e695009c15")
+assert wma == "imm-wma301-SNAPSHOT-r42542-202611151925", wma
+assert arthur.split("-")[-1] == mx.split("-")[-1] == wma.split("-")[-1]
 assert module.short_revision("r42542") == "r42542"
 
 # UTC day boundary must be Shanghai local time; no YYMM string.

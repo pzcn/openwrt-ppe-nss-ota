@@ -17,7 +17,7 @@ PROFILE = "jdcloud_re-ss-01"
 BOARD = "jdcloud,re-ss-01"
 IMAGE = "immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
 MANIFEST = "immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest"
-TAG_PATTERN = re.compile(r"^imm-(?:arthur|mx4200v1)-[a-zA-Z0-9._-]+$")
+TAG_PATTERN = re.compile(r"^imm-(?:arthur|mx4200v1|wma301)-[a-zA-Z0-9._-]+$")
 SHA_PATTERN = re.compile(r"^[a-f0-9]{40}$")
 
 # The updater implementation and release index are shared; every device gets
@@ -35,6 +35,16 @@ DEVICES = {
         "image": "immortalwrt-qualcommax-ipq807x-linksys_mx4200v1-squashfs-sysupgrade.bin",
         "manifest": "immortalwrt-qualcommax-ipq807x-linksys_mx4200v1.manifest",
         "tag_prefix": "imm-mx4200v1-", "display": "MX4200 v1 PPE+NSS",
+    },
+    "wma301": {
+        "channel": "wma301-immortal-filogic",
+        "group": "filogic-mt7981-single-ubi",
+        "profile": "tplink_wma301-v2", "board": "tplink,wma301-v2",
+        "target": "mediatek/filogic",
+        "image": "immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb",
+        "manifest": "immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest",
+        "tag_prefix": "imm-wma301-", "display": "WMA301 v2.0",
+        "layout": "oem-bl2-bl31-custom-bl33-single-ubi-v1",
     },
 }
 
@@ -146,6 +156,27 @@ LATEST=$(jq -r --arg image "$EXPECTED_IMAGE" --arg manifest "$EXPECTED_MANIFEST"
     for before, after in patches:
         source = replace_once(source, before, after)
     source = source.replace("__OTA_TAG_PREFIX__", spec["tag_prefix"])
+    if device == "wma301":
+        # WMA301 must retain the original single-UBI / environment-volume guard.
+        # Even if a retained UCI config sets auto=1, the backend cannot auto-flash.
+        source = replace_once(
+            source, "cmd_auto() {\n",
+            "cmd_auto() {\n\t# WMA301 never installs unattended.\n\treturn 0\n")
+        source = replace_once(
+            source, '\tlookup "$1"\n\tnewer || { echo "up to date:',
+            '\t[ "$policy" = manual ] || die "WMA301 unattended OTA is disabled"\n'
+            '\tlookup "$1"\n\tnewer || { echo "up to date:')
+        source = replace_once(
+            source, '\tsysupgrade -T "$WORK/$IMAGE" >/dev/null 2>&1 ||',
+            '\t/usr/libexec/ppe-update-wma301-preflight || '
+            'die "WMA301 single-UBI safety preflight failed"\n'
+            '\tsysupgrade -T "$WORK/$IMAGE" >/dev/null 2>&1 ||')
+        source = replace_once(
+            source, '\t[ "$(meta image)" = "$EXPECTED_IMAGE" ] &&',
+            '\t[ "$(meta layout)" = '
+            '"oem-bl2-bl31-custom-bl33-single-ubi-v1" ] || '
+            'die "WMA301 OTA layout mismatch"\n'
+            '\t[ "$(meta image)" = "$EXPECTED_IMAGE" ] &&')
     if "sysupgrade -T" not in source or "cmd_auto()" not in source:
         raise ValueError("OTA backend lost firmware validation/automatic update")
     ota.write_text(source)
@@ -168,14 +199,21 @@ def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
     spec = device_spec(device)
     if not TAG_PATTERN.fullmatch(tag) or not tag.startswith(spec["tag_prefix"]) or build < 1:
         raise ValueError("Invalid tag/build")
-    if not SHA_PATTERN.fullmatch(upstream) or not SHA_PATTERN.fullmatch(ppe):
-        raise ValueError("Expected 40-character source commit SHAs")
+    if not SHA_PATTERN.fullmatch(upstream):
+        raise ValueError("Expected 40-character upstream source SHA")
+    if device == "wma301":
+        if ppe:
+            raise ValueError("WMA301 cannot carry a Qualcomm PPE/NSS source SHA")
+    elif not SHA_PATTERN.fullmatch(ppe):
+        raise ValueError("Expected 40-character PPE/NSS source SHA")
     if image.name != spec["image"] or manifest.name != spec["manifest"]:
         raise ValueError("Unexpected image or manifest basename")
     if not image.is_file() or image.stat().st_size < 1_000_000:
         raise ValueError("Missing or unusually small firmware image")
     if not manifest.is_file() or manifest.stat().st_size < 100:
         raise ValueError("Missing package manifest")
+    if device == "wma301" and (builder_tag or layer_tag or sing_box_core is not None):
+        raise ValueError("WMA301 cannot carry Qualcomm Builder, layer or sing-box metadata")
     if builder_tag and not re.fullmatch(r"imm-builder-[a-zA-Z0-9._-]+", builder_tag):
         raise ValueError("Invalid ImageBuilder tag")
     if source_commit and not SHA_PATTERN.fullmatch(source_commit):
@@ -195,13 +233,16 @@ def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
         "target": spec["target"],
         "upstream_tag": f"immortal-{upstream[:12]}",
         "immortalwrt_commit": upstream,
-        "ppe_nss_commit": ppe,
         "image": spec["image"],
         "image_size": image.stat().st_size,
         "image_sha256": sha256(image),
         "manifest": spec["manifest"],
         "manifest_sha256": sha256(manifest),
     }
+    if ppe:
+        doc["ppe_nss_commit"] = ppe
+    if "layout" in spec:
+        doc["layout"] = spec["layout"]
     if builder_tag:
         doc["builder_tag"] = builder_tag
     if source_commit:
@@ -232,7 +273,7 @@ def main() -> None:
     b.add_argument("--tag", required=True)
     b.add_argument("--build", type=int, required=True)
     b.add_argument("--immortal-commit", required=True)
-    b.add_argument("--ppe-commit", required=True)
+    b.add_argument("--ppe-commit", default="")
     b.add_argument("--image", type=Path, required=True)
     b.add_argument("--manifest", type=Path, required=True)
     b.add_argument("--output", type=Path, required=True)

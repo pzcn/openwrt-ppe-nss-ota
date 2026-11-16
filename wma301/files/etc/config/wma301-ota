@@ -1,0 +1,2 @@
+config ota 'main'
+	option enable_flash '0'

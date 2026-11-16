@@ -2,7 +2,13 @@
 
 入口：**系统 → 备份 / 升级 → 在线固件更新**。
 
-固件使用 `re-ss-01-immortal-ppe-nss` OTA 渠道，读取 GitHub Releases 中的 `imm-arthur-SNAPSHOT-r<revision>-YYYYMMDDHHMM` 固件和 `ota.json`。下载之前检查设备型号、SHA256 和 `sysupgrade -T`，升级时按用户选择保留配置。
+主仓库按设备隔离三个 OTA 渠道，通过同一 LuCI 和 `ppe-update` 后端检查 GitHub Releases 中的固件和 `ota.json`：
+
+- 亚瑟：`re-ss-01-immortal-ppe-nss` → `imm-arthur-SNAPSHOT-r<revision>-YYYYMMDDHHMM`；
+- MX4200 v1：`mx4200v1-immortal-ppe-nss` → `imm-mx4200v1-SNAPSHOT-r<revision>-YYYYMMDDHHMM`；
+- WMA301 v2.0：`wma301-immortal-filogic` → `imm-wma301-SNAPSHOT-r<revision>-YYYYMMDDHHMM`，镜像格式为 `sysupgrade.itb`。
+
+三台设备使用独立 profile、board、group、manifest 和版本序列，下载前校验固件元数据、SHA256 和 `sysupgrade -T`。
 
 ## 功能
 
@@ -40,3 +46,12 @@ cat /tmp/ppe-update.log
 ```
 
 OTA 后端模板位于 `files/usr/sbin/ppe-update`，由 `scripts/immortalwrt_ota.py` 在构建时适配 ImmortalWrt 渠道；LuCI 页面位于 `files/www/luci-static/resources/view/system/flash.js`。
+
+
+## WMA301 的特殊保护
+
+WMA301 的官方 Linux 6.18 / Filogic ImageBuilder 固件在独立的 [WMA301 Action](../.github/workflows/wma301-firmware.yml) 中构建，**默认只上传验证 Artifact**。主仓库正式 OTA Release 只能在手动选择 `release_mode=stable` 且确认完成真机验收后发布；`prerelease` 不会出现在设备的 OTA 更新列表中。
+
+WMA301 OTA 适用范围严格限定为**已完成单 UBI 分区迁移的 WMA301 v2.0**。它在调用 `sysupgrade` 前还检查 `mtd6` 与 `fit`、`ubootenv`、`ubootenv2`、`rootfs_data` 卷，并要求远端 `layout` 标识一致。发现原厂 A/B 布局、缺卷或错误板型时拒绝在线刷写。不会调用 `ubiformat`、裸 NAND 写入或 `sysupgrade -F`。
+
+**WMA301 永不自动安装 OTA**：运行时 `cmd_auto` 被硬性关闭，LuCI 不显示自动升级设置；仍保留手动检查、GitHub 代理和人工下载/安装按钮。恢复旧 UCI 配置也不会开启自动刷写。WMA301 不安装 sing-box、Tailscale、DDNS-Go 或 Qualcomm 专属插件。详见 [WMA301 说明](../wma301/README.md)。

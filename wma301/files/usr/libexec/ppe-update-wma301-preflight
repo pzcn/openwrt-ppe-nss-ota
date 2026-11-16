@@ -1,0 +1,27 @@
+#!/bin/sh
+# WMA301 v2.0 only: fail closed before any OTA sysupgrade.
+# This validates the migrated NAND layout; it never edits MTD or UBI.
+set -eu
+[ "$(cat /tmp/sysinfo/board_name 2>/dev/null)" = "tplink,wma301-v2" ] || {
+    echo "Wrong WMA301 board" >&2
+    exit 1
+}
+grep -Eq '^mtd6: 07900000 00020000 "ubi"$' /proc/mtd || {
+    echo "WMA301 OEM/UBI geometry mismatch" >&2
+    exit 1
+}
+for wanted in fit ubootenv ubootenv2 rootfs_data; do
+    present=false
+    for entry in /sys/class/ubi/ubi[0-9]*_[0-9]*/name; do
+        [ -r "$entry" ] || continue
+        if [ "$(cat "$entry")" = "$wanted" ]; then
+            present=true
+            break
+        fi
+    done
+    [ "$present" = true ] || {
+        echo "Missing WMA301 UBI volume: $wanted" >&2
+        exit 1
+    }
+done
+exit 0

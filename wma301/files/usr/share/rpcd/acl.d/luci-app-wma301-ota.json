@@ -1,0 +1,25 @@
+{
+  "luci-app-wma301-ota": {
+    "description": "WMA301-only OTA check, verified download and operator-armed flash",
+    "read": {
+      "file": {
+        "/usr/sbin/wma301-ota status": [
+          "exec"
+        ]
+      }
+    },
+    "write": {
+      "file": {
+        "/usr/sbin/wma301-ota download": [
+          "exec"
+        ],
+        "/usr/sbin/wma301-ota start": [
+          "exec"
+        ]
+      },
+      "uci": [
+        "wma301-ota"
+      ]
+    }
+  }
+}
