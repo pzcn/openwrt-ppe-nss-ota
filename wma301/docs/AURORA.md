@@ -1,38 +1,48 @@
-# Aurora 主题：WMA301 安装与回退
+# WMA301 · Aurora v1.4.0 标准 APK 安装
 
-## 来源与版本
+## 构建路线
 
-- 上游：[eamonxg/luci-theme-aurora](https://github.com/eamonxg/luci-theme-aurora)
-- 与亚瑟一致的版本：**v1.4.0**
-- 源码提交：`84c27b66952e6fc4be60128067a6b88bfd34afb5`
-- 许可证：Apache-2.0，固件包含上游 LICENSE
-- 与代理服务无关联：本固件**不包含 sing-box / HomeProxy**
+WMA301 继续复用 ImmortalWrt master / Linux 6.18 的**官方 mediatek/filogic ImageBuilder**。Aurora 不属于官方 LuCI 软件源，因此先从上游 [eamonxg/luci-theme-aurora](https://github.com/eamonxg/luci-theme-aurora) 拉取 `v1.4.0`，并验证固定提交 `84c27b66952e6fc4be60128067a6b88bfd34afb5`。
 
-官方 `openwrt-25.12` LuCI feed 没有 Aurora APK，因此不能把
-`luci-theme-aurora` 放入 `configs/official-packages.txt` 后期待
-官方 ImageBuilder 自动安装成功。
+`scripts/aurora.py` 会校验主题文件、替换 LuCI 模板版本变量，然后使用**官方 ImageBuilder 自带的主机端 `apk mkpkg`** 生成原生 `noarch` 软件包：
 
-## 快速构建（默认）
+```
+luci-theme-aurora-1.4.0-r1.apk
+```
 
-1. 工作流拉取上游主题 `v1.4.0` tag，校验真实 Git HEAD 必须等于固定 commit。若 tag 被修改，构建直接失败，不静默升级。
-2. `scripts/aurora.py` 只复制上游已编译的 `htdocs/` 和 `ucode/` 安装资源；Ucode 模板严格按 LuCI `SubstituteVersion` 的方式替换版本占位符，避免未经替换的 `{# PKG_VERSION #}`。
-3. `htdocs/` 映射到固件 `/www/`；`ucode/` 映射到 `/usr/share/ucode/luci/`；同时保留 `/usr/share/licenses/luci-theme-aurora/LICENSE`。
-4. 不复制主题原始 `root/etc/uci-defaults/30_luci-theme-aurora`；由本仓库的 `files/etc/uci-defaults/95-luci-preferences` 负责 LuCI 主题注册与首启默认值。
-5. 在验证 FIT 之前检查主题的 CSS/JS、header/sysauth 等模板及版本戳，`manifest.json` 记录主题版本、源 SHA 和安装方式。
+主题文件放在 APK 的 `/www/luci-static/`、`/usr/share/ucode/luci/` 和 `/usr/share/licenses/` 中，依赖 `luci-base`。随后将 APK 放入 ImageBuilder 的 `packages/`，由 ImageBuilder 自动生成本地仓库索引并通过 `PACKAGES=luci-theme-aurora` 安装。ImageBuilder 的实际 manifest 必须包含 `luci-theme-aurora - 1.4.0-r1`，否则整个 FIT 构建失败。
 
-**快速路径直接内置主题文件，不是独立可由 apk 管理的主题包。** CSS、JS、Ucode 都不涉及内核 ABI，故无须调用匹配 SDK。保留官方 Bootstrap 做回退，但还需在 WMA301 实机上验证 LuCI 和浏览器兼容性。
+**不需要额外 SDK，不编译内核，也不混用其他 ABI 的 APK。** Aurora 是纯 CSS、JavaScript、Ucode 模板资源，故其标准包架构为 `noarch`。使用 ImageBuilder 自带的官方主机端 APK 工具，与目标固件的 APK 格式一致。
 
-## 完整源码构建后备
+## 与旧 Overlay 的区别
 
-`.github/workflows/firmware.yml` 使用同一个 tag/SHA，把主题源码放入临时 ImmortalWrt buildroot 的 `package/luci-theme-aurora`，并交给 LuCI 构建系统生成常规 `luci-theme-aurora` 软件包。该路径仍需完整源码构建，仅为手动后备。
+| 项目 | 旧方式 | 当前标准安装 |
+| --- | --- | --- |
+| 主题文件 | 放入 `FILES=` 根文件系统覆盖层 | 由 `luci-theme-aurora.apk` 拥有 |
+| `apk list --installed` | 查不到主题 | 显示 `luci-theme-aurora` |
+| 单独卸载 / 安装 | 无法由 APK 管理 | 使用 APK 包操作 |
+| 固件 manifest | 不包含主题包 | **必须包含** `luci-theme-aurora` |
+| 构建依赖 | 官方 ImageBuilder | 官方 ImageBuilder（自带 `apk mkpkg`） |
+| 内核 | 官方 Linux 6.18 | 完全不变 |
 
-主题原来的 `30_luci-theme-aurora` 会被移除，统一使用本仓库的首次启动设置，避免覆盖已有的用户主题选择。
+`files/etc/uci-defaults/95-luci-preferences` 保持独立，负责注册 Aurora 和首次启动时的默认主题偏好。上游 `30_luci-theme-aurora` 不随主题 APK 安装，以免覆盖用户已选的主题。Bootstrap 继续保留作为回退选项。
 
-## 默认主题与回退
+## 发布和校验
 
-仅在首次引入 Aurora、且 LuCI 原先仍使用默认 Bootstrap 时，自动把 Aurora 设为默认。如果此前用户主动选择了其他主题，脚本只注册 Aurora，不强行切换。
+WMA301 Actions 在固件生成后检查：
 
-如果 Aurora 网页出现问题，可通过 SSH 重新切回 Bootstrap：
+1. Aurora v1.4.0 固定源码 SHA 与 APK 构建命令、软件包哈希。
+2. 实际 ImageBuilder manifest 中 Aurora 的名称及版本，不接受仅有 Overlay 文件的伪装产物。
+3. FIT 的 DTB、NAND/UBI 安全边界、源版本、OTA 元数据和禁止包清单。
+4. 将原生 APK 连同固件 FIT、安装清单及各自 SHA256 一起放入测试 Artifact；今后发布 Release 也同时上传该 APK。
+
+单独在路由器上从下载的文件安装时，先校验 Release 中的 SHA256，并使用 `apk add ./luci-theme-aurora-1.4.0-r1.apk`。如果手动安装一个未由签名仓库提供的包，设备可能要求 `--allow-untrusted`；应确认来自本仓库且文件哈希匹配后再使用。
+
+仅当前升级所需的 FIT 才采用独立 OTA 通道。主题包不是固件镜像，不能代替 sysupgrade。
+
+## 主题回退
+
+保留 Bootstrap。若页面出现异常，可通过 SSH 切回：
 
 ```sh
 uci -q set luci.main.mediaurlbase='/luci-static/bootstrap'
@@ -40,21 +50,4 @@ uci -q commit luci
 /etc/init.d/uhttpd restart
 ```
 
-随后清理浏览器缓存并重新打开 LuCI。主题本身不提供新的 U-Boot/网络恢复能力。
-
-## 离线构建验收记录
-
-- **2026-11-13：[GitHub Actions #43388089333](https://github.com/pzcn/wma301-immortalwrt/actions/runs/43388089333) 全部成功。**
-- 官方 ImageBuilder 快速路径验证 Aurora v1.4.0 固定 SHA 后，成功注入 **30 个主题文件**，生成 WMA301 sysupgrade FIT；FIT/DTS/NAND 检验和 `manifest.json` 的 `bundled_theme` 元数据检查通过。
-- 实验 Artifact ZIP 大小约 **30.8 MB**，只上传 Actions Artifact，不发布 Release、不自动刷机。
-- 完整源码双 FIT 后备仍未因本次主题改动完成实测；Aurora 在 WMA301 实机 LuCI 中的浏览器兼容性尚待验证。
-
-## 验收标准
-
-- `python3 scripts/test_aurora.py` 校验文件映射、模板版本戳、文件冲突与符号链接。
-- 官方 ImageBuilder FIT 通过校验，`manifest.json` 的 `bundled_theme` 显示正确的 commit/version。
-- 首次启动后 LuCI 能显示 Aurora，网络、终端、文件管理器等页面可使用。
-- 保留配置升级后，用户手工选择的 Bootstrap 或其他主题不被覆盖。
-- WMA301 256 MiB RAM、冷启动和掉电重启行为正常。
-
-**GitHub Actions 全绿只说明编译与离线静态检查通过，不是实机通过。**
+相关实现：[`scripts/aurora.py`](../scripts/aurora.py)、[`scripts/official_builder.py`](../scripts/official_builder.py)、[`scripts/verify_official.py`](../scripts/verify_official.py)。上述为 CI 构建验收，LuCI 视觉兼容性仍需真机确认。

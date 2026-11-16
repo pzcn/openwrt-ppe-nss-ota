@@ -69,10 +69,13 @@ with TemporaryDirectory() as tmp:
         "luci-i18n-base-zh-cn - 1", "luci-app-pbr - 1",
         "wireguard-tools - 1", "kmod-mt7915e - 1",
         "kmod-mt7981-firmware - 1", "mt7981-wo-firmware - 1",
-        "luci-theme-bootstrap - 1", "luci-app-ttyd - 1",
+        "luci-theme-bootstrap - 1", "luci-theme-aurora - 1.4.0-r1",
+        "luci-app-ttyd - 1",
     ]
     pkg = images / "immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest"
     pkg.write_text("\n".join(installed) + "\n")
+    aurora_apk = base / "luci-theme-aurora-1.4.0-r1.apk"
+    aurora_apk.write_bytes(b"NATIVE-APK-FIXTURE-" * 150)
     provenance = {
         "source": "ImmortalWrt master SNAPSHOT (official binaries)",
         "target": "mediatek/filogic",
@@ -87,6 +90,11 @@ with TemporaryDirectory() as tmp:
         "device": "tplink,wma301-v2",
         "local_sha": source,
         "hardware_validation": "NOT_TESTED",
+        "installed_theme": {
+            "name": "luci-theme-aurora", "version": "1.4.0-r1",
+            "architecture": "noarch",
+            "sha256": hashlib.sha256(aurora_apk.read_bytes()).hexdigest(),
+        },
         "builder": provenance,
         "output": {
             "file": filename,
@@ -100,7 +108,7 @@ with TemporaryDirectory() as tmp:
         },
     }
     (dist / "manifest.json").write_text(json.dumps(report))
-    pack(images, dist, overlay, out, tag, build, upstream, source, provfile)
+    pack(images, dist, overlay, out, tag, build, upstream, source, provfile, aurora_apk)
     meta = json.loads((out / "ota.json").read_text())
     assert meta["repository"] == "pzcn/openwrt-ppe-nss-ota"
     assert meta["board"] == "tplink,wma301-v2"
@@ -110,12 +118,13 @@ with TemporaryDirectory() as tmp:
     assert "ppe_nss_commit" not in meta and "sing_box_core" not in meta
     assert "layout" in meta and "ubi" in meta["layout"]
     assert (out / IMAGE).read_bytes() == raw.read_bytes()
+    assert (out / aurora_apk.name).read_bytes() == aurora_apk.read_bytes()
     assert "sha256sums" in [x.name for x in out.iterdir()]
     # Never accept a synthetic package manifest based on the requested list.
     pkg.unlink()
     try:
         pack(images, dist, overlay, base / "bad-missing", tag, build, upstream,
-             source, provfile)
+             source, provfile, aurora_apk)
     except ValueError:
         pass
     else:
@@ -123,7 +132,7 @@ with TemporaryDirectory() as tmp:
     pkg.write_text("\n".join(installed + ["tailscale - 1"]) + "\n")
     try:
         pack(images, dist, overlay, base / "bad-package", tag, build, upstream,
-             source, provfile)
+             source, provfile, aurora_apk)
     except ValueError:
         pass
     else:
@@ -132,7 +141,7 @@ with TemporaryDirectory() as tmp:
     pkg.write_text("\n".join(installed) + "\n")
     try:
         pack(images, dist, overlay, base / "bad-upstream", tag, build,
-             "d" * 40, source, provfile)
+             "d" * 40, source, provfile, aurora_apk)
     except ValueError:
         pass
     else:

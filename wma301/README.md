@@ -10,7 +10,7 @@
 
 - **每天检查** `snapshots/targets/mediatek/filogic` 的官方 ImageBuilder 版本及 SHA256；输入未变化且同周已有成功记录就跳过，避免重复下载/构建。
 - 使用准确匹配官方 Snapshot 的 ImmortalWrt 源码、Linux 6.18 内核设备树头文件，只编译 WMA301 DTS；内核 Image、kmod 与 APK 都来自同一官方版本。
-- 复用已校验的 ImageBuilder / Linux 头文件缓存，验证 Aurora v1.4.0 固定源码；编译后验证 sysupgrade FIT 的 DTB、哈希、分区和板型。
+- 复用已校验的 ImageBuilder / Linux 头文件缓存，验证 Aurora v1.4.0 固定源码并通过 ImageBuilder 主机端 `apk mkpkg` 生成 **noarch 原生 APK**；验证 sysupgrade FIT 的 DTB、哈希、分区和板型。
 - 验证 ImageBuilder **实际安装包 manifest**，强制拒绝 sing-box、Tailscale、DDNS-Go、Qualcomm PPE/NSS 专属包；将合法产物整理成统一 OTA 附件。
 - 默认上传 `WMA301_VERIFIED_UNIFIED_OTA`（14 天 Actions Artifact），不会因 push/schedule 自动发布正式 OTA，更不会升级实体路由器。
 
@@ -25,7 +25,8 @@
 发布包包含：
 
 - `immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb`（仅 sysupgrade FIT）
-- `immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest`（实际安装的 APK 清单）
+- `immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest`（实际安装的 APK 清单，必须包含 `luci-theme-aurora`）
+- `luci-theme-aurora-1.4.0-r1.apk`（主题独立安装文件，可由 apk 管理）
 - `ota.json`（与主仓库相同的 schema=1 + WMA301 独有 `layout` 标识）
 - `sha256sums`、`manifest.json`（FIT / DTS 离线验证报告）、`official-provenance.json`（官方 ImageBuilder 来源锁）
 
@@ -61,6 +62,7 @@ OTA 入口仍是 LuCI **系统 → 备份 / 升级 → 在线固件更新**；�
 
 - `device/`：WMA301 DTS / 分区布局
 - `scripts/official_builder.py`、`scripts/prepare.py`：适配官方 Filogic ImageBuilder
+- `scripts/aurora.py`：将固定 SHA 的 Aurora 生成原生 `noarch` APK，取代旧 Overlay 安装
 - `scripts/verify_official.py`：真实 FIT 哈希、DTS 和布局检查
 - `scripts/stage_unified_ota.py`、`scripts/pack_unified_ota.py`：统一 OTA 及发布附件
 - `files/usr/libexec/ppe-update-wma301-preflight`：本机 NAND/UBI 安全守卫

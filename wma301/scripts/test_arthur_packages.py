@@ -29,6 +29,6 @@ assert not any("nss" in p or "qca-ppe" in p or "f2fs" in p for p in selected)
 script = ROOT / "files/etc/uci-defaults/95-luci-preferences"
 assert script.is_file()
 assert script.stat().st_mode & 0o111, "LuCI preference script lacks executable mode"
-assert "luci-theme-aurora" not in selected, "Aurora is pinned source, not official APK"
+assert "luci-theme-aurora" in selected, "Pinned Aurora must be installed by APK"
 print(f"Arthur common software: {len(selected)} selected; "
       f"{len(removed)} excluded; Tailscale/DDNS-Go disabled; no sing-box; MT7981 checks PASS")

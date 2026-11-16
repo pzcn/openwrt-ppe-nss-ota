@@ -8,6 +8,7 @@ import importlib.util
 import json
 from pathlib import Path
 import re
+from aurora import PACKAGE_NAME, PACKAGE_VERSION
 import shutil
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -48,7 +49,8 @@ def sha256(path: Path) -> str:
 
 
 def pack(images: Path, dist: Path, overlay: Path, output: Path, tag: str,
-         build: int, upstream: str, source: str, provenance: Path) -> None:
+         build: int, upstream: str, source: str, provenance: Path,
+         aurora_apk: Path) -> None:
     require(re.fullmatch(r"imm-wma301-SNAPSHOT-r[0-9]+-[0-9]{12}", tag) is not None,
             "invalid unified WMA301 OTA tag")
     require(build >= 1_000_000_000, "WMA301 build must be a timestamp")
@@ -98,8 +100,25 @@ def pack(images: Path, dist: Path, overlay: Path, output: Path, tag: str,
     forbidden = {n for n in names if n in BANNED or n.startswith(
         ("kmod-qca-nss", "luci-i18n-ppe-qos", "qca-nss"))}
     require(not forbidden, f"prohibited firmware packages: {sorted(forbidden)}")
-    for needed in ("luci", "luci-app-wol", "luci-app-filemanager"):
+    for needed in ("luci", "luci-app-wol", "luci-app-filemanager", "luci-theme-aurora"):
         require(needed in names, f"missing required WMA301 package: {needed}")
+    # Reject legacy overlay-based builds, even if their selected package names
+    # were modified to claim Aurora installation.
+    theme = report.get("installed_theme")
+    require(isinstance(theme, dict) and
+            theme.get("name") == "luci-theme-aurora" and
+            theme.get("version") == "1.4.0-r1" and
+            theme.get("architecture") == "noarch" and
+            re.fullmatch(r"[a-f0-9]{64}", str(theme.get("sha256", ""))) is not None,
+            "Aurora must be installed as a native verified APK")
+    require(not (overlay / "www/luci-static/aurora").exists() and
+            not (overlay / "usr/share/ucode/luci/template/themes/aurora").exists(),
+            "Aurora assets must be owned by the package manager")
+    require(aurora_apk.is_file() and
+            aurora_apk.name == f"{PACKAGE_NAME}-{PACKAGE_VERSION}.apk" and
+            aurora_apk.stat().st_size > 1024 and
+            sha256(aurora_apk) == theme["sha256"],
+            "The published Aurora APK must match the installed verified package")
     local = (overlay / "etc/immortal-ppe-ota-release").read_text()
     for needle in (f"OTA_TAG={tag}", f"OTA_BUILD={build}",
                    "OTA_CHANNEL=wma301-immortal-filogic"):
@@ -115,6 +134,7 @@ def pack(images: Path, dist: Path, overlay: Path, output: Path, tag: str,
     shutil.copyfile(candidates[0], output / MANIFEST)
     shutil.copyfile(dist / "manifest.json", output / "manifest.json")
     shutil.copyfile(provenance, output / "official-provenance.json")
+    shutil.copyfile(aurora_apk, output / aurora_apk.name)
     shared = load_shared()
     shared.metadata(tag=tag, build=build, upstream=upstream, ppe="",
                     image=target, manifest=output / MANIFEST,
@@ -123,7 +143,7 @@ def pack(images: Path, dist: Path, overlay: Path, output: Path, tag: str,
     assert json.loads((output / "ota.json").read_text())["layout"] == (
         "oem-bl2-bl31-custom-bl33-single-ubi-v1")
     assets = (IMAGE, MANIFEST, "ota.json", "manifest.json",
-              "official-provenance.json")
+              "official-provenance.json", aurora_apk.name)
     (output / "sha256sums").write_text("".join(
         f"{sha256(output / name)}  {name}\n" for name in assets))
     print(f"Verified WMA301 unified OTA assets: {tag}, packages={len(names)}")
@@ -140,9 +160,10 @@ def main() -> None:
     p.add_argument("--upstream", required=True)
     p.add_argument("--source", required=True)
     p.add_argument("--provenance", type=Path, required=True)
+    p.add_argument("--aurora-apk", type=Path, required=True)
     a = p.parse_args()
     pack(a.images, a.dist, a.overlay, a.output, a.tag, a.build,
-         a.upstream, a.source, a.provenance)
+         a.upstream, a.source, a.provenance, a.aurora_apk)
 
 
 if __name__ == "__main__":

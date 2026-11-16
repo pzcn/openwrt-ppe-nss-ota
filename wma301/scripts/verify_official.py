@@ -15,7 +15,7 @@ from pathlib import Path
 from verify import verify_one
 from official_builder import read_packages
 from wma301_ota import BOARD, LAYOUT, PROFILE, REPO, SHA256
-from aurora import THEME_METADATA, VERSION
+from aurora import THEME_METADATA, PACKAGE_NAME, PACKAGE_VERSION, COMMIT
 
 NAME_RE = re.compile(r".*tplink_wma301-v2-squashfs-sysupgrade\.itb$")
 
@@ -23,7 +23,8 @@ NAME_RE = re.compile(r".*tplink_wma301-v2-squashfs-sysupgrade\.itb$")
 def verify_fast(images: Path, output: Path, provenance: Path, local_sha: str,
                 packages_file: Path | None = None,
                 aurora_overlay: Path | None = None,
-                ota_stamp: Path | None = None) -> dict:
+                ota_stamp: Path | None = None,
+                aurora_apk: Path | None = None) -> dict:
     candidates = sorted(p for p in images.iterdir()
                         if p.is_file() and NAME_RE.fullmatch(p.name))
     if len(candidates) != 1:
@@ -36,22 +37,39 @@ def verify_fast(images: Path, output: Path, provenance: Path, local_sha: str,
     if not re.fullmatch(r"[0-9a-f]{40}", local_sha):
         raise ValueError("invalid local commit")
     if aurora_overlay is not None:
-        # Fail rather than claiming theme support when the overlay is incomplete.
+        # Theme assets must NOT be copied via FILES=, otherwise apk cannot
+        # track/uninstall them and package upgrades conflict.
+        if not (aurora_overlay / "etc/uci-defaults/95-luci-preferences").is_file():
+            raise ValueError("missing WMA301 LuCI theme preference registration")
         for rel in (
-            "www/luci-static/aurora/main.css",
-            "www/luci-static/aurora/login.css",
+            "www/luci-static/aurora",
             "www/luci-static/resources/menu-aurora.js",
-            "usr/share/ucode/luci/template/themes/aurora/header.ut",
-            "usr/share/ucode/luci/template/themes/aurora/sysauth.ut",
-            "usr/share/licenses/luci-theme-aurora/LICENSE",
-            "etc/uci-defaults/95-luci-preferences",
+            "usr/share/ucode/luci/template/themes/aurora",
+            "usr/share/licenses/luci-theme-aurora",
         ):
-            if not (aurora_overlay / rel).is_file():
-                raise ValueError(f"missing bundled Aurora asset: {rel}")
-        theme_template = (aurora_overlay /
-                          "usr/share/ucode/luci/template/themes/aurora/header.ut").read_text()
-        if f'data-asset-version="{VERSION}"' not in theme_template:
-            raise ValueError("Aurora template was not version-stamped")
+            if (aurora_overlay / rel).exists():
+                raise ValueError(f"Aurora asset illegally staged in FILES: {rel}")
+    if aurora_apk is None or not aurora_apk.is_file():
+        raise ValueError("WMA301 must have a locally built native Aurora APK")
+    if aurora_apk.name != f"{PACKAGE_NAME}-{PACKAGE_VERSION}.apk":
+        raise ValueError("Unexpected Aurora APK filename/version")
+    if aurora_apk.stat().st_size < 1024:
+        raise ValueError("Aurora APK is incomplete")
+    package_manifests = list(images.glob("*tplink_wma301-v2.manifest"))
+    if len(package_manifests) != 1:
+        raise ValueError("Missing actual installed APK manifest")
+    installed = package_manifests[0].read_text().splitlines()
+    if f"{PACKAGE_NAME} - {PACKAGE_VERSION}" not in installed:
+        raise ValueError("Aurora APK was not installed into the firmware")
+    theme = {
+        **THEME_METADATA,
+        "name": PACKAGE_NAME,
+        "version": PACKAGE_VERSION,
+        "architecture": "noarch",
+        "source_commit": COMMIT,
+        "sha256": hashlib.sha256(aurora_apk.read_bytes()).hexdigest(),
+        "install_method": "imagebuilder-local-native-apk",
+    }
     report = verify_one(candidates[0], persistent=True)
     output.mkdir(parents=True, exist_ok=True)
     target = output / candidates[0].name
@@ -66,8 +84,7 @@ def verify_fast(images: Path, output: Path, provenance: Path, local_sha: str,
         "requested_packages": read_packages(packages_file) if packages_file else [],
         "output": report,
     }
-    if aurora_overlay is not None:
-        manifest["bundled_theme"] = THEME_METADATA
+    manifest["installed_theme"] = theme
     if ota_stamp is not None:
         # Parse data-only shell assignments. Never execute a downloaded stamp.
         values = {}
@@ -113,8 +130,10 @@ if __name__ == "__main__":
     p.add_argument("--local-sha", required=True)
     p.add_argument("--packages-file", type=Path)
     p.add_argument("--aurora-overlay", type=Path)
+    p.add_argument("--aurora-apk", type=Path, required=True)
     p.add_argument("--ota-stamp", type=Path)
     args = p.parse_args()
     print(json.dumps(verify_fast(args.images, args.output, args.provenance,
                                 args.local_sha, args.packages_file,
-                                args.aurora_overlay, args.ota_stamp), indent=2))
+                                args.aurora_overlay, args.ota_stamp,
+                                args.aurora_apk), indent=2))

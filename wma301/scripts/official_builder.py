@@ -16,7 +16,7 @@ import subprocess
 from pathlib import Path
 
 from prepare import DEVICE, prepare
-from aurora import stage as stage_aurora
+from aurora import build_apk as build_aurora_apk
 from stage_files import stage_files
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -225,10 +225,17 @@ def stage(builder: Path, upstream: Path, overlay: Path, expected_source: str,
 
     staged = stage_custom_files(overlay)
     print(f"Portable LuCI settings staged: {staged}")
-    # The Aurora assets are already compiled upstream. This installs precisely
-    # the LuCI htdocs/ and ucode/ paths, without an ABI-mismatched external APK.
-    theme = stage_aurora(aurora_source, overlay)
-    print(f"Pinned Aurora theme: {theme}")
+    # Package Aurora with the official host apk. The resulting local noarch
+    # package is installed by ImageBuilder itself; FILES= must not own its paths.
+    theme = build_aurora_apk(aurora_source, builder)
+    print(f"Native Aurora APK for ImageBuilder: {theme['filename']}")
+    for forbidden in (
+        "www/luci-static/aurora",
+        "usr/share/ucode/luci/template/themes/aurora",
+        "usr/share/licenses/luci-theme-aurora",
+    ):
+        require(not (overlay / forbidden).exists(),
+                f"Aurora must be owned by APK, not FILES: {forbidden}")
 
     dts_dir = builder / "target/linux/mediatek/dts"
     require(dts_dir.is_dir(), "ImageBuilder lacks mediatek DTS directory")
