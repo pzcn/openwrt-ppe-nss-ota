@@ -30,6 +30,14 @@ luci-i18n-pbr-zh-cn
 luci-app-autoreboot
 luci-i18n-autoreboot-zh-cn
 
+# ImmortalWrt CPU frequency UI, CLI backend and Simplified Chinese.
+cpufreq
+luci-app-cpufreq
+luci-i18n-cpufreq-zh-cn
+
+# ImmortalWrt Chinese defaults (time zone, NTP and APK mirror on first boot).
+default-settings-chn
+
 # Network tools, VPN and traffic shaping.
 luci-proto-wireguard
 wireguard-tools

@@ -13,6 +13,8 @@ required = {
     "luci-app-wifihistory", "luci-app-irqbalance", "luci-app-lldpd",
     "luci-app-pbr", "luci-app-autoreboot", "luci-proto-wireguard",
     "wireguard-tools", "luci-app-wol", "etherwake",
+    "cpufreq", "luci-app-cpufreq", "luci-i18n-cpufreq-zh-cn",
+    "default-settings-chn",
 }
 assert required <= selected, sorted(required - selected)
 assert {"luci-app-homeproxy", "luci-app-diskman", "luci-app-statistics"} <= removed
