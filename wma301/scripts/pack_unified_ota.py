@@ -100,7 +100,7 @@ def pack(images: Path, dist: Path, overlay: Path, output: Path, tag: str,
     forbidden = {n for n in names if n in BANNED or n.startswith(
         ("kmod-qca-nss", "luci-i18n-ppe-qos", "qca-nss"))}
     require(not forbidden, f"prohibited firmware packages: {sorted(forbidden)}")
-    for needed in ("luci", "luci-app-wol", "luci-app-filemanager", "luci-theme-aurora"):
+    for needed in ("luci", "luci-app-wol", "luci-app-filemanager", "luci-theme-aurora", "autocore"):
         require(needed in names, f"missing required WMA301 package: {needed}")
     # Reject legacy overlay-based builds, even if their selected package names
     # were modified to claim Aurora installation.

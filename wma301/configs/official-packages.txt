@@ -11,6 +11,8 @@ luci-theme-aurora
 luci-i18n-base-zh-cn
 luci-i18n-firewall-zh-cn
 luci-i18n-package-manager-zh-cn
+# LuCI getTempInfo reads /sbin/tempinfo, installed by autocore on mediatek/filogic.
+autocore
 luci-app-filemanager
 luci-i18n-filemanager-zh-cn
 luci-app-ttyd
