@@ -81,9 +81,4 @@ See [build plan, schedule, cache policy and maintenance procedure](BUILD-RUNBOOK
   matching source revision, or compatible FIT build recipes, the fast build
   fails explicitly. Run the old full-source workflow instead.
 
-For standalone source tests run:
-
-```sh
-python3 scripts/test_official_builder.py
-python3 scripts/test_layout.py
-```
+For a focused ImageBuilder parser/profile test, run `python3 scripts/test_official_builder.py`.
