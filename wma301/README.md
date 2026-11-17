@@ -15,7 +15,7 @@ v2.1 直接复用 v2.0 公共 DTSI、SPI-NAND 分区、UBI 四卷、网络、无
 | Reset | GPIO1，低电平有效 | 同左 |
 | WPS | GPIO0，低电平有效 | 同左 |
 
-同一个 ImageBuilder 运行同时构建两个版本，输出各自的 sysupgrade FIT 和 OTA Artifact；不需要重复编译内核或 Builder。OTA 共用现有功能与版本机制，但按硬件修订分别发布到 `wma301-immortal-filogic` 和 `wma301v21-immortal-filogic`，防止两个版本互相刷写。
+现在只生成一份通用 FIT、DTB、SquashFS、OTA 和 Release。DTS 同时定义 v2.0 的 GPIO14/15（高电平有效）与 v2.1 的 GPIO12/11（低电平有效）；`files/etc/diag.sh` 使用 OpenWrt 原生 LED 状态控制函数同时驱动两组状态灯。`compatible` 和 `SUPPORTED_DEVICES` 均包含 v2.0、v2.1，兼容既有板型的 sysupgrade；U-Boot、按键、网口和 NAND/UBI 结构不变。
 
 ## 构建和下载
 
@@ -31,11 +31,11 @@ v2.1 直接复用 v2.0 公共 DTSI、SPI-NAND 分区、UBI 四卷、网络、无
 
 ## 主仓库统一 OTA
 
-**设备通道**：v2.0 `wma301-immortal-filogic`；v2.1 `wma301v21-immortal-filogic`
+**设备通道**：两版统一为 `wma301-immortal-filogic`。旧版 v2.1 已刷入设备初次迁移时可手动上传新的通用 FIT；迁移完成后两个版本共用 OTA。
 
-**Release 标签**：v2.0 `imm-wma301-SNAPSHOT-r<revision>-YYYYMMDDHHMM`；v2.1 `imm-wma301v21-SNAPSHOT-r<revision>-YYYYMMDDHHMM`，其中版本由官方 Filogic Snapshot `version.buildinfo` 提供，构建序号为 Unix 时间戳，不能与两台 Qualcomm 路由器交叉。
+**Release 标签**：`imm-wma301-SNAPSHOT-r<revision>-YYYYMMDDHHMM`，两种硬件共用同一个正式 Release。版本来自官方 Filogic Snapshot。
 
-每个版本独立发布同一组附件（以下列出 v2.0，v2.1 把文件名中的 `wma301-v2` 改为 `wma301-v2-1`）：
+一个 Release 包含以下唯一一组附件。镜像沿用 `wma301-v2` 文件名以兼容旧升级客户端，实际同时支持 v2.1：
 
 - `immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb`（仅 sysupgrade FIT）
 - `immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest`（实际安装的 APK 清单，必须包含 `luci-theme-aurora`）
@@ -73,7 +73,7 @@ OTA 入口仍是 LuCI **系统 → 备份 / 升级 → 在线固件更新**；�
 
 ## 文件位置
 
-- `device/`：WMA301 DTS / 分区布局
+- `device/`：通用 v2.x DTS / 分区布局；`files/etc/diag.sh` 为两版同步状态灯
 - `scripts/official_builder.py`、`scripts/prepare.py`：适配官方 Filogic ImageBuilder
 - `scripts/aurora.py`：将固定 SHA 的 Aurora 生成原生 `noarch` APK，取代旧 Overlay 安装
 - `scripts/verify_official.py`：真实 FIT 哈希、DTS 和布局检查

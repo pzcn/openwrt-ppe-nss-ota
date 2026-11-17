@@ -14,10 +14,8 @@ import os
 from pathlib import Path
 from fit_inspect import inspect, image_payload, parse_fit, text_prop
 
-BOARD_NAME = os.environ.get("WMA301_VERIFY_BOARD", "tplink,wma301-v2")
-require_board = ("tplink,wma301-v2", "tplink,wma301-v2-1")
-if BOARD_NAME not in require_board:
-    raise ValueError("unknown WMA301 hardware revision")
+BOARD_NAME = "tplink,wma301-v2"
+BOARDS = (b"tplink,wma301-v2", b"tplink,wma301-v2-1")
 BOARD = BOARD_NAME.encode()
 FLASH_END=0x8000000
 PARTS=(
@@ -43,8 +41,9 @@ def extract(image:bytes, total:int,nodes:dict,name:str)->bytes:
 
 def verify_dtb(buf:bytes)->dict:
     _,nodes=parse_fit(buf)
-    require(BOARD in nodes.get("/",{}).get("compatible",b"").split(b"\0"),
-            "unexpected board compatible")
+    compatible = nodes.get("/",{}).get("compatible",b"").split(b"\0")
+    require(all(board in compatible for board in BOARDS),
+            "unified WMA301 must identify both hardware revisions")
     path_list=[p for p,props in nodes.items()
                if p.endswith("/partitions") and props.get("compatible")==b"fixed-partitions\0"
                and any(q.startswith(p+"/partition@") for q in nodes)]
@@ -74,17 +73,29 @@ def verify_dtb(buf:bytes)->dict:
     require(len(matches)==1 and matches[0].startswith(prefix+"/partition@700000/volumes/"),
             "rootdisk phandle does not reference UBI")
     require(nodes[matches[0]].get("volname")==b"fit\0","unexpected boot UBI volume")
-    # Only verified v2.1 hardware difference: red/green LEDs, including polarity.
-    leds = [(p, props) for p, props in nodes.items()
-            if p.endswith("/red") or p.endswith("/green")]
-    expected = {"tplink,wma301-v2": {"red": (14, 0), "green": (15, 0)},
-                "tplink,wma301-v2-1": {"red": (12, 1), "green": (11, 1)}}
-    for color, (pin, active) in expected[BOARD_NAME].items():
-        matches = [props for p, props in leds if p.endswith("/" + color)]
-        require(len(matches) == 1, "missing status LED " + color)
-        gpio = matches[0].get("gpios", b"")
-        require(len(gpio) == 12 and gpio[4:] == struct.pack(">II", pin, active),
-                "wrong LED GPIO/polarity: " + color)
+    # One Linux DTB drives both board revisions through four GPIO outputs.
+    expected_leds = {
+        "red": (14, 0, False), "green": (15, 0, False),
+        "red-v21": (12, 1, True), "green-v21": (11, 1, True),
+    }
+    for name, (pin, active_low, secondary) in expected_leds.items():
+        led_path = "/leds/" + name
+        props = nodes.get(led_path)
+        require(props is not None, "missing unified LED node " + name)
+        gpio = props.get("gpios", b"")
+        require(len(gpio) == 12 and
+                gpio[4:] == struct.pack(">II", pin, active_low),
+                "wrong LED GPIO or polarity: " + name)
+        require(("function-enumerator" in props) == secondary,
+                "duplicate Linux LED class name: " + name)
+    aliases = nodes.get("/aliases", {})
+    for state, node in (("boot", "red"), ("failsafe", "red"),
+                        ("running", "green"), ("upgrade", "green")):
+        require(aliases.get("led-" + state) == ("/leds/" + node + "\0").encode(),
+                "missing primary LED alias " + state)
+        require(aliases.get("led-" + state + "2") ==
+                ("/leds/" + node + "-v21\0").encode(),
+                "missing secondary LED alias " + state)
     all_props=b"".join(p.get("compatible",b"") for p in nodes.values())
     require(b"nmbm" not in all_props.lower(),"NMBM must be disabled")
     require(any("macaddr@" in p for p in nodes),"MAC NVMEM cell missing")

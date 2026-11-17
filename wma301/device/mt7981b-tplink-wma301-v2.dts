@@ -4,8 +4,8 @@
 #include "mt7981b-tplink-wma301-v2-common.dtsi"
 
 / {
-	model = "TP-Link WMA301 v2.0";
-	compatible = "tplink,wma301-v2", "mediatek,mt7981";
+	model = "TP-Link WMA301 v2.0 / v2.1";
+	compatible = "tplink,wma301-v2", "tplink,wma301-v2-1", "mediatek,mt7981";
 
 	leds {
 		compatible = "gpio-leds";
@@ -20,6 +20,21 @@
 			function = LED_FUNCTION_STATUS;
 			color = <LED_COLOR_ID_GREEN>;
 			gpios = <&pio 15 GPIO_ACTIVE_HIGH>;
+		};
+
+		/* Second hardware revision: same Linux LED states, inverse polarity. */
+		led_status_red_v21: red-v21 {
+			function = LED_FUNCTION_STATUS;
+			function-enumerator = <1>;
+			color = <LED_COLOR_ID_RED>;
+			gpios = <&pio 12 GPIO_ACTIVE_LOW>;
+		};
+
+		led_status_green_v21: green-v21 {
+			function = LED_FUNCTION_STATUS;
+			function-enumerator = <1>;
+			color = <LED_COLOR_ID_GREEN>;
+			gpios = <&pio 11 GPIO_ACTIVE_LOW>;
 		};
 	};
 };

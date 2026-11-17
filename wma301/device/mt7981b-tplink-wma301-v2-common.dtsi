@@ -15,9 +15,13 @@
 		serial0 = &uart0;
 		label-mac-device = &gmac0;
 		led-boot = &led_status_red;
+		led-boot2 = &led_status_red_v21;
 		led-failsafe = &led_status_red;
+		led-failsafe2 = &led_status_red_v21;
 		led-running = &led_status_green;
+		led-running2 = &led_status_green_v21;
 		led-upgrade = &led_status_green;
+		led-upgrade2 = &led_status_green_v21;
 	};
 
 	chosen {

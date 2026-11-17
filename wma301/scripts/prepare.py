@@ -14,10 +14,10 @@ HERE = Path(__file__).resolve().parents[1]
 DEVICE = """\
 define Device/tplink_wma301-v2
   DEVICE_VENDOR := TP-Link
-  DEVICE_MODEL := WMA301 v2.0 (OEM BL2/BL31 + custom BL33)
+  DEVICE_MODEL := WMA301 v2.0 / v2.1 (OEM BL2/BL31 + custom BL33)
   DEVICE_DTS := mt7981b-tplink-wma301-v2
   DEVICE_DTS_DIR := ../dts
-  SUPPORTED_DEVICES := tplink,wma301-v2
+  SUPPORTED_DEVICES := tplink,wma301-v2 tplink,wma301-v2-1
   DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware \\
 	uboot-envtools
   BLOCKSIZE := 128k
@@ -35,28 +35,6 @@ define Device/tplink_wma301-v2
 endef
 TARGET_DEVICES += tplink_wma301-v2
 
-define Device/tplink_wma301-v2-1
-  DEVICE_VENDOR := TP-Link
-  DEVICE_MODEL := WMA301 v2.1 (v2.0 layout; LED wiring differs)
-  DEVICE_DTS := mt7981b-tplink-wma301-v2-1
-  DEVICE_DTS_DIR := ../dts
-  SUPPORTED_DEVICES := tplink,wma301-v2-1
-  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware \\
-	uboot-envtools
-  BLOCKSIZE := 128k
-  PAGESIZE := 2048
-  UBINIZE_OPTS := -E 5
-  KERNEL_IN_UBI := 1
-  UBOOTENV_IN_UBI := 1
-  IMAGES := sysupgrade.itb
-  KERNEL_INITRAMFS_SUFFIX := -recovery.itb
-  KERNEL := kernel-bin | gzip
-  KERNEL_INITRAMFS := kernel-bin | lzma | \\
-        fit lzma $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb with-initrd | pad-to 64k
-  IMAGE/sysupgrade.itb := append-kernel | \\
-        fit gzip $$(KDIR)/image-$$(firstword $$(DEVICE_DTS)).dtb external-static-with-rootfs | append-metadata
-endef
-TARGET_DEVICES += tplink_wma301-v2-1
 """
 
 def need(condition: bool, msg: str):
@@ -104,8 +82,7 @@ def prepare(upstream: Path):
     dest=upstream/"target/linux/mediatek/dts"
     need(dest.is_dir(), "missing DTS directory")
     for name in ("mt7981b-tplink-wma301-v2-common.dtsi",
-                 "mt7981b-tplink-wma301-v2.dts",
-                 "mt7981b-tplink-wma301-v2-1.dts"):
+                 "mt7981b-tplink-wma301-v2.dts"):
         target=dest/name
         need(not target.exists(), f"upstream already has {name}: reconcile first")
         shutil.copy2(HERE/"device"/name,target)

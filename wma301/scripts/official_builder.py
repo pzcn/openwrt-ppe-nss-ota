@@ -21,10 +21,8 @@ from stage_files import stage_files
 
 ROOT = Path(__file__).resolve().parents[1]
 PROFILE = "tplink_wma301-v2"
-PROFILE_V21 = "tplink_wma301-v2-1"
-COMPATIBLE = "tplink,wma301-v2"
+COMPATIBLE = "tplink,wma301-v2 tplink,wma301-v2-1"
 DEVICE_DTS = "mt7981b-tplink-wma301-v2"
-DEVICE_DTS_V21 = "mt7981b-tplink-wma301-v2-1"
 IMAGEBUILDER = "immortalwrt-imagebuilder-mediatek-filogic.Linux-x86_64.tar.zst"
 SDK_RE = re.compile(r"immortalwrt-sdk-mediatek-filogic_[^/\s]+\.tar\.zst")
 VERSION_RE = re.compile(r"r\d+-([0-9a-f]{10,40})")
@@ -101,7 +99,7 @@ def resolve(index: Path, output: Path) -> dict:
 
 def register_profile(targetinfo: Path) -> None:
     text = targetinfo.read_text()
-    require(all(f"Target-Profile: DEVICE_{p}" not in text for p in (PROFILE, PROFILE_V21)),
+    require(f"Target-Profile: DEVICE_{PROFILE}" not in text,
             "WMA301 already registered in official ImageBuilder")
     # The metadata parser assigns every Target-Profile to the last Target block.
     # Insert in mediatek/filogic, NOT blindly at EOF.
@@ -113,7 +111,7 @@ def register_profile(targetinfo: Path) -> None:
     end = begin + following.start() if following else len(text)
     profile = (
         f"\nTarget-Profile: DEVICE_{PROFILE}\n"
-        "Target-Profile-Name: TP-Link WMA301 v2.0\n"
+        "Target-Profile-Name: TP-Link WMA301 v2.0/v2.1\n"
         "Target-Profile-Packages: kmod-mt7915e kmod-mt7981-firmware "
         "mt7981-wo-firmware uboot-envtools\n"
         "Target-Profile-hasImageMetadata: 1\n"
@@ -121,10 +119,7 @@ def register_profile(targetinfo: Path) -> None:
         "Target-Profile-Description:\n"
         "@@\n"
     )
-    v21 = (profile.replace(f"DEVICE_{PROFILE}", f"DEVICE_{PROFILE_V21}")
-                   .replace("WMA301 v2.0", "WMA301 v2.1")
-                   .replace("tplink,wma301-v2\n", "tplink,wma301-v2-1\n"))
-    targetinfo.write_text(text[:end].rstrip("\n") + "\n" + profile + v21 + text[end:])
+    targetinfo.write_text(text[:end].rstrip("\n") + "\n" + profile + text[end:])
 
 
 def locate_kernel(builder: Path) -> tuple[Path, Path]:
@@ -148,13 +143,6 @@ def prepare_kernel_image(kdir: Path) -> Path:
     with (kdir / "Image").open("rb") as src, dest.open("wb") as out:
         subprocess.run(["gzip", "-9", "-n", "-c"], stdin=src, stdout=out, check=True)
     require(dest.stat().st_size > 100_000, "unusually small official gzip kernel")
-    # Both hardware revisions use the same official kernel. ImageBuilder
-    # resolves the kernel filename from PROFILE, so stage it under both
-    # names; the only per-revision payload is the compiled DTB.
-    v21 = kdir / f"{PROFILE_V21}-kernel.bin"
-    shutil.copyfile(dest, v21)
-    require(v21.stat().st_size == dest.stat().st_size,
-            "v2.1 official kernel copy is incomplete")
     return dest
 
 
@@ -252,15 +240,14 @@ def stage(builder: Path, upstream: Path, overlay: Path, expected_source: str,
 
     dts_dir = builder / "target/linux/mediatek/dts"
     require(dts_dir.is_dir(), "ImageBuilder lacks mediatek DTS directory")
-    for name in (f"{DEVICE_DTS}-common.dtsi", f"{DEVICE_DTS}.dts",
-                 f"{DEVICE_DTS_V21}.dts"):
+    for name in (f"{DEVICE_DTS}-common.dtsi", f"{DEVICE_DTS}.dts"):
         dest = dts_dir / name
         require(not dest.exists(), f"official Builder already defines {name}")
         shutil.copy2(ROOT / "device" / name, dest)
 
     filogic_mk = builder / "target/linux/mediatek/image/filogic.mk"
     original = filogic_mk.read_text()
-    require(all(f"define Device/{p}" not in original for p in (PROFILE, PROFILE_V21)),
+    require(f"define Device/{PROFILE}" not in original,
             "official image rules already define WMA301")
     filogic_mk.write_text(original.rstrip() +
                           "\n\n# Local WMA301 profile (ImageBuilder only)\n" +
@@ -270,10 +257,9 @@ def stage(builder: Path, upstream: Path, overlay: Path, expected_source: str,
 
     kdir, linux = locate_kernel(builder)
     dtb = compile_dtb(builder, kdir, linux, headers)
-    dtb_v21 = compile_dtb(builder, kdir, linux, headers, DEVICE_DTS_V21)
     kernel = prepare_kernel_image(kdir)
     print(f"Official kernel reused: {kernel}")
-    print(f"Local WMA301 DTB: {dtb}; v2.1: {dtb_v21}")
+    print(f"Local WMA301 shared v2.0/v2.1 DTB: {dtb}")
     print(f"Official ABI retained; firmware overlay: {overlay}")
 
 

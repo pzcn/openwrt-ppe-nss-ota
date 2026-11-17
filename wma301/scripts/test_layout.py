@@ -14,11 +14,21 @@ ROOT=Path(__file__).resolve().parents[1]
 
 def run():
     dts=(ROOT/"device/mt7981b-tplink-wma301-v2-common.dtsi").read_text()
-    assert "tplink_wma301-v2" in DEVICE
-    assert "tplink_wma301-v2-1" in DEVICE
-    v20=(ROOT/"device/mt7981b-tplink-wma301-v2.dts").read_text()
-    v21=(ROOT/"device/mt7981b-tplink-wma301-v2-1.dts").read_text()
-    assert v21.replace("v2.1", "v2.0").replace("v2-1", "v2").replace("12 GPIO_ACTIVE_LOW", "14 GPIO_ACTIVE_HIGH").replace("11 GPIO_ACTIVE_LOW", "15 GPIO_ACTIVE_HIGH") == v20, "v2.1 DTS must differ only in board identity and LED wiring"
+    assert DEVICE.count("define Device/tplink_wma301-v2\n") == 1
+    assert "define Device/tplink_wma301-v2-1" not in DEVICE
+    assert "tplink,wma301-v2 tplink,wma301-v2-1" in DEVICE
+    universal = (ROOT / "device/mt7981b-tplink-wma301-v2.dts").read_text()
+    assert not (ROOT / "device/mt7981b-tplink-wma301-v2-1.dts").exists()
+    for config in ("14 GPIO_ACTIVE_HIGH", "15 GPIO_ACTIVE_HIGH",
+                   "12 GPIO_ACTIVE_LOW", "11 GPIO_ACTIVE_LOW"):
+        assert config in universal, config
+    assert universal.count("function-enumerator = <1>;") == 2
+    for name in ("boot", "failsafe", "running", "upgrade"):
+        assert "led-" + name + "2 = &led_status_" in dts
+    diag = (ROOT / "files/etc/diag.sh").read_text()
+    assert "get_dt_led boot2" in diag
+    assert "status_led2" in diag
+    assert "status_led_blink_pair" in diag
     assert "UBOOTENV_IN_UBI := 1" in DEVICE
     assert "KERNEL_IN_UBI := 1" in DEVICE
     assert "sysupgrade.itb" in DEVICE
@@ -73,7 +83,7 @@ def run():
         prepare(base)
         img=(base/"target/linux/mediatek/image/filogic.mk").read_text()
         assert img.count("TARGET_DEVICES += tplink_wma301-v2\n")==1
-        assert img.count("TARGET_DEVICES += tplink_wma301-v2-1")==1
+        assert "TARGET_DEVICES += tplink_wma301-v2-1" not in img
         nw=(base/"target/linux/mediatek/filogic/base-files/etc/board.d/02_network").read_text()
         assert nw.count("tplink,wma301-v2|tplink,wma301-v2-1)")==1
         up=(base/"target/linux/mediatek/filogic/base-files/lib/upgrade/platform.sh").read_text()
