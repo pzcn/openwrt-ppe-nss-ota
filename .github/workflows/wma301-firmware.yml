@@ -121,6 +121,13 @@ jobs:
           python3 scripts/test_wma301_ota.py
           python3 scripts/test_wma301_runtime.py
           python3 scripts/test_unified_ota.py
+          python3 scripts/test_wma301_ports.py
+          sh -n files/usr/sbin/wma301-ports
+          sh -n files/usr/libexec/wma301-ports-dhcp-probe
+          sh -n files/etc/init.d/wma301-ports
+          sh -n files/etc/uci-defaults/97-wma301-ports
+          node --check files/www/luci-static/resources/view/status/include/29_ports.js
+          python3 -m json.tool files/usr/share/rpcd/acl.d/luci-app-wma301-ports.json >/dev/null
           python3 ../scripts/tests/test-ota-version.py
           python3 ../scripts/tests/test-ota-package-restore.py
           python3 ../scripts/tests/test-ota-devices.py
