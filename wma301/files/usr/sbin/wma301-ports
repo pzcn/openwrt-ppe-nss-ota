@@ -238,6 +238,8 @@ daemon() {
 }
 status() {
     local m a n cached scan_flag=false
+    board_supported || die "unsupported board"
+    uci -q get wma301-ports.main >/dev/null 2>&1 || die "WAN port configuration missing"
     m="$(mode)"
     a="$(current_wan)"
     cached="$(active)"
