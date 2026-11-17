@@ -406,8 +406,8 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE_RUN_ID: '43868401046'
-      SOURCE_COMMIT: '4ec03f07e050111019debbc9067866e41ed517af'
+      SOURCE_RUN_ID: '43923651128'
+      SOURCE_COMMIT: '8ad1490306efe4f332481afebd1ceb3e63fb4077'
     steps:
       - uses: actions/checkout@v4
       - name: Validate provenance of the completed main-branch build
@@ -480,6 +480,12 @@ jobs:
             luci-theme-aurora-1.4.0-r1.apk | sha256sum -c -
           grep -Fxq 'luci-theme-aurora - 1.4.0-r1' \
             immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest
+          for package in autocore cpufreq luci-app-cpufreq luci-i18n-cpufreq-zh-cn default-settings-chn; do
+            grep -Eq "^${package} - [^[:space:]]+" immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest || {
+              echo "::error::Missing WMA301 package: $package"
+              exit 1
+            }
+          done
           if grep -Eiq '^(sing-box|tailscale|luci-app-tailscale-community|luci-app-ddns-go|luci-app-sing-box|luci-app-ppe-qos|luci-app-ppe-nss-monitor|kmod-qca-nss[^[:space:]]*)[[:space:]]' immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest; then
             echo "::error::Forbidden package in WMA301 manifest"
             exit 1
@@ -508,6 +514,8 @@ jobs:
           OTA installation stays manual-only. No unattended upgrades.
           Aurora v1.4.0 is installed as a native noarch APK and is published as
           luci-theme-aurora-1.4.0-r1.apk for independent package management.
+          Includes autocore (LuCI temperature), cpufreq, luci-app-cpufreq,
+          luci-i18n-cpufreq-zh-cn and default-settings-chn.
           Excludes sing-box, Tailscale, DDNS-Go and Qualcomm PPE/NSS-specific packages.
           NOTES
           cd "$RUNNER_TEMP/wma301-approved/out-wma301-ota"
