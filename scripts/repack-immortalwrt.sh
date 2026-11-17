@@ -34,6 +34,21 @@ mapfile -t IB_DIRS < <(find "$WORK/builder" -mindepth 1 -maxdepth 1 -type d -nam
 [[ "${#IB_DIRS[@]}" -eq 1 ]] || { echo "::error::Unexpected ImageBuilder archive layout" >&2; exit 1; }
 IB="${IB_DIRS[0]}"
 test -f "$IB/Makefile"
+# Some released Hybrid ImageBuilders omitted the native fwtool. The image
+# recipe invokes it to append sysupgrade metadata; without it the recipe can
+# still exit successfully while producing an image that sysupgrade rejects.
+# Restore only this small host tool, without rebuilding the kernel or Builder.
+HOST_FWTOOL="$IB/staging_dir/host/bin/fwtool"
+if [[ ! -x "$HOST_FWTOOL" ]]; then
+  FWTOOL_SOURCE="$WORK/fwtool-host"
+  FWTOOL_COMMIT="04cd252e4e9394ffacd51f56f1f124abc534f715"
+  mkdir -p "$FWTOOL_SOURCE" "$(dirname "$HOST_FWTOOL")"
+  git -C "$FWTOOL_SOURCE" init -q
+  git -C "$FWTOOL_SOURCE" fetch -q --depth 1 https://github.com/openwrt/fwtool.git "$FWTOOL_COMMIT"
+  git -C "$FWTOOL_SOURCE" -c advice.detachedHead=false checkout -q --detach FETCH_HEAD
+  cc -O2 -Wall -Wextra -Wno-unused-parameter -o "$HOST_FWTOOL" "$FWTOOL_SOURCE/fwtool.c"
+  echo "Restored native fwtool for ImageBuilder from OpenWrt commit $FWTOOL_COMMIT"
+fi
 # Optional immutable userland layer: verify parent binding, mirror removal
 # list, snapshot SHA256 and every APK hash before touching the ImageBuilder.
 LAYER_TAG=""
