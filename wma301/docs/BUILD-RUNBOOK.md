@@ -1,6 +1,6 @@
 # WMA301 固件构建：长期计划与操作流程
 
-> **主仓库集成说明（2026-11-16）：** 本文保留原独立仓库的历史调试记录。当前 WMA301 专用构建入口是 [主仓库 WMA301 Action](../../.github/workflows/wma301-firmware.yml)，默认生成统一 OTA 测试 Artifact；老的独立 `wma301-ota` 发布代码不再打包。最新架构以 [WMA301 README](../README.md) 为准。
+> **主仓库集成说明（2026-11-16）：** 本文保留原独立仓库的历史调试记录。当前 WMA301 专用构建入口是 [主仓库 WMA301 Action](../../.github/workflows/wma301-firmware.yml)，默认生成统一 OTA 测试 Artifact；老的独立 `wma301-ota` 发布代码不再打包，相关冗余模拟回归测试也已移除。最新架构以 [WMA301 README](../README.md) 为准。
 
 > **master/6.18 迁移说明（2026-11-16）：** 下文 2026-11-13 成功的 CI 运行属于此前的 25.12 路线，不代表 6.18 已构建或实机验证。新快构建以官方 `snapshots/targets/mediatek/filogic` 的 SHA256、版本信息和 6.18 内核为准；完整构建跟踪 `master` HEAD。详见 [迁移检查单](MASTER-MIGRATION.md)。
 
@@ -80,7 +80,7 @@
 
 ## WMA301 独立 OTA
 
-已加入 [OTA.md](OTA.md) 所述的 WMA301 专属更新后端、LuCI 页面及唯一 OTA 固件源代码，但**默认屏蔽**：两条工作流中的 `WMA301_ENABLE_OTA: 'false'` 使 OTA 文件不进入固件，并跳过身份嵌入、元数据生成与自动发布。将两个工作流开关都改为 `'true'` 才能恢复；独立离线测试仍执行。首次升级、配置持久化及环境卷仍需实机验收。
+已加入 [OTA.md](OTA.md) 所述的 WMA301 专属更新后端、LuCI 页面及唯一 OTA 固件源代码，但**默认屏蔽**：两条工作流中的 `WMA301_ENABLE_OTA: 'false'` 使 OTA 文件不进入固件，并跳过身份嵌入、元数据生成与自动发布。将两个工作流开关都改为 `'true'` 才能恢复；固件检查以当前 FIT/DTS 验证、统一 OTA 打包和刷写前 NAND/UBI 检查为准。首次升级、配置持久化及环境卷仍需实机验收。
 
 ## 五、后续研发任务与验收标准
 
