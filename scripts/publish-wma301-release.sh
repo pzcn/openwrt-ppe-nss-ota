@@ -94,10 +94,10 @@ default-settings-chn. Excludes sing-box, Tailscale, DDNS-Go and Qualcomm
 NSS/PPE-specific components.
 NOTES
 # Creating the tag separately avoids relying on the Releases API to create
-# a ref on an older verified source commit. The tag remains source-accurate.
+# a ref on the publishing main-branch commit. The OTA metadata remains source-accurate.
 if ! gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
   gh api -X POST "repos/$REPO/git/refs" \
-    -f "ref=refs/tags/$TAG" -f "sha=$SOURCE_SHA" >/dev/null
+    -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" >/dev/null
 fi
 gh release create "$TAG" -R "$REPO" --verify-tag --latest=false \
   --title "WMA301 v2.0 | ImmortalWrt 6.18 ($TAG)" \
