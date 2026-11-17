@@ -18,7 +18,11 @@ from official_builder import read_packages
 from wma301_ota import BOARD, LAYOUT, PROFILE, REPO, SHA256
 from aurora import THEME_METADATA, PACKAGE_NAME, PACKAGE_VERSION, COMMIT
 
-NAME_RE = re.compile(r".*tplink_wma301-v2-squashfs-sysupgrade\.itb$")
+BOARD = os.environ.get("WMA301_VERIFY_BOARD", "tplink,wma301-v2")
+if BOARD not in ("tplink,wma301-v2", "tplink,wma301-v2-1"):
+    raise ValueError("unknown WMA301 hardware revision")
+PROFILE = BOARD.replace(",", "_")
+NAME_RE = re.compile(r".*" + re.escape(PROFILE) + r"-squashfs-sysupgrade\.itb$")
 
 
 def verify_fast(images: Path, output: Path, provenance: Path, local_sha: str,
