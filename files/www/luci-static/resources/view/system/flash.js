@@ -305,14 +305,17 @@ return view.extend({
 		this._otaLastStage = 'starting';
 		if (this._otaInstallButton)
 			this._otaInstallButton.disabled = true;
-		this._otaPhaseText = E('strong', '正在连接升级服务…');
+		this._otaPhaseText = E('strong', { 'aria-live': 'polite' }, '正在连接升级服务…');
 		this._otaStageHelp = E('p', '固件下载完成后会自动校验、安装并重启，无需再次点击确认。');
 		this._otaMeter = E('progress', {
 			'max': '100', 'value': '0',
+			'aria-label': '固件下载进度',
 			'style': 'width:100%;height:1.1em;',
 			'hidden': true
 		});
-		this._otaNumbers = E('div', { 'class': 'cbi-value-description' }, '');
+		this._otaNumbers = E('div', {
+			'class': 'cbi-value-description', 'aria-live': 'polite'
+		}, '');
 		this._otaLog = E('pre', {
 			'id': 'ppe-ota-progress-log',
 			'style': 'white-space:pre-wrap;max-height:15em;overflow:auto;overflow-wrap:anywhere'
