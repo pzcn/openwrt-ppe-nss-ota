@@ -17,7 +17,7 @@ PROFILE = "jdcloud_re-ss-01"
 BOARD = "jdcloud,re-ss-01"
 IMAGE = "immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
 MANIFEST = "immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest"
-TAG_PATTERN = re.compile(r"^imm-(?:arthur|mx4200v1|wma301)-[a-zA-Z0-9._-]+$")
+TAG_PATTERN = re.compile(r"^imm-(?:arthur|mx4200v1|wma301|wma301v21)-[a-zA-Z0-9._-]+$")
 SHA_PATTERN = re.compile(r"^[a-f0-9]{40}$")
 
 # The updater implementation and release index are shared; every device gets
@@ -44,6 +44,16 @@ DEVICES = {
         "image": "immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb",
         "manifest": "immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest",
         "tag_prefix": "imm-wma301-", "display": "WMA301 v2.0",
+        "layout": "oem-bl2-bl31-custom-bl33-single-ubi-v1",
+    },
+    "wma301v21": {
+        "channel": "wma301v21-immortal-filogic",
+        "group": "filogic-mt7981-single-ubi",
+        "profile": "tplink_wma301-v2-1", "board": "tplink,wma301-v2-1",
+        "target": "mediatek/filogic",
+        "image": "immortalwrt-mediatek-filogic-tplink_wma301-v2-1-squashfs-sysupgrade.itb",
+        "manifest": "immortalwrt-mediatek-filogic-tplink_wma301-v2-1.manifest",
+        "tag_prefix": "imm-wma301v21-", "display": "WMA301 v2.1",
         "layout": "oem-bl2-bl31-custom-bl33-single-ubi-v1",
     },
 }
@@ -156,7 +166,7 @@ LATEST=$(jq -r --arg image "$EXPECTED_IMAGE" --arg manifest "$EXPECTED_MANIFEST"
     for before, after in patches:
         source = replace_once(source, before, after)
     source = source.replace("__OTA_TAG_PREFIX__", spec["tag_prefix"])
-    if device == "wma301":
+    if device in ("wma301", "wma301v21"):
         # WMA301 uses the same manual and scheduled OTA policy as other boards.
         # Keep the NAND/UBI preflight and layout matching before sysupgrade.
         source = replace_once(
@@ -194,7 +204,7 @@ def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
         raise ValueError("Invalid tag/build")
     if not SHA_PATTERN.fullmatch(upstream):
         raise ValueError("Expected 40-character upstream source SHA")
-    if device == "wma301":
+    if device in ("wma301", "wma301v21"):
         if ppe:
             raise ValueError("WMA301 cannot carry a Qualcomm PPE/NSS source SHA")
     elif not SHA_PATTERN.fullmatch(ppe):
@@ -205,7 +215,7 @@ def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
         raise ValueError("Missing or unusually small firmware image")
     if not manifest.is_file() or manifest.stat().st_size < 100:
         raise ValueError("Missing package manifest")
-    if device == "wma301" and (builder_tag or layer_tag or sing_box_core is not None):
+    if device in ("wma301", "wma301v21") and (builder_tag or layer_tag or sing_box_core is not None):
         raise ValueError("WMA301 cannot carry Qualcomm Builder, layer or sing-box metadata")
     if builder_tag and not re.fullmatch(r"imm-builder-[a-zA-Z0-9._-]+", builder_tag):
         raise ValueError("Invalid ImageBuilder tag")

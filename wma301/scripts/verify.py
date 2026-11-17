@@ -10,10 +10,15 @@ import hashlib
 import json
 import struct
 import sys
+import os
 from pathlib import Path
 from fit_inspect import inspect, image_payload, parse_fit, text_prop
 
-BOARD=b"tplink,wma301-v2"
+BOARD_NAME = os.environ.get("WMA301_VERIFY_BOARD", "tplink,wma301-v2")
+require_board = ("tplink,wma301-v2", "tplink,wma301-v2-1")
+if BOARD_NAME not in require_board:
+    raise ValueError("unknown WMA301 hardware revision")
+BOARD = BOARD_NAME.encode()
 FLASH_END=0x8000000
 PARTS=(
     ("bl2",         0x000000, 0x020000,True),
@@ -69,11 +74,22 @@ def verify_dtb(buf:bytes)->dict:
     require(len(matches)==1 and matches[0].startswith(prefix+"/partition@700000/volumes/"),
             "rootdisk phandle does not reference UBI")
     require(nodes[matches[0]].get("volname")==b"fit\0","unexpected boot UBI volume")
+    # Only verified v2.1 hardware difference: red/green LEDs, including polarity.
+    leds = [(p, props) for p, props in nodes.items()
+            if p.endswith("/red") or p.endswith("/green")]
+    expected = {"tplink,wma301-v2": {"red": (14, 0), "green": (15, 0)},
+                "tplink,wma301-v2-1": {"red": (12, 1), "green": (11, 1)}}
+    for color, (pin, active) in expected[BOARD_NAME].items():
+        matches = [props for p, props in leds if p.endswith("/" + color)]
+        require(len(matches) == 1, "missing status LED " + color)
+        gpio = matches[0].get("gpios", b"")
+        require(len(gpio) == 12 and gpio[4:] == struct.pack(">II", pin, active),
+                "wrong LED GPIO/polarity: " + color)
     all_props=b"".join(p.get("compatible",b"") for p in nodes.values())
     require(b"nmbm" not in all_props.lower(),"NMBM must be disabled")
     require(any("macaddr@" in p for p in nodes),"MAC NVMEM cell missing")
     require(any("eeprom@" in p for p in nodes),"WiFi EEPROM NVMEM missing")
-    return {"compatible":"tplink,wma301-v2","nand_bytes":FLASH_END,
+    return {"compatible":BOARD_NAME,"nand_bytes":FLASH_END,
             "partition_count":len(PARTS),"single_ubi_start":"0x700000",
             "single_ubi_size":"0x7900000","ubi_rootdisk_volname":"fit",
             "factory_info_protected":True,"art_protected":True}
@@ -128,7 +144,7 @@ def build(images:Path,out:Path,upstream_sha:str,local_sha:str):
     manifest={
         "source":"immortalwrt/immortalwrt","branch":"master",
         "upstream_sha":upstream_sha,"local_sha":local_sha,
-        "board":"tplink,wma301-v2","review_status":"OFFLINE_VALIDATED_HARDWARE_UNTESTED",
+        "board":BOARD_NAME,"review_status":"OFFLINE_VALIDATED_HARDWARE_UNTESTED",
         "outputs":files,
         "disclaimer":"Only FITs for an already migrated four-volume single-UBI system; not raw NAND images. Never flash on OEM A/B stock."
     }

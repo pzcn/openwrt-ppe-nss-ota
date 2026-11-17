@@ -123,6 +123,41 @@ with TemporaryDirectory() as tmp:
     assert (out / IMAGE).read_bytes() == raw.read_bytes()
     assert (out / aurora_apk.name).read_bytes() == aurora_apk.read_bytes()
     assert "sha256sums" in [x.name for x in out.iterdir()]
+    # v2.1 gets exactly the same package/UBI integration, with its own board ID.
+    overlay21 = base / "overlay-v21"
+    platform21 = overlay21 / "lib/upgrade/platform.sh"
+    platform21.parent.mkdir(parents=True)
+    platform21.write_text("#!/bin/sh\n# same single-UBI upgrade\n")
+    tag21 = tag.replace("imm-wma301-", "imm-wma301v21-")
+    stage(overlay21, tag21, build, "wma301v21")
+    updater21 = (overlay21 / "usr/sbin/ppe-update").read_text()
+    assert "tplink,wma301-v2-1" in updater21 and "wma301v21-immortal-filogic" in updater21
+    assert "ppe-update-wma301-preflight" in updater21
+    images21, dist21 = base / "images-v21", base / "dist-v21"
+    images21.mkdir()
+    dist21.mkdir()
+    filename21 = filename.replace("wma301-v2-squashfs", "wma301-v2-1-squashfs")
+    (dist21 / filename21).write_bytes(raw.read_bytes())
+    (dist21 / "SHA256SUMS").write_text(f"{digest}  {filename21}\n")
+    (images21 / "immortalwrt-mediatek-filogic-tplink_wma301-v2-1.manifest").write_text(
+        "\n".join(installed) + "\n")
+    report21 = json.loads(json.dumps(report))
+    report21["device"] = "tplink,wma301-v2-1"
+    report21["output"]["file"] = filename21
+    report21["output"]["dts"]["compatible"] = "tplink,wma301-v2-1"
+    (dist21 / "manifest.json").write_text(json.dumps(report21))
+    out21 = base / "out-v21"
+    pack(images21, dist21, overlay21, out21, tag21, build,
+         upstream, source, provfile, aurora_apk, device="wma301v21")
+    meta21 = json.loads((out21 / "ota.json").read_text())
+    assert meta21["board"] == "tplink,wma301-v2-1"
+    assert meta21["profile"] == "tplink_wma301-v2-1"
+    assert meta21["image"].endswith("tplink_wma301-v2-1-squashfs-sysupgrade.itb")
+    assert meta21["channel"] == "wma301v21-immortal-filogic"
+    assert meta21["tag"] == tag21
+    assert meta21["layout"] == meta["layout"]
+    assert (out21 / meta21["image"]).read_bytes() == raw.read_bytes()
+
     # Reject regressions that silently remove the temperature RPC backend.
     pkg.write_text("\n".join(p for p in installed if not p.startswith("autocore ")) + "\n")
     try:

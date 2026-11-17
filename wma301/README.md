@@ -1,8 +1,21 @@
-# TP-Link WMA301 v2.0 · ImmortalWrt master / Linux 6.18
+# TP-Link WMA301 v2.0 / v2.1 · ImmortalWrt master / Linux 6.18
 
 本目录从 [pzcn/wma301-immortalwrt](https://github.com/pzcn/wma301-immortalwrt) 迁入主仓库，保留**官方 ImageBuilder + 仅编译 DTS** 的快速构建架构。与亚瑟、MX4200 共用 OTA 后端、LuCI「系统 → 备份 / 升级」页面和主仓库 GitHub Releases，但**设备树、内核、FIT、UBI 安全检查完全独立**。
 
-> 仅适用于已从 OEM A/B 迁移到**单 121 MiB UBI / 四卷**布局的 **WMA301 v2.0**。不是原厂升级包、不是 NAND 全片镜像，不适用于未迁移设备或 WMA301 v2.1。旧版本的真机验收状态不代表新版本已验收；定时自动升级功能默认关闭，可由管理员自行在 LuCI 中开启。
+> 适用于已从 OEM A/B 迁移到**单 121 MiB UBI / 四卷**布局的 **WMA301 v2.0 / v2.1**。不是原厂升级包，也不是 NAND 全片镜像，不能直接刷入仍使用原厂 A/B 布局的设备。旧版本的真机验收状态不代表新版本已验收；定时自动升级功能默认关闭，可由管理员自行在 LuCI 中开启。
+
+## v2.0 / v2.1 硬件区别
+
+v2.1 直接复用 v2.0 公共 DTSI、SPI-NAND 分区、UBI 四卷、网络、无线 MAC、按键与固件软件包；只有板型标识和状态灯 GPIO 不同。
+
+| 项目 | v2.0 | v2.1 |
+| --- | --- | --- |
+| 红灯 | GPIO14，高电平有效 | GPIO12，低电平有效 |
+| 绿灯 | GPIO15，高电平有效 | GPIO11，低电平有效 |
+| Reset | GPIO1，低电平有效 | 同左 |
+| WPS | GPIO0，低电平有效 | 同左 |
+
+同一个 ImageBuilder 运行同时构建两个版本，输出各自的 sysupgrade FIT 和 OTA Artifact；不需要重复编译内核或 Builder。OTA 共用现有功能与版本机制，但按硬件修订分别发布到 `wma301-immortal-filogic` 和 `wma301v21-immortal-filogic`，防止两个版本互相刷写。
 
 ## 构建和下载
 
@@ -18,11 +31,11 @@
 
 ## 主仓库统一 OTA
 
-**设备通道**：`wma301-immortal-filogic`
+**设备通道**：v2.0 `wma301-immortal-filogic`；v2.1 `wma301v21-immortal-filogic`
 
-**Release 标签**：`imm-wma301-SNAPSHOT-r<revision>-YYYYMMDDHHMM`，其中版本由官方 Filogic Snapshot `version.buildinfo` 提供，构建序号为 Unix 时间戳，不能与两台 Qualcomm 路由器交叉。
+**Release 标签**：v2.0 `imm-wma301-SNAPSHOT-r<revision>-YYYYMMDDHHMM`；v2.1 `imm-wma301v21-SNAPSHOT-r<revision>-YYYYMMDDHHMM`，其中版本由官方 Filogic Snapshot `version.buildinfo` 提供，构建序号为 Unix 时间戳，不能与两台 Qualcomm 路由器交叉。
 
-发布包包含：
+每个版本独立发布同一组附件（以下列出 v2.0，v2.1 把文件名中的 `wma301-v2` 改为 `wma301-v2-1`）：
 
 - `immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb`（仅 sysupgrade FIT）
 - `immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest`（实际安装的 APK 清单，必须包含 `luci-theme-aurora`）

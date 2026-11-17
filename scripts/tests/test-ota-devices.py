@@ -14,7 +14,7 @@ spec.loader.exec_module(ota)
 
 source = (ROOT / "files/usr/sbin/ppe-update").read_text()
 assert "sysupgrade -T" in source and "cmd_auto()" in source
-assert set(ota.DEVICES) == {"arthur", "mx4200v1", "wma301"}
+assert set(ota.DEVICES) == {"arthur", "mx4200v1", "wma301", "wma301v21"}
 
 
 def prepare_sample(root: Path, device: str):
@@ -34,12 +34,14 @@ with tempfile.TemporaryDirectory() as d:
     arthur, arthur_tag = prepare_sample(root / "arthur", "arthur")
     mx, mx_tag = prepare_sample(root / "mx", "mx4200v1")
     wma, wma_tag = prepare_sample(root / "wma", "wma301")
+    wma21, wma21_tag = prepare_sample(root / "wma21", "wma301v21")
     src_arthur = (arthur / "usr/sbin/ppe-update").read_text()
     src_mx = (mx / "usr/sbin/ppe-update").read_text()
     for device, backend, tag in [
         ("arthur", src_arthur, arthur_tag),
         ("mx4200v1", src_mx, mx_tag),
         ("wma301", (wma / "usr/sbin/ppe-update").read_text(), wma_tag),
+        ("wma301v21", (wma21 / "usr/sbin/ppe-update").read_text(), wma21_tag),
     ]:
         cfg = ota.DEVICES[device]
         assert cfg["channel"] in backend
@@ -50,10 +52,10 @@ with tempfile.TemporaryDirectory() as d:
         assert 'startswith("' + cfg["tag_prefix"] + '")' in backend
         assert 'sysupgrade -T' in backend
         assert 'apk add' in backend
-        rel = {"arthur": arthur, "mx4200v1": mx, "wma301": wma}[device] / "etc/immortal-ppe-ota-release"
+        rel = {"arthur": arthur, "mx4200v1": mx, "wma301": wma, "wma301v21": wma21}[device] / "etc/immortal-ppe-ota-release"
         assert "OTA_TAG=" + tag in rel.read_text()
         assert "OTA_CHANNEL=" + cfg["channel"] in rel.read_text()
-        menu = json.loads((({"arthur": arthur, "mx4200v1": mx, "wma301": wma}[device]) /
+        menu = json.loads((({"arthur": arthur, "mx4200v1": mx, "wma301": wma, "wma301v21": wma21}[device]) /
                            "usr/share/luci/menu.d/zzzz-ota-flash-cache.json").read_text())
         action = menu["admin/system/flash"]["action"]
         assert action["type"] == "view"
@@ -64,7 +66,7 @@ with tempfile.TemporaryDirectory() as d:
     assert "jdcloud,re-ss-01" not in src_mx
     assert "linksys,mx4200v1" not in src_arthur
 
-    for device in ("arthur", "mx4200v1", "wma301"):
+    for device in ("arthur", "mx4200v1", "wma301", "wma301v21"):
         cfg = ota.DEVICES[device]
         base = root / ("meta-" + device)
         base.mkdir()
@@ -76,7 +78,7 @@ with tempfile.TemporaryDirectory() as d:
         data = base / "ota.json"
         tag = cfg["tag_prefix"] + "test-1"
         ota.metadata(tag, 12345, "a" * 40,
-                     "" if device == "wma301" else "b" * 40,
+                     "" if device in ("wma301", "wma301v21") else "b" * 40,
                      image, manifest, data, source_commit="c" * 40, device=device)
         result = json.loads(data.read_text())
         assert result["channel"] == cfg["channel"]
@@ -103,6 +105,11 @@ with tempfile.TemporaryDirectory() as d:
 
     wma_shell = (wma / "usr/sbin/ppe-update").read_text()
     assert "ppe-update-wma301-preflight" in wma_shell
+    wma21_shell = (wma21 / "usr/sbin/ppe-update").read_text()
+    assert "ppe-update-wma301-preflight" in wma21_shell
+    assert "tplink,wma301-v2-1" in wma21_shell
+    assert "wma301v21-immortal-filogic" in wma21_shell
+    assert "imm-wma301v21-" in wma21_shell
     assert "cmd_auto() {\n\t[ \"$(uci" in wma_shell
     assert "WMA301 unattended OTA is disabled" not in wma_shell
     assert 'meta layout' in wma_shell

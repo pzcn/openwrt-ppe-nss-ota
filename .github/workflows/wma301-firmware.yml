@@ -285,16 +285,20 @@ jobs:
             --expected-source "$SOURCE_SHA" --kernel-headers "$HEADERS" \
             --aurora-source "$PWD/aurora-theme"
           echo "BUILDER=$BUILDER" >> "$GITHUB_ENV"
-      - name: Stage shared OTA panel, version and WMA301-only NAND preflight
+      - name: Stage both revisions with the same OTA services
         run: |
           set -euo pipefail
           BUILD="$(date -u +%s)"
           REV="$(python3 -c 'import json; print(json.load(open("official-provenance.json"))["version"])')"
           TAG="$(python3 ../scripts/ota_version.py wma301 "$BUILD" --revision "$REV")"
+          TAG_V21="$(python3 ../scripts/ota_version.py wma301v21 "$BUILD" --revision "$REV")"
+          cp -a "$PWD/wma301-overlay" "$PWD/wma301-v21-overlay"
           python3 scripts/stage_unified_ota.py --overlay "$PWD/wma301-overlay" --tag "$TAG" --build "$BUILD"
+          python3 scripts/stage_unified_ota.py --overlay "$PWD/wma301-v21-overlay" --tag "$TAG_V21" --build "$BUILD" --device wma301v21
           echo "WMA_OTA_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "WMA_V21_OTA_TAG=$TAG_V21" >> "$GITHUB_ENV"
           echo "WMA_OTA_BUILD=$BUILD" >> "$GITHUB_ENV"
-      - name: Repack FIT using official precompiled Linux kernel
+      - name: Repack v2.0 FIT using official precompiled Linux kernel
         run: |
           set -euo pipefail
           PACKAGES="$(python3 scripts/official_builder.py packages --file configs/official-packages.txt)"
@@ -305,6 +309,48 @@ jobs:
             PACKAGES="$PACKAGES" FILES="$PWD/wma301-overlay" BIN_DIR="$PWD/images" \
             > repack.log 2>&1 || { tail -n 200 repack.log; exit 1; }
           tail -n 35 repack.log
+      - name: Repack v2.1 FIT with the same base and revised LEDs
+        run: |
+          set -euo pipefail
+          PACKAGES="$(python3 scripts/official_builder.py packages --file configs/official-packages.txt)"
+          mkdir -p "$PWD/images-v21"
+          make -C "$BUILDER" info > builder-info.log
+          grep -q 'tplink_wma301-v2-1:' builder-info.log
+          make -C "$BUILDER" image PROFILE=tplink_wma301-v2-1 \
+            PACKAGES="$PACKAGES" FILES="$PWD/wma301-v21-overlay" BIN_DIR="$PWD/images-v21" \
+            > repack-v21.log 2>&1 || { tail -n 200 repack-v21.log; exit 1; }
+          tail -n 35 repack-v21.log
+      - name: Verify v2.1 FIT and package its own OTA release
+        env:
+          WMA301_VERIFY_BOARD: tplink,wma301-v2-1
+          IMMORTALWRT_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_official.py --images images-v21 --output dist-v21 \
+            --provenance official-provenance.json --local-sha "$GITHUB_SHA" \
+            --packages-file configs/official-packages.txt \
+            --aurora-overlay "$PWD/wma301-v21-overlay" \
+            --aurora-apk "$BUILDER/packages/luci-theme-aurora-1.4.0-r1.apk"
+          (cd dist-v21 && sha256sum -c SHA256SUMS)
+          test "$(find dist-v21 -maxdepth 1 -name '*.itb' | wc -l)" -eq 1
+          python3 scripts/pack_unified_ota.py \
+            --images images-v21 --dist dist-v21 --overlay "$PWD/wma301-v21-overlay" \
+            --output out-wma301-v21-ota --tag "$WMA_V21_OTA_TAG" \
+            --build "$WMA_OTA_BUILD" --upstream "$IMMORTALWRT_SHA" \
+            --source "$GITHUB_SHA" --provenance official-provenance.json \
+            --aurora-apk "$BUILDER/packages/luci-theme-aurora-1.4.0-r1.apk" \
+            --device wma301v21
+          (cd out-wma301-v21-ota && sha256sum -c sha256sums)
+      - name: Upload verified v2.1 unified OTA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: WMA301_V21_VERIFIED_UNIFIED_OTA
+          path: |
+            wma301/dist-v21/
+            wma301/out-wma301-v21-ota/
+            wma301/official-provenance.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Verify FIT, actual packages and unified OTA provenance
         env:
           IMMORTALWRT_SHA: ${{ steps.source.outputs.sha }}
@@ -357,6 +403,10 @@ jobs:
             echo "::error::Immutable WMA301 OTA Release already exists: $WMA_OTA_TAG"
             exit 1
           fi
+          if gh release view "$WMA_V21_OTA_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::Immutable WMA301 v2.1 OTA Release already exists: $WMA_V21_OTA_TAG"
+            exit 1
+          fi
           cd out-wma301-ota
           sha256sum -c sha256sums
           gh release create "$WMA_OTA_TAG" -R "$GITHUB_REPOSITORY" \
@@ -365,6 +415,16 @@ jobs:
             --notes "WMA301 v2.0 migrated single-UBI layout ONLY. Shared manual-only OTA on the main repository; verify boot, NAND/UBI layout, preserved U-Boot environment and recovery before flashing. No automatic installation. Hardware approval: $HARDWARE_CONFIRMED." \
             immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb \
             immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest \
+            ota.json sha256sums manifest.json official-provenance.json \
+            luci-theme-aurora-1.4.0-r1.apk
+          cd ../out-wma301-v21-ota
+          sha256sum -c sha256sums
+          gh release create "$WMA_V21_OTA_TAG" -R "$GITHUB_REPOSITORY" \
+            "${flags[@]}" --target "$GITHUB_SHA" \
+            --title "WMA301 v2.1 ImmortalWrt 6.18 ($WMA_V21_OTA_TAG)" \
+            --notes "WMA301 v2.1 shares the v2.0 migrated single-UBI layout, keys, WLAN, ports and packages. Only status LED GPIO/polarity differs: red GPIO12 active-low, green GPIO11 active-low. Hardware validation: NOT_TESTED. Do not flash on stock A/B." \
+            immortalwrt-mediatek-filogic-tplink_wma301-v2-1-squashfs-sysupgrade.itb \
+            immortalwrt-mediatek-filogic-tplink_wma301-v2-1.manifest \
             ota.json sha256sums manifest.json official-provenance.json \
             luci-theme-aurora-1.4.0-r1.apk
       - name: Summarize official source, cache reuse and artifact safety
@@ -385,7 +445,7 @@ jobs:
             echo '| Aurora | v1.4.0 native noarch APK, installed by official ImageBuilder |'
             printf '| WMA301 OTA enabled | %s |\n' "$WMA301_ENABLE_OTA"
             echo '| OTA feed | Unified main repository; manual publication only |'
-            echo '| Output | Verified sysupgrade FIT (no recovery) |'
+            echo '| Output | Both v2.0 and v2.1 verified sysupgrade FITs (no recovery) |'
             echo '| Hardware validation | CI only, no unattended flashing |'
             printf '\n[Download verified Artifact](https://github.com/%s/actions/runs/%s)\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
           } >> "$GITHUB_STEP_SUMMARY"

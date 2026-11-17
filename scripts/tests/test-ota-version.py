@@ -22,6 +22,8 @@ assert arthur == "imm-arthur-SNAPSHOT-r43172-202611151925", arthur
 assert mx == "imm-mx4200v1-SNAPSHOT-r42542-202611151925", mx
 wma = module.make_tag("wma301", epoch, "r42542-e695009c15")
 assert wma == "imm-wma301-SNAPSHOT-r42542-202611151925", wma
+wma21 = module.make_tag("wma301v21", epoch, "r42542-e695009c15")
+assert wma21 == "imm-wma301v21-SNAPSHOT-r42542-202611151925", wma21
 assert arthur.split("-")[-1] == mx.split("-")[-1] == wma.split("-")[-1]
 assert module.short_revision("r42542") == "r42542"
 

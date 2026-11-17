@@ -83,7 +83,8 @@ def run() -> None:
         register_profile(target)
         contents = target.read_text()
         profile = f"Target-Profile: DEVICE_{PROFILE}"
-        assert contents.count(profile) == 1
+        assert contents.count(profile + "\n") == 1
+        assert contents.count("Target-Profile: DEVICE_tplink_wma301-v2-1\n") == 1
         assert contents.index(profile) < contents.index("Target: other/target")
         assert "Target-Profile-SupportedDevices: tplink,wma301-v2" in contents
         try:

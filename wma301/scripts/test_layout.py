@@ -15,6 +15,10 @@ ROOT=Path(__file__).resolve().parents[1]
 def run():
     dts=(ROOT/"device/mt7981b-tplink-wma301-v2-common.dtsi").read_text()
     assert "tplink_wma301-v2" in DEVICE
+    assert "tplink_wma301-v2-1" in DEVICE
+    v20=(ROOT/"device/mt7981b-tplink-wma301-v2.dts").read_text()
+    v21=(ROOT/"device/mt7981b-tplink-wma301-v2-1.dts").read_text()
+    assert v21.replace("v2.1", "v2.0").replace("v2-1", "v2").replace("12 GPIO_ACTIVE_LOW", "14 GPIO_ACTIVE_HIGH").replace("11 GPIO_ACTIVE_LOW", "15 GPIO_ACTIVE_HIGH") == v20, "v2.1 DTS must differ only in board identity and LED wiring"
     assert "UBOOTENV_IN_UBI := 1" in DEVICE
     assert "KERNEL_IN_UBI := 1" in DEVICE
     assert "sysupgrade.itb" in DEVICE
@@ -68,15 +72,16 @@ def run():
         (base/"target/linux/mediatek/dts").mkdir(parents=True)
         prepare(base)
         img=(base/"target/linux/mediatek/image/filogic.mk").read_text()
-        assert img.count("TARGET_DEVICES += tplink_wma301-v2")==1
+        assert img.count("TARGET_DEVICES += tplink_wma301-v2\n")==1
+        assert img.count("TARGET_DEVICES += tplink_wma301-v2-1")==1
         nw=(base/"target/linux/mediatek/filogic/base-files/etc/board.d/02_network").read_text()
-        assert nw.count("tplink,wma301-v2)")==1
+        assert nw.count("tplink,wma301-v2|tplink,wma301-v2-1)")==1
         up=(base/"target/linux/mediatek/filogic/base-files/lib/upgrade/platform.sh").read_text()
-        assert up.count("tplink,wma301-v2)")==2
+        assert up.count("tplink,wma301-v2|tplink,wma301-v2-1)")==2
         env=(base/"package/boot/uboot-tools/uboot-envtools/files/mediatek_filogic").read_text()
-        assert env.count("tplink,wma301-v2)")==1 and env.count("ubootenv_add_ubi_default")==2
+        assert env.count("tplink,wma301-v2|tplink,wma301-v2-1)")==1 and env.count("ubootenv_add_ubi_default")==2
         wm=(base/"target/linux/mediatek/filogic/base-files/etc/hotplug.d/ieee80211/11_fix_wifi_mac").read_text()
-        assert wm.count("tplink,wma301-v2)")==1
+        assert wm.count("tplink,wma301-v2|tplink,wma301-v2-1)")==1
         assert "mtd_get_mac_binary factory_info 0x1c" in wm
         assert "macaddr_add $addr 1" in wm and "macaddr_add $addr 2" in wm
         try:
