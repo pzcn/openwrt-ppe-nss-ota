@@ -561,6 +561,8 @@ return baseclass.extend({
 
 		const hint = wanState.error ? ('WAN 控制服务不可用：' + wanState.error)
 			: wanState.scanning ? '正在检测 DHCP 上联，请稍候'
+			: wanState.mode === 'auto' && wanState.detected === 'none'
+				? '自动识别尚未完成；当前网络配置可能仍保留原 WAN'
 			: wanState.active_number > 0
 				? '当前实际 WAN：网口 %d（%s）；模式：%s'.format(
 					wanState.active_number, wanState.active,
