@@ -125,7 +125,7 @@ def pack(images: Path, dist: Path, overlay: Path, output: Path, tag: str,
             "The published Aurora APK must match the installed verified package")
     local = (overlay / "etc/immortal-ppe-ota-release").read_text()
     for needle in (f"OTA_TAG={tag}", f"OTA_BUILD={build}",
-                   "OTA_CHANNEL=wma301-immortal-filogic"):
+                   f"OTA_CHANNEL={spec['channel']}"):
         require(needle in local.splitlines(), f"wrong in-FIT OTA identity: {needle}")
     require((overlay / "usr/libexec/ppe-update-wma301-preflight").is_file(),
             "missing WMA301 hardware safety preflight")
