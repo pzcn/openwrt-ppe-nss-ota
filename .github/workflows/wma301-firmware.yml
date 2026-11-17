@@ -53,7 +53,7 @@ permissions:
   actions: read
 concurrency:
   group: wma301-official-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   metadata:
     runs-on: ubuntu-24.04
@@ -406,8 +406,8 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE_RUN_ID: '43923651128'
-      SOURCE_COMMIT: '8ad1490306efe4f332481afebd1ceb3e63fb4077'
+      SOURCE_RUN_ID: '44028887027'
+      SOURCE_COMMIT: 'e01cd20e6df0f4818623538bf67d98e412dccf7a'
     steps:
       - uses: actions/checkout@v4
       - name: Validate provenance of the completed main-branch build
@@ -503,6 +503,7 @@ jobs:
           WMA301 v2.0 / MT7981 · ImmortalWrt master Linux 6.18
 
           **Official GitHub Release (not prerelease).**
+          OTA UX includes progress, transfer rate, firmware verification, clear errors and reboot guidance.
 
           Built using the official mediatek/filogic ImageBuilder and a locally compiled WMA301 DTS.
           CI verified the sysupgrade FIT, device tree, SHA256, provenance, software manifest and single-UBI identity.
@@ -511,7 +512,7 @@ jobs:
           Only for WMA301 v2.0 already migrated to the 121 MiB single-UBI NAND layout.
           Back up settings and confirm U-Boot recovery, UBI volumes, WLAN and network functionality.
           Do not use on stock A/B layouts or WMA301 v2.1.
-          OTA installation stays manual-only. No unattended upgrades.
+          OTA supports manual and optional scheduled automatic upgrades (default off).
           Aurora v1.4.0 is installed as a native noarch APK and is published as
           luci-theme-aurora-1.4.0-r1.apk for independent package management.
           Includes autocore (LuCI temperature), cpufreq, luci-app-cpufreq,
