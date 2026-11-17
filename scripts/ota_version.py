@@ -19,12 +19,12 @@ from pathlib import Path
 import re
 import subprocess
 
-DEVICES = ("arthur", "mx4200v1", "wma301")
+DEVICES = ("arthur", "mx4200v1", "wma301", "wma301v21")
 BEIJING = timezone(timedelta(hours=8))
 REVISION_PATTERN = re.compile(r"^(r[1-9][0-9]{3,7})(?:-[0-9a-f]{7,40})?$")
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 TAG_PATTERN = re.compile(
-    r"^imm-(arthur|mx4200v1|wma301)-SNAPSHOT-r[1-9][0-9]{3,7}-[0-9]{12}$"
+    r"^imm-(arthur|mx4200v1|wma301|wma301v21)-SNAPSHOT-r[1-9][0-9]{3,7}-[0-9]{12}$"
 )
 # Exact baseline from immortalwrt/immortalwrt scripts/getver.sh at the pinned
 # source revision. GitHub compare.ahead_by counts commits after this baseline;
