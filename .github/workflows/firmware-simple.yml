@@ -39,6 +39,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   version:
@@ -52,7 +53,9 @@ jobs:
 
   arthur:
     needs: version
-    if: github.event_name != 'workflow_dispatch' || inputs.device != 'mx4200v1'
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.device != 'mx4200v1') &&
+      (github.event_name != 'push' || !contains(github.event.head_commit.message, '[release-wma301-only]'))
     uses: ./.github/workflows/firmware-immortalwrt.yml
     with:
       builder_tag: ""
@@ -65,7 +68,9 @@ jobs:
 
   mx4200v1:
     needs: version
-    if: github.event_name != 'workflow_dispatch' || inputs.device != 'arthur'
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.device != 'arthur') &&
+      (github.event_name != 'push' || !contains(github.event.head_commit.message, '[release-wma301-only]'))
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     concurrency:
@@ -136,3 +141,17 @@ jobs:
           MX_RELEASE_STABLE: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[release-ota-stable]') && 'true' || 'false' }}
           GITHUB_EVENT_RELEASE_MARKER: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[release-ota-stable]') && 'release-ota-stable' || '' }}
         run: bash mx4200v1/publish-release.sh firmware out-mx4200v1-fast-repack
+
+  wma301-stable:
+    name: Publish verified WMA301 stable Release (reuse source Artifact)
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      contains(github.event.head_commit.message, '[release-wma301-stable]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Publish verified WMA301 firmware from immutable main-branch build
+        run: bash scripts/publish-wma301-release.sh
