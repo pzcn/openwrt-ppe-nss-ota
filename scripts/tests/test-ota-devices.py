@@ -62,7 +62,8 @@ with tempfile.TemporaryDirectory() as d:
         assert action["path"].startswith("system/flash-ota-b12345-")
         assert len(menu) == 1  # no second OTA menu or changed router URL
     assert "imm-mx4200v1-" not in src_arthur
-    assert "imm-arthur-" not in src_mx
+    assert "imm-re-ss-01-" not in src_mx
+    assert "imm-arthur-" not in src_arthur
     assert "jdcloud,re-ss-01" not in src_mx
     assert "linksys,mx4200v1" not in src_arthur
 

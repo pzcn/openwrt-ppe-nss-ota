@@ -8,7 +8,7 @@
 
 | 设备 | 固件版本 | 镜像下载 |
 | --- | --- | --- |
-| 京东云亚瑟 RE-SS-01 · IPQ60xx | [`imm-arthur-SNAPSHOT-r42542-202611161651`](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/tag/imm-arthur-SNAPSHOT-r42542-202611161651) | [sysupgrade.bin](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/download/imm-arthur-SNAPSHOT-r42542-202611161651/immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin) |
+| 京东云 RE-SS-01（亚瑟）· IPQ60xx | [最新正式版：`imm-re-ss-01-...`](https://github.com/pzcn/openwrt-ppe-nss-ota/releases) | [从 Releases 下载 sysupgrade.bin](https://github.com/pzcn/openwrt-ppe-nss-ota/releases) |
 | Linksys MX4200 **v1** · IPQ807x | [`imm-mx4200v1-SNAPSHOT-r42541-202611161651`](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/tag/imm-mx4200v1-SNAPSHOT-r42541-202611161651) | [sysupgrade.bin](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/download/imm-mx4200v1-SNAPSHOT-r42541-202611161651/immortalwrt-qualcommax-ipq807x-linksys_mx4200v1-squashfs-sysupgrade.bin) · [factory.bin](https://github.com/pzcn/openwrt-ppe-nss-ota/releases/download/imm-mx4200v1-SNAPSHOT-r42541-202611161651/immortalwrt-qualcommax-ipq807x-linksys_mx4200v1-squashfs-factory.bin) |
 | TP-Link **WMA301 v2.0** · MT7981 | `imm-wma301-SNAPSHOT-r<revision>-YYYYMMDDHHMM` | [WMA301 独立 Actions](.github/workflows/wma301-firmware.yml)（先发布验证 Artifact，OTA 正式发布待实机验收） |
 
@@ -45,9 +45,9 @@
 
 ## OTA 使用与安全
 
-入口：**LuCI → 系统 → 备份 / 升级 → 在线固件更新**。三台设备共用 LuCI 与 OTA 后端，按板型严格隔离发布渠道：
+入口：**LuCI → 系统 → 备份 / 升级 → 在线固件更新**。各设备共用 LuCI 与 OTA 后端，按板型严格隔离发布渠道：
 
-- 亚瑟：`imm-arthur-...` / `re-ss-01-immortal-ppe-nss`
+- RE-SS-01（亚瑟）：`imm-re-ss-01-...` / `re-ss-01-immortal-ppe-nss`
 - MX4200 v1：`imm-mx4200v1-...` / `mx4200v1-immortal-ppe-nss`
 - WMA301 v2.0：`imm-wma301-...` / `wma301-immortal-filogic`（仅已迁移单 UBI 的 v2.0；正式 Release 需人工确认）
 

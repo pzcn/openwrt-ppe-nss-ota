@@ -23,8 +23,11 @@ DEVICES = ("arthur", "mx4200v1", "wma301", "wma301v21")
 BEIJING = timezone(timedelta(hours=8))
 REVISION_PATTERN = re.compile(r"^(r[1-9][0-9]{3,7})(?:-[0-9a-f]{7,40})?$")
 COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
+# Keep internal build keys unchanged; use the model ID for public tags.
+TAG_DEVICE_ID = {"arthur": "re-ss-01", "mx4200v1": "mx4200v1",
+                 "wma301": "wma301", "wma301v21": "wma301v21"}
 TAG_PATTERN = re.compile(
-    r"^imm-(arthur|mx4200v1|wma301|wma301v21)-SNAPSHOT-r[1-9][0-9]{3,7}-[0-9]{12}$"
+    r"^imm-(re-ss-01|mx4200v1|wma301|wma301v21)-SNAPSHOT-r[1-9][0-9]{3,7}-[0-9]{12}$"
 )
 # Exact baseline from immortalwrt/immortalwrt scripts/getver.sh at the pinned
 # source revision. GitHub compare.ahead_by counts commits after this baseline;
@@ -112,7 +115,7 @@ def make_tag(device: str, build_epoch: int, revision: str) -> str:
         raise ValueError("Expected a Unix epoch build number in seconds")
     dt = datetime.fromtimestamp(build_epoch, tz=BEIJING)
     rev = short_revision(revision)
-    tag = f"imm-{device}-SNAPSHOT-{rev}-{dt:%Y%m%d%H%M}"
+    tag = f"imm-{TAG_DEVICE_ID[device]}-SNAPSHOT-{rev}-{dt:%Y%m%d%H%M}"
     if not TAG_PATTERN.fullmatch(tag):
         raise ValueError("Invalid OTA tag")
     return tag

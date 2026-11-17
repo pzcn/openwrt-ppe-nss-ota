@@ -18,7 +18,8 @@ spec.loader.exec_module(module)
 epoch = int(datetime(2026, 11, 15, 11, 25, tzinfo=timezone.utc).timestamp())
 arthur = module.make_tag("arthur", epoch, "r43172-4765b657")
 mx = module.make_tag("mx4200v1", epoch, "r42542-e695009c15")
-assert arthur == "imm-arthur-SNAPSHOT-r43172-202611151925", arthur
+assert arthur == "imm-re-ss-01-SNAPSHOT-r43172-202611151925", arthur
+assert "imm-arthur-" not in arthur
 assert mx == "imm-mx4200v1-SNAPSHOT-r42542-202611151925", mx
 wma = module.make_tag("wma301", epoch, "r42542-e695009c15")
 assert wma == "imm-wma301-SNAPSHOT-r42542-202611151925", wma

@@ -4,11 +4,13 @@
 
 主仓库按设备隔离三个 OTA 渠道，通过同一 LuCI 和 `ppe-update` 后端检查 GitHub Releases 中的固件和 `ota.json`：
 
-- 亚瑟：`re-ss-01-immortal-ppe-nss` → `imm-arthur-SNAPSHOT-r<revision>-YYYYMMDDHHMM`；
+- 亚瑟：`re-ss-01-immortal-ppe-nss` → `imm-re-ss-01-SNAPSHOT-r<revision>-YYYYMMDDHHMM`；
 - MX4200 v1：`mx4200v1-immortal-ppe-nss` → `imm-mx4200v1-SNAPSHOT-r<revision>-YYYYMMDDHHMM`；
 - WMA301 v2.0：`wma301-immortal-filogic` → `imm-wma301-SNAPSHOT-r<revision>-YYYYMMDDHHMM`，镜像格式为 `sysupgrade.itb`。
 
 三台设备使用独立 profile、board、group、manifest 和版本序列，下载前校验固件元数据、SHA256 和 `sysupgrade -T`。
+
+**RE-SS-01 标签迁移：** 之前发布的 `imm-arthur-` 是历史 Release 名称，保留供查阅；新发布统一使用 `imm-re-ss-01-`。已刷旧版固件的 OTA 客户端仍按旧前缀筛选 Release，因此首次迁移须在 LuCI 原生固件上传入口手动安装一次新固件。迁移完成后，在线检查、定时升级都使用新前缀。固件文件名及设备板型标识保持原样。
 
 ## 功能
 

@@ -65,14 +65,15 @@ jobs:
       force_firmware: false
       publish_release: false
       ota_build_epoch: ${{ needs.version.outputs.epoch }}
-      publish_policy: ${{ ((github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && contains(github.event.head_commit.message, '[release-ota-stable]'))) && 'yes' || 'no' }}
+      publish_policy: ${{ ((github.event_name == 'workflow_dispatch' && inputs.publish) || (github.event_name == 'push' && (contains(github.event.head_commit.message, '[release-ota-stable]') || contains(github.event.head_commit.message, '[release-re-ss-01-stable]')))) && 'yes' || 'no' }}
     secrets: inherit
 
   mx4200v1:
     needs: version
     if: >-
       (github.event_name != 'workflow_dispatch' || inputs.device != 'arthur') &&
-      (github.event_name != 'push' || !contains(github.event.head_commit.message, '[release-wma301-only]'))
+      (github.event_name != 'push' || !contains(github.event.head_commit.message, '[release-wma301-only]')) &&
+      (github.event_name != 'push' || !contains(github.event.head_commit.message, '[release-re-ss-01-stable]'))
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     concurrency:

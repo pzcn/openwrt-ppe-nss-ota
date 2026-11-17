@@ -221,7 +221,7 @@ jobs:
           echo "Selected layer: ${LAYER:-none}" >> "$GITHUB_STEP_SUMMARY"
           if [[ "$FORCE_FIRMWARE" != true ]]; then
             LATEST="$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
-              --jq '[.[] | select(.draft == false and (.tag_name | startswith("imm-arthur-")))] | sort_by(.published_at) | last | .tag_name // empty')"
+              --jq '[.[] | select(.draft == false and (.tag_name | startswith("imm-re-ss-01-")))] | sort_by(.published_at) | last | .tag_name // empty')"
             if [[ -n "$LATEST" ]]; then
               mkdir -p "$RUNNER_TEMP/imm-last-firmware"
               if gh release download "$LATEST" -R "$GITHUB_REPOSITORY" \
