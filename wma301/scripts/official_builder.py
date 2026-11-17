@@ -148,6 +148,13 @@ def prepare_kernel_image(kdir: Path) -> Path:
     with (kdir / "Image").open("rb") as src, dest.open("wb") as out:
         subprocess.run(["gzip", "-9", "-n", "-c"], stdin=src, stdout=out, check=True)
     require(dest.stat().st_size > 100_000, "unusually small official gzip kernel")
+    # Both hardware revisions use the same official kernel. ImageBuilder
+    # resolves the kernel filename from PROFILE, so stage it under both
+    # names; the only per-revision payload is the compiled DTB.
+    v21 = kdir / f"{PROFILE_V21}-kernel.bin"
+    shutil.copyfile(dest, v21)
+    require(v21.stat().st_size == dest.stat().st_size,
+            "v2.1 official kernel copy is incomplete")
     return dest
 
 
