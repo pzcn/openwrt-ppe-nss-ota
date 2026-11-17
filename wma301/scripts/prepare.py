@@ -14,7 +14,7 @@ HERE = Path(__file__).resolve().parents[1]
 DEVICE = """\
 define Device/tplink_wma301-v2
   DEVICE_VENDOR := TP-Link
-  DEVICE_MODEL := WMA301 v2.0 / v2.1 (OEM BL2/BL31 + custom BL33)
+  DEVICE_MODEL := WMA301
   DEVICE_DTS := mt7981b-tplink-wma301-v2
   DEVICE_DTS_DIR := ../dts
   SUPPORTED_DEVICES := tplink,wma301-v2 tplink,wma301-v2-1
