@@ -407,8 +407,8 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
-      SOURCE_RUN_ID: '44047285837'
-      SOURCE_COMMIT: '24d74f34514400c2b0553cd76af0dfd1dc844478'
+      SOURCE_RUN_ID: '44083241286'
+      SOURCE_COMMIT: '58765a4d6ef76df25f7cf9565abaf53203a03733'
     steps:
       - uses: actions/checkout@v4
       - name: Validate provenance of the completed main-branch build
