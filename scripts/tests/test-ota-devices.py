@@ -103,8 +103,8 @@ with tempfile.TemporaryDirectory() as d:
 
     wma_shell = (wma / "usr/sbin/ppe-update").read_text()
     assert "ppe-update-wma301-preflight" in wma_shell
-    assert "WMA301 unattended OTA is disabled" in wma_shell
-    assert "cmd_auto() {\n\t# WMA301 never installs unattended.\n\treturn 0" in wma_shell
+    assert "cmd_auto() {\n\t[ \"$(uci" in wma_shell
+    assert "WMA301 unattended OTA is disabled" not in wma_shell
     assert 'meta layout' in wma_shell
     assert "ppe-update-wma301-preflight" not in src_mx + src_arthur
     assert 'imm-wma301-' not in src_mx + src_arthur

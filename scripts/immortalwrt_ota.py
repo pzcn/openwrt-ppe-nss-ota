@@ -157,20 +157,13 @@ LATEST=$(jq -r --arg image "$EXPECTED_IMAGE" --arg manifest "$EXPECTED_MANIFEST"
         source = replace_once(source, before, after)
     source = source.replace("__OTA_TAG_PREFIX__", spec["tag_prefix"])
     if device == "wma301":
-        # WMA301 must retain the original single-UBI / environment-volume guard.
-        # Even if a retained UCI config sets auto=1, the backend cannot auto-flash.
+        # WMA301 uses the same manual and scheduled OTA policy as other boards.
+        # Keep the NAND/UBI preflight and layout matching before sysupgrade.
         source = replace_once(
-            source, "cmd_auto() {\n",
-            "cmd_auto() {\n\t# WMA301 never installs unattended.\n\treturn 0\n")
-        source = replace_once(
-            source, '\tlookup "$1"\n\tnewer || { echo "up to date:',
-            '\t[ "$policy" = manual ] || die "WMA301 unattended OTA is disabled"\n'
-            '\tlookup "$1"\n\tnewer || { echo "up to date:')
-        source = replace_once(
-            source, '\tsysupgrade -T "$WORK/$IMAGE" >/dev/null 2>&1 ||',
+            source, '\tsysupgrade -T "$WORK/$IMAGE" >"$WORK/validation.log" 2>&1 ||',
             '\t/usr/libexec/ppe-update-wma301-preflight || '
             'die "WMA301 single-UBI safety preflight failed"\n'
-            '\tsysupgrade -T "$WORK/$IMAGE" >/dev/null 2>&1 ||')
+            '\tsysupgrade -T "$WORK/$IMAGE" >"$WORK/validation.log" 2>&1 ||')
         source = replace_once(
             source, '\t[ "$(meta image)" = "$EXPECTED_IMAGE" ] &&',
             '\t[ "$(meta layout)" = '

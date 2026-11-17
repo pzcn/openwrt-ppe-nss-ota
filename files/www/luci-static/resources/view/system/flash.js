@@ -20,6 +20,32 @@ function customOTARow(label, value) {
 function fmtOTARelease(t) {
 	return t ? new Date(t * 1000).toLocaleString('zh-CN') : '—';
 }
+function fmtOTABytes(n) {
+	const value = Number(n);
+	if (!Number.isFinite(value) || value < 0)
+		return '—';
+	if (value < 1024)
+		return Math.round(value) + ' B';
+	if (value < 1024 * 1024)
+		return (value / 1024).toFixed(1) + ' KiB';
+	return (value / (1024 * 1024)).toFixed(2) + ' MiB';
+}
+function otaErrorHelp(reason) {
+	const s = String(reason || '');
+	if (/not enough free space/i.test(s))
+		return '路由器临时空间不足，检查 /tmp 可用空间，清理临时文件后重试。';
+	if (/download failed|cannot reach.*GitHub|连接失败|下载失败|下载信息下载失败/i.test(s))
+		return '网络下载失败。请检查互联网连接，或更换下方的 GitHub 代理并重试。';
+	if (/SHA256|checksum|校验和/i.test(s))
+		return '文件完整性校验不通过。已停止升级，请重新下载，不要强制刷写。';
+	if (/sysupgrade rejected|固件信息或设备不匹配|layout mismatch|preflight failed|metadata|设备不匹配/i.test(s))
+		return '设备或固件兼容性检查未通过。请确认固件对应当前设备，勿使用 -F 强刷。';
+	if (/no ImmortalWrt firmware|暂无可用固件/i.test(s))
+		return '当前设备渠道没有可用的正式 Release，请检查发布状态。';
+	if (/already running|已在运行/i.test(s))
+		return '已有升级进程在执行，请在原页面查看进度，避免重复启动。';
+	return '请展开详细日志查看原因；若问题发生在下载阶段，可尝试切换 GitHub 代理。';
+}
 
 const isReadonlyView = !L.hasViewPermission();
 
@@ -231,6 +257,7 @@ return view.extend({
 		]);
 	},
 
+
 	otaShow(info) {
 		const root = this._otaInfo;
 		if (!root)
@@ -238,7 +265,8 @@ return view.extend({
 		this._otaStatus = info || {};
 		const st = this._otaStatus;
 		if (this._otaInstallButton)
-			this._otaInstallButton.disabled = isReadonlyView || st.update !== true;
+			this._otaInstallButton.disabled = isReadonlyView || this._otaRunning === true ||
+				st.update !== true;
 
 		const rows = [
 			customOTARow('当前版本', st.current || '—'),
@@ -246,8 +274,12 @@ return view.extend({
 		];
 		if (st.latest_time)
 			rows.push(customOTARow('发布时间', fmtOTARelease(st.latest_time)));
+		if (st.size)
+			rows.push(customOTARow('固件大小', fmtOTABytes(st.size)));
 		rows.push(customOTARow('状态',
-			st.error || (st.update === true ? '发现新版本' : '已是最新版本')));
+			st.error || (st.update === true ? '发现新版本，可手动下载并安装' : '已是最新版本')));
+		if (st.error)
+			rows.push(customOTARow('处理建议', otaErrorHelp(st.error)));
 		if (st.pending)
 			rows.push(customOTARow('待恢复软件包', st.pending));
 		root.replaceChildren(E('table', { 'class': 'table' }, rows));
@@ -267,49 +299,183 @@ return view.extend({
 			}, this));
 	},
 
+	otaOpenProgressModal() {
+		this._otaRunning = true;
+		this._otaHistory = [];
+		this._otaLastStage = 'starting';
+		if (this._otaInstallButton)
+			this._otaInstallButton.disabled = true;
+		this._otaPhaseText = E('strong', '正在连接升级服务…');
+		this._otaStageHelp = E('p', '固件下载完成后会自动校验、安装并重启，无需再次点击确认。');
+		this._otaMeter = E('progress', {
+			'max': '100', 'value': '0',
+			'style': 'width:100%;height:1.1em;',
+			'hidden': true
+		});
+		this._otaNumbers = E('div', { 'class': 'cbi-value-description' }, '');
+		this._otaLog = E('pre', {
+			'id': 'ppe-ota-progress-log',
+			'style': 'white-space:pre-wrap;max-height:15em;overflow:auto;overflow-wrap:anywhere'
+		}, '正在启动升级任务…');
+		this._otaActions = E('div', { 'class': 'cbi-page-actions' });
+		ui.showModal('在线固件更新', [
+			E('p', this._otaPhaseText),
+			this._otaStageHelp,
+			this._otaMeter,
+			this._otaNumbers,
+			E('p', { 'class': 'cbi-value-description' },
+				'刷写开始后路由器会自动重启，管理页面短暂断开是正常现象。此时请勿断电、断网或手动重启，等待设备重新上线。'),
+			E('details', { 'style': 'margin-top:0.8em' }, [
+				E('summary', '详细日志（发生错误时请展开）'),
+				this._otaLog
+			]),
+			this._otaActions
+		]);
+	},
+
+	otaUpdateProgress(progress, log) {
+		const stage = String(progress.stage || 'starting');
+		const labels = {
+			starting: '正在启动升级任务',
+			checking: '正在检查固件版本和设备信息',
+			downloading: '正在下载固件',
+			verifying: '正在校验下载的固件',
+			preparing: '正在保存升级配置',
+			flashing: '正在刷写，设备即将自动重启',
+			failed: '固件更新未完成'
+		};
+		this._otaLastStage = stage;
+		this._otaPhaseText.textContent = labels[stage] || '正在处理固件更新';
+		this._otaStageHelp.textContent = progress.message ||
+			'下载完成后将自动校验、安装并重启，无需再次确认。';
+		this._otaLog.textContent = log ? log.slice(-8000) : '暂无详细日志';
+
+		const total = Math.max(0, Number(progress.total) || 0);
+		const done = Math.max(0, Number(progress.downloaded) || 0);
+		if (stage === 'downloading' && total > 0) {
+			const now = Date.now();
+			if (this._otaHistory.length &&
+				done < this._otaHistory[this._otaHistory.length - 1].bytes)
+				this._otaHistory = []; // curl retried a URL; its file was reset
+			this._otaHistory.push({ time: now, bytes: done });
+			this._otaHistory = this._otaHistory.filter(function(x) {
+				return now - x.time <= 5000;
+			});
+			const first = this._otaHistory[0];
+			const seconds = (now - first.time) / 1000;
+			const rate = seconds > 0 ? Math.max(0, (done - first.bytes) / seconds) : 0;
+			const percent = Math.min(100, Math.floor(100 * done / total));
+			this._otaMeter.hidden = false;
+			this._otaMeter.value = percent;
+			let label = percent + '% · ' + fmtOTABytes(done) + ' / ' +
+				fmtOTABytes(total) + ' · ';
+			label += rate > 0 ? '近几秒速度 ' + fmtOTABytes(rate) + '/s' : '正在测速或等待数据…';
+			if (rate > 1024 && done < total)
+				label += ' · 预计剩余约 ' + Math.ceil((total - done) / rate) + ' 秒';
+			this._otaNumbers.textContent = label;
+		}
+		else if (stage === 'verifying' || stage === 'preparing') {
+			this._otaMeter.hidden = false;
+			this._otaMeter.value = 100;
+			this._otaNumbers.textContent = '固件已下载完成（' + fmtOTABytes(total) +
+				'），正在执行后续步骤…';
+			this._otaHistory = [];
+		}
+		else {
+			this._otaMeter.hidden = true;
+			this._otaNumbers.textContent = stage === 'flashing' ?
+				'固件已交由系统刷写。之后自动重启，页面断开属于正常过程。' : '';
+			this._otaHistory = [];
+		}
+	},
+
+	otaShowFailure(reason, log) {
+		this._otaRunning = false;
+		this._otaPhaseText.textContent = '固件更新失败';
+		this._otaStageHelp.textContent = (reason ? reason + '。' : '') +
+			otaErrorHelp(reason);
+		this._otaMeter.hidden = true;
+		if (log)
+			this._otaLog.textContent = log.slice(-8000);
+		if (this._otaInstallButton)
+			this._otaInstallButton.disabled = isReadonlyView || !this._otaStatus ||
+				this._otaStatus.update !== true;
+		this._otaActions.replaceChildren(
+			E('button', {
+				'type': 'button', 'class': 'btn cbi-button',
+				'click': ui.hideModal
+			}, '关闭'),
+			' ',
+			E('button', {
+				'type': 'button', 'class': 'btn cbi-button-action',
+				'click': ui.createHandlerFn(this, 'otaConfirmInstall')
+			}, '重新尝试下载并安装')
+		);
+	},
+
 	otaPollLog() {
-		return fs.read('/tmp/ppe-update.log').catch(function() { return ''; })
-			.then(L.bind(function(log) {
-				const box = document.getElementById('ppe-ota-progress-log');
-				if (box)
-					box.textContent = log || '正在准备更新…';
+		if (!document.getElementById('ppe-ota-progress-log'))
+			return Promise.resolve();
 
-				if (/开始刷写固件/.test(log))
-					return ui.awaitReconnect(window.location.host);
-
-				const m = log.match(/^exit ([0-9]+)/m);
-				if (m) {
-					if (m[1] !== '0')
-						ui.addNotification(null, E('p', '固件升级中止，具体原因见日志。'), 'error');
-					ui.hideModal();
-					return;
-				}
-
-				return new Promise(function(resolve) {
-					window.setTimeout(resolve, 2000);
-				}).then(L.bind(this.otaPollLog, this));
-			}, this));
+		return Promise.all([
+			L.resolveDefault(fs.exec_direct('/usr/sbin/ppe-update', [ 'progress' ], 'json'), { stage: 'unknown' }),
+			L.resolveDefault(fs.read('/tmp/ppe-update.log'), '')
+		]).then(L.bind(function(result) {
+			const progress = result[0] || {};
+			const log = result[1] || '';
+			this.otaUpdateProgress(progress, log);
+			if (progress.stage === 'failed' || /^exit [1-9][0-9]*$/m.test(log)) {
+				this.otaShowFailure(progress.message || '升级进程已中止', log);
+				return;
+			}
+			if (progress.stage === 'flashing' || /开始刷写固件/.test(log)) {
+				this._otaPhaseText.textContent = '正在安装固件并等待设备重启';
+				this._otaStageHelp.textContent =
+					'系统已接管刷写，之后会自动重启。连接暂时中断是正常现象，请勿断电；若地址变化，需重新连接路由器。';
+				return ui.awaitReconnect(window.location.host);
+			}
+			if (/^exit 0$/m.test(log)) {
+				this._otaPhaseText.textContent = '升级命令已返回';
+				this._otaStageHelp.textContent =
+					'升级命令已执行，未检测到重启。请查看详细日志确认结果。';
+				this._otaActions.replaceChildren(E('button', {
+					'type': 'button', 'class': 'btn',
+					'click': ui.hideModal
+				}, '关闭'));
+				return;
+			}
+			return new Promise(function(resolve) {
+				window.setTimeout(resolve, 1500);
+			}).then(L.bind(this.otaPollLog, this));
+		}, this)).catch(L.bind(function(e) {
+			// Disconnection after sysupgrade takes over is expected.
+			if (this._otaLastStage !== 'flashing')
+				this.otaShowFailure('读取更新进度失败：' + (e.message || e), '');
+		}, this));
 	},
 
 	otaConfirmInstall() {
-		ui.showModal('正在更新固件', [
-			E('p', '正在下载并校验固件，请勿断电。'),
-			E('pre', {
-				'id': 'ppe-ota-progress-log',
-				'style': 'white-space:pre-wrap;max-height:17em;overflow:auto'
-			}, '正在启动更新…')
-		]);
+		this.otaOpenProgressModal();
 		return fs.exec('/usr/sbin/ppe-update', [ 'start' ]).then(L.bind(function(res) {
 			if (res.code !== 0) {
-				ui.hideModal();
-				ui.addNotification(null, E('p', res.stderr || 'OTA 更新任务启动失败'), 'error');
+				this.otaShowFailure((res.stderr || 'OTA 更新任务启动失败').trim(), '');
 				return;
 			}
 			return this.otaPollLog();
-		}, this)).catch(function(e) {
-			ui.hideModal();
-			ui.addNotification(null, E('p', e.message || 'OTA 无法执行'), 'error');
-		});
+		}, this)).catch(L.bind(function(e) {
+			this.otaShowFailure('OTA 无法执行：' + (e.message || e), '');
+		}, this));
+	},
+
+	otaResumeProgress() {
+		return fs.exec_direct('/usr/sbin/ppe-update', [ 'progress' ], 'json')
+			.then(L.bind(function(st) {
+				if (!this._otaRunning && st && [ 'starting', 'checking', 'downloading', 'verifying',
+					'preparing', 'flashing' ].indexOf(st.stage) >= 0) {
+					this.otaOpenProgressModal();
+					return this.otaPollLog();
+				}
+			}, this));
 	},
 
 	otaAskInstall() {
@@ -322,11 +488,13 @@ return view.extend({
 			ui.addNotification(null, E('p', '当前账户没有固件升级权限。'), 'error');
 			return;
 		}
-		const extraInfo = st.extras ? '升级后将尝试恢复额外软件包。' : null;
+		const extraInfo = st.extras ? '升级后将尝试恢复额外安装的软件包。' : null;
 
 		ui.showModal('确认在线固件更新', [
-			E('p', ['升级到：', E('strong', st.latest)]),
-			E('p', '请先备份配置，升级时勿断电。'),
+			E('p', ['目标版本：', E('strong', st.latest)]),
+			E('p', '固件大小：' + fmtOTABytes(st.size)),
+			E('p', '点击确认后，将自动完成下载 → SHA256 校验 → 设备兼容性检查 → 固件安装 → 重启，不再进行第二次确认。'),
+			E('p', '下载或校验失败会停止，不会继续刷写。刷写及重启阶段请勿断电，建议先备份配置。'),
 			extraInfo ? E('p', extraInfo) : '',
 			E('div', { 'class': 'right' }, [
 				E('button', {
@@ -336,7 +504,7 @@ return view.extend({
 				E('button', {
 					'class': 'btn cbi-button-action important',
 					'click': ui.createHandlerFn(this, 'otaConfirmInstall')
-				}, '确认下载并安装')
+				}, '确认下载、安装并重启')
 			])
 		]);
 	},
@@ -365,6 +533,8 @@ return view.extend({
 			'class': 'cbi-section'
 		}, [
 			E('h3', '在线固件更新'),
+			E('p', { 'class': 'cbi-value-description' },
+				'人工确认后自动完成下载、校验、刷写和重启；若设备支持，也可在下方管理定时自动更新。'),
 			E('div', { 'class': 'cbi-section-node' }, [
 				this._otaInfo,
 				E('div', { 'class': 'cbi-page-actions' }, [
@@ -799,6 +969,8 @@ return view.extend({
 			actions.appendChild(this.renderOTAPanel());
 			// GitHub requests remain async and cannot block page rendering.
 			this.otaRefresh();
+			// Reattach the progress modal after a page refresh during download.
+			Promise.resolve().then(L.bind(this.otaResumeProgress, this)).catch(function() {});
 			return node;
 		}, this));
 	},

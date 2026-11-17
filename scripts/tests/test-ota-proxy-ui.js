@@ -27,6 +27,7 @@ function E(tag, attrs, data) {
     disabled: !!attributes.disabled,
     addEventListener(event, fn) { listeners[event] = fn; },
     appendChild(child) { contents.push(child); },
+    replaceChildren(...children) { this.children = children; },
   };
   if (tag === 'select') {
     const chosen = contents.find(x => x && x.attrs && x.attrs.selected != null);
@@ -91,5 +92,41 @@ view.otaRefresh = () => Promise.resolve();
   await save.attrs.click();
   assert.equal(options.github_proxy_url, 'https://my-proxy.example/gh');
   assert.equal(notifications.at(-1).level, 'error');
+
+  // Download progress is measured from actual bytes, not parsed curl text.
+  ui.showModal = function(title, body) { assert.equal(title, '在线固件更新'); };
+  ui.hideModal = function() {};
+  view._otaInstallButton = { disabled: false };
+  view._otaStatus = { update: true };
+  view.otaOpenProgressModal();
+  assert.equal(view._otaRunning, true);
+  assert.equal(view._otaInstallButton.disabled, true);
+  const now = Date.now;
+  let timestamp = 10000;
+  Date.now = function() { return timestamp; };
+  try {
+    view.otaUpdateProgress({
+      stage: 'downloading', downloaded: 1024 * 1024, total: 4 * 1024 * 1024,
+      message: '正在下载'
+    }, '正在下载固件');
+    assert.equal(view._otaMeter.value, 25);
+    assert.equal(view._otaMeter.hidden, false);
+    timestamp += 1500;
+    view.otaUpdateProgress({
+      stage: 'downloading', downloaded: 2 * 1024 * 1024, total: 4 * 1024 * 1024
+    }, '');
+    assert.equal(view._otaMeter.value, 50);
+    assert.match(view._otaNumbers.textContent, /MiB\/s/);
+    view.otaUpdateProgress({ stage: 'verifying', downloaded: 4 * 1024 * 1024,
+      total: 4 * 1024 * 1024 }, '');
+    assert.equal(view._otaMeter.value, 100);
+    assert.match(view._otaPhaseText.textContent, /校验/);
+    view.otaShowFailure('image SHA256 mismatch', '');
+    assert.equal(view._otaRunning, false);
+    assert.match(view._otaStageHelp.textContent, /完整性校验/);
+  }
+  finally {
+    Date.now = now;
+  }
   console.log('PASS: LuCI OTA proxy presets, custom URL validation and UCI commit');
 })().catch(e => { console.error(e); process.exitCode = 1; });

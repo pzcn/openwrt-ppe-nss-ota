@@ -2,7 +2,7 @@
 
 本目录从 [pzcn/wma301-immortalwrt](https://github.com/pzcn/wma301-immortalwrt) 迁入主仓库，保留**官方 ImageBuilder + 仅编译 DTS** 的快速构建架构。与亚瑟、MX4200 共用 OTA 后端、LuCI「系统 → 备份 / 升级」页面和主仓库 GitHub Releases，但**设备树、内核、FIT、UBI 安全检查完全独立**。
 
-> 仅适用于已从 OEM A/B 迁移到**单 121 MiB UBI / 四卷**布局的 **WMA301 v2.0**。不是原厂升级包、不是 NAND 全片镜像，不适用于未迁移设备或 WMA301 v2.1。2026-11-16 的 6.18 构建已通过 CI，尚未完成真机启动 / sysupgrade / 恢复验收；不能据此开放自动刷写。
+> 仅适用于已从 OEM A/B 迁移到**单 121 MiB UBI / 四卷**布局的 **WMA301 v2.0**。不是原厂升级包、不是 NAND 全片镜像，不适用于未迁移设备或 WMA301 v2.1。旧版本的真机验收状态不代表新版本已验收；定时自动升级功能默认关闭，可由管理员自行在 LuCI 中开启。
 
 ## 构建和下载
 
@@ -37,7 +37,7 @@ OTA 入口仍是 LuCI **系统 → 备份 / 升级 → 在线固件更新**；�
 - `main` push / schedule：只发布测试 Artifact，**不向 OTA 暴露**。
 - 手动运行此 Action、`release_mode=prerelease`：发布仅供检查的 Release，设备上的 OTA 不会将 prerelease 识别为正式更新。
 - 手动 `release_mode=stable` 且 `confirm_hardware_tested=true`：核验通过后才发布到设备可见的主仓库 OTA 通道。**不能把单纯 CI 成功当作真机验证。**
-- WMA301 **禁止自动安装**：打包时隐藏自动升级的设置控件、安装 UCI 默认关闭脚本，后端 `cmd_auto` 始终返回、不执行刷写；人工升级前还要调用独立的 NAND/UBI preflight。
+- WMA301 的手动更新及可选的定时自动升级与亚瑟、MX4200 共用同一套前后端。管理员可在 LuCI 设置更新时刻与延迟天数；默认关闭自动更新。每次刷写前仍执行独立的 NAND/UBI preflight。
 
 ## NAND / UBI 安全约束
 

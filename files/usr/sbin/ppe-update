@@ -28,7 +28,26 @@ EXPECTED_IMAGE='openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupg
 EXPECTED_MANIFEST='openwrt-pzcn-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest'
 
 log() { logger -t ppe-update "$*"; echo "$*" >&2; }
-die() { log "$*"; exit 2; }
+# A small atomic status snapshot for the active OTA job; the image is still
+# installed exclusively by sysupgrade.
+progress_set() {
+	[ "${OTA_PROGRESS_ACTIVE:-0}" = 1 ] || return 0
+	local stage="$1" message="${2:-}" total="${3:-0}" started="${OTA_DOWNLOAD_STARTED:-0}" now tmp
+	case "$total" in ''|*[!0-9]*) total=0 ;; esac
+	case "$started" in ''|*[!0-9]*) started=0 ;; esac
+	mkdir -p "$WORK"
+	now=$(date +%s)
+	tmp="$WORK/progress.json.$"
+	jq -nc --arg stage "$stage" --arg message "$message" \
+		--argjson total "$total" --argjson started "$started" --argjson updated "$now" \
+		'{stage:$stage, message:$message, total:$total, started:$started, updated:$updated}' >"$tmp" &&
+		mv -f "$tmp" "$WORK/progress.json"
+}
+die() {
+	[ "${OTA_PROGRESS_ACTIVE:-0}" != 1 ] || progress_set failed "$*" || :
+	log "$*"
+	exit 2
+}
 
 # GitHub Releases may send 302 headers with >4 KiB CSP lines. The
 # uclient-fetch HTTP parser can stall on those headers even when TLS and TCP
@@ -60,10 +79,10 @@ github_proxy_base() {
 }
 
 fetch_once() {
-	local url="$1" dest="$2"
+	local url="$1" dest="$2" max_time="${3:-60}"
 	rm -f "$dest"
 	if command -v curl >/dev/null 2>&1 &&
-		curl -fLsS --retry 2 --connect-timeout 10 --max-time 60 \
+		curl -fLsS --retry 2 --connect-timeout 10 --max-time "$max_time" \
 			-o "$dest" "$url" 2>>"$WORK/fetch-error.log" &&
 		[ -s "$dest" ]; then
 		return 0
@@ -78,24 +97,24 @@ fetch_once() {
 }
 
 fetch() {
-	local url="$1" dest="$2" base='' result=0
+	local url="$1" dest="$2" max_time="${3:-60}" base='' result=0
 	base="$(github_proxy_base)" || result=$?
 	[ "$result" -ne 2 ] || return 1
 	case "$url" in
 	https://api.github.com/*)
-		fetch_once "$url" "$dest" && return 0
+		fetch_once "$url" "$dest" "$max_time" && return 0
 		if [ -n "$base" ]; then
-			fetch_once "$base/$url" "$dest" && return 0
+			fetch_once "$base/$url" "$dest" "$max_time" && return 0
 		fi
 		;;
 	https://github.com/*)
 		if [ -n "$base" ]; then
-			fetch_once "$base/$url" "$dest" && return 0
+			fetch_once "$base/$url" "$dest" "$max_time" && return 0
 		fi
-		fetch_once "$url" "$dest" && return 0
+		fetch_once "$url" "$dest" "$max_time" && return 0
 		;;
 	*)
-		fetch_once "$url" "$dest" && return 0
+		fetch_once "$url" "$dest" "$max_time" && return 0
 		;;
 	esac
 	return 1
@@ -249,6 +268,22 @@ cmd_status() {
 		"$BOARD" "$OTA_TAG" "$GROUP" "$reason" "$pending" "$auto" "GitHub Releases"
 }
 
+# Read-only progress endpoint: measure in-flight bytes using a cheap stat,
+# while the front end computes the recent transfer speed from successive polls.
+cmd_progress() {
+	local downloaded=0
+	if [ -r "$WORK/progress.json" ]; then
+		if [ -f "$WORK/$EXPECTED_IMAGE" ]; then
+			downloaded=$(stat -c %s "$WORK/$EXPECTED_IMAGE" 2>/dev/null) || downloaded=0
+		fi
+		valid_integer "$downloaded" || downloaded=0
+		jq -c --argjson downloaded "$downloaded" \
+			'. + {downloaded:$downloaded}' "$WORK/progress.json" 2>/dev/null &&
+			return 0
+	fi
+	printf '{"stage":"idle","message":"","total":0,"downloaded":0,"started":0}\n'
+}
+
 cmd_check() {
 	lookup ""
 	if newer; then
@@ -283,23 +318,61 @@ cmd_update() {
 		die "not enough free space: need ${need_kb}K, have ${avail_kb}K"
 	fi
 
+	OTA_DOWNLOAD_STARTED=$(date +%s)
+	progress_set downloading "正在下载固件：$LATEST" "$SIZE"
 	log "正在下载固件：$LATEST"
-	fetch "$RELEASE_ASSETS/$LATEST/$IMAGE" "$WORK/$IMAGE" || die "download failed"
+	# Larger assets need longer timeouts than the small status/API requests.
+	if ! fetch "$RELEASE_ASSETS/$LATEST/$IMAGE" "$WORK/$IMAGE" 900; then
+		[ ! -s "$WORK/fetch-error.log" ] ||
+			log "下载错误详情：$(tail -n 8 "$WORK/fetch-error.log" | tr '\n' ' ')"
+		die "download failed"
+	fi
+	progress_set verifying "下载完成，正在校验 SHA256 和固件兼容性" "$SIZE"
 	[ "$(sha256sum "$WORK/$IMAGE" | cut -d' ' -f1)" = "$SHA256" ] ||
 		{ rm -f "$WORK/$IMAGE"; die "image SHA256 mismatch"; }
-	sysupgrade -T "$WORK/$IMAGE" >/dev/null 2>&1 ||
-		{ rm -f "$WORK/$IMAGE"; die "sysupgrade rejected image"; }
+	sysupgrade -T "$WORK/$IMAGE" >"$WORK/validation.log" 2>&1 ||
+		{
+			[ ! -s "$WORK/validation.log" ] ||
+				log "固件检查详情：$(tail -n 8 "$WORK/validation.log" | tr '\n' ' ')"
+			rm -f "$WORK/$IMAGE"
+			die "sysupgrade rejected image"
+		}
 
+	progress_set preparing "校验通过，正在保存额外软件包列表" "$SIZE"
 	mkdir -p "$STATE"
 	cp "$WORK/extras" "$STATE/packages"
 	[ -s "$STATE/packages" ] || rm -f "$STATE/packages"
+	progress_set flashing "开始刷写固件，完成后设备将自动重启" "$SIZE"
 	log "开始刷写固件：$LATEST"
 	sysupgrade "$WORK/$IMAGE"
 }
 
 cmd_start() {
-	: > /tmp/ppe-update.log
-	(cmd_update "" "$1" manual </dev/null >/tmp/ppe-update.log 2>&1; echo "exit $?" >>/tmp/ppe-update.log) &
+	mkdir -p "$WORK"
+	# The UI may be opened in several tabs. Never launch duplicate upgrades.
+	if ! mkdir "$WORK/ota-running" 2>/dev/null; then
+		echo "OTA 更新任务已在运行，请勿重复启动" >&2
+		return 1
+	fi
+	: >/tmp/ppe-update.log
+	OTA_PROGRESS_ACTIVE=1 progress_set starting "正在启动 OTA 更新任务" || {
+		rmdir "$WORK/ota-running"
+		return 1
+	}
+	(
+		trap 'rmdir "$WORK/ota-running" 2>/dev/null || true' EXIT
+		OTA_PROGRESS_ACTIVE=1
+		progress_set checking "正在检查更新信息和设备匹配"
+		# Let die() exit an inner shell so the parent records the exit code.
+		(cmd_update "" "$1" manual)
+		result=$?
+		if [ "$result" -ne 0 ]; then
+			phase=$(jq -r '.stage // ""' "$WORK/progress.json" 2>/dev/null)
+			[ "$phase" = failed ] ||
+				progress_set failed "升级任务中止（退出码 $result）"
+		fi
+		echo "exit $result"
+	) </dev/null >/tmp/ppe-update.log 2>&1 &
 }
 
 cmd_auto() {
@@ -310,6 +383,16 @@ cmd_auto() {
 	valid_integer "$delay" || die "invalid automatic update delay"
 	now=$(date +%s)
 	[ "$now" -ge $((LATEST_TIME + delay * 86400)) ] || return 0
+	# Scheduled and manual upgrades share one lock and one progress feed.
+	# This also prevents the cron task racing an active LuCI upgrade.
+	mkdir -p "$WORK"
+	if ! mkdir "$WORK/ota-running" 2>/dev/null; then
+		log "OTA 更新任务已在运行，跳过本次自动更新"
+		return 0
+	fi
+	trap 'rmdir "$WORK/ota-running" 2>/dev/null || true' EXIT
+	OTA_PROGRESS_ACTIVE=1
+	progress_set starting "定时更新：正在准备升级"
 	cmd_update "$LATEST" "" auto
 }
 
@@ -353,11 +436,11 @@ cmd_restore() {
 [ -n "$PPE_UPDATE_LIB" ] && return 0
 
 case "$1" in
-status | check | auto | restore) "cmd_$1" ;;
+status | check | auto | restore | progress) "cmd_$1" ;;
 update) cmd_update "" "$2" ;;
 start) cmd_start "$2" ;;
 *)
-	echo "usage: ppe-update {status|check|update|start|auto|restore}" >&2
+	echo "usage: ppe-update {status|check|update|start|auto|restore|progress}" >&2
 	exit 2
 	;;
 esac

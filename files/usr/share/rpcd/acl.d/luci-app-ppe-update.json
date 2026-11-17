@@ -8,6 +8,9 @@
         ],
         "/tmp/ppe-update.log": [
           "read"
+        ],
+        "/usr/sbin/ppe-update progress": [
+          "exec"
         ]
       },
       "uci": [

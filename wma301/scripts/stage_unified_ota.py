@@ -47,28 +47,8 @@ def stage(overlay: Path, tag: str, build: int) -> None:
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src, target)
 
-    # The same native LuCI panel and GitHub proxy settings as Arthur/MX4200.
-    # WMA301 does not support auto-installation, so do not expose fake controls.
-    flash = overlay / COMMON["files/www/luci-static/resources/view/system/flash.js"]
-    ui = flash.read_text()
-    before_rows = (
-        "\t\t\trow('启用自动更新', auto),\n"
-        "\t\t\trow('检查时间', hour),\n"
-        "\t\t\trow('延迟天数', delay),"
-    )
-    if ui.count(before_rows) != 1:
-        raise ValueError("LuCI OTA schedule layout has changed")
-    ui = ui.replace(
-        before_rows,
-        "\t\t\tE('p', { 'class': 'cbi-value-description' }, "
-        "'WMA301 仅允许手动更新，自动安装已禁用。'),"
-    )
-    original_auto = "'checked': uci.get('ppe-update', 'main', 'auto') == '1' ? '' : null"
-    if ui.count(original_auto) != 1:
-        raise ValueError("LuCI auto checkbox API has changed")
-    ui = ui.replace(original_auto, "'checked': null")
-    flash.write_text(ui)
-
+    # Use the shared LuCI panel unchanged, including the optional scheduled
+    # update settings. Device-specific NAND checks remain in the backend.
     spec = importlib.util.spec_from_file_location(
         "shared_ota", ROOT / "scripts/immortalwrt_ota.py")
     if spec is None or spec.loader is None:
@@ -80,7 +60,6 @@ def stage(overlay: Path, tag: str, build: int) -> None:
     source = backend.read_text()
     required = (
         "ppe-update-wma301-preflight",
-        "WMA301 unattended OTA is disabled",
         "WMA301 OTA layout mismatch",
         "imm-wma301-",
         "tplink,wma301-v2",
@@ -92,16 +71,6 @@ def stage(overlay: Path, tag: str, build: int) -> None:
         ["sh", "-n",
          str(overlay / "usr/libexec/ppe-update-wma301-preflight")], check=True)
 
-    defaults = overlay / "etc/uci-defaults/98-wma301-ota-manual-only"
-    defaults.parent.mkdir(parents=True, exist_ok=True)
-    defaults.write_text(
-        "#!/bin/sh\n"
-        "# Always disable unattended installation, including restored UCI settings.\n"
-        "uci -q set ppe-update.main.auto='0'\n"
-        "uci -q commit ppe-update\n"
-        "exit 0\n"
-    )
-    defaults.chmod(0o755)
     if existing_upgrade.read_bytes() != before:
         raise ValueError("shared OTA overwrote WMA301 NAND upgrade hooks")
     for forbidden in (
@@ -111,7 +80,7 @@ def stage(overlay: Path, tag: str, build: int) -> None:
     ):
         if (overlay / forbidden).exists():
             raise ValueError(f"Qualcomm or proxy component leaked: {forbidden}")
-    print(f"Shared manual-only WMA301 OTA staged: {tag} (build={build})")
+    print(f"Shared WMA301 OTA staged: {tag} (build={build})")
 
 
 def main() -> None:

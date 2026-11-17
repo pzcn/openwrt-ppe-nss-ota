@@ -146,4 +146,35 @@ for bad in ("http://proxy.example", "https://user:password@proxy.example",
 assert probe("nonexistent", image, ok=False) == []
 assert "sysupgrade -T" in UPDATER.read_text()
 assert "image SHA256 mismatch" in UPDATER.read_text()
+
+# Run the read-only progress endpoint with an actual temporary image file.
+# No router, Internet access or mock download progress protocol is needed.
+with tempfile.TemporaryDirectory() as d:
+    env = dict(os.environ)
+    env.update({
+        "PPE_UPDATE_SCRIPT": str(UPDATER),
+        "PPE_UPDATE_LIB": "1",
+        "PPE_WORK": d,
+        "PPE_STATE": str(Path(d) / "state"),
+    })
+    script = r'''
+. "$PPE_UPDATE_SCRIPT"
+OTA_PROGRESS_ACTIVE=1
+OTA_DOWNLOAD_STARTED=123
+progress_set downloading "正在下载" 1000
+printf '1234567890' >"$WORK/$EXPECTED_IMAGE"
+cmd_progress
+progress_set failed "image SHA256 mismatch" 1000
+cmd_progress
+'''
+    run = subprocess.run(["sh", "-c", script], env=env,
+                         capture_output=True, text=True, check=True)
+    import json
+    stages = [json.loads(s) for s in run.stdout.splitlines()]
+    assert [x["stage"] for x in stages] == ["downloading", "failed"], stages
+    assert all(x["downloaded"] == 10 and x["total"] == 1000
+               for x in stages), stages
+    assert stages[0]["started"] == 123
+    assert stages[1]["message"] == "image SHA256 mismatch"
+
 print("PASS: direct/preset/custom GitHub proxies, API/asset routing, fallback, validation")

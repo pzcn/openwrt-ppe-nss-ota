@@ -19,11 +19,11 @@
 - 默认 `release_mode=none`：只生成下载测试 Artifact。
 - `release_mode=prerelease`：发布测试 Release，OTA 列表默认忽略它。
 - `release_mode=stable` 且 `confirm_hardware_tested=true`：人工确认验收后才发布稳定 OTA。
-- 运行中的 WMA301 后端禁止自动安装。LuCI 页面不提供自动安装控件；即使 UCI 残留 `auto=1`，`cmd_auto` 仍然拒绝刷写。
+- WMA301 使用与亚瑟和 MX4200 相同的 OTA 功能：人工确认后自动完成下载、校验、刷写、重启，也可在 LuCI 中启用定时自动更新（默认关闭）。硬件分区布局与固件兼容性检查仍然生效。
 
 ## NAND / UBI 前置检查
 
-构建时将 `files/usr/libexec/ppe-update-wma301-preflight` 安装到固件。手动更新之前，它要求 `/tmp/sysinfo/board_name=tplink,wma301-v2`，`mtd6` 为精确匹配的 121 MiB UBI 分区，存在 `fit`、`ubootenv`、`ubootenv2`、`rootfs_data` 四卷。
+构建时将 `files/usr/libexec/ppe-update-wma301-preflight` 安装到固件。手动或定时更新之前，它要求 `/tmp/sysinfo/board_name=tplink,wma301-v2`，`mtd6` 为精确匹配的 121 MiB UBI 分区，存在 `fit`、`ubootenv`、`ubootenv2`、`rootfs_data` 四卷。
 
 缺少任何一项，OTA 就拒绝调用 `sysupgrade`。不使用 `-F`、`ubiformat` 或未经检验的原厂 A/B 镜像。
 

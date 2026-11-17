@@ -29,19 +29,21 @@ with TemporaryDirectory() as tmp:
         "usr/sbin/ppe-update",
         "usr/libexec/ppe-update-wma301-preflight",
         "etc/config/ppe-update", "etc/init.d/ppe-update",
-        "etc/uci-defaults/98-wma301-ota-manual-only",
         "usr/share/rpcd/acl.d/luci-app-ppe-update.json",
         "usr/share/luci/menu.d/zzzz-ota-flash-cache.json",
     ):
         assert (overlay / path).is_file(), path
     app = (overlay / "www/luci-static/resources/view/system/flash.js").read_text()
     assert "在线固件更新" in app and "GitHub 代理" in app
-    assert "WMA301 仅允许手动更新" in app
-    assert "row('启用自动更新', auto)" not in app
+    assert "row('启用自动更新', auto)" in app
+    assert "row('检查时间', hour)" in app
+    assert "row('延迟天数', delay)" in app
+    assert not (overlay / "etc/uci-defaults/98-wma301-ota-manual-only").exists()
     backend = (overlay / "usr/sbin/ppe-update").read_text()
     assert "imm-wma301-" in backend
     assert "wma301-immortal-filogic" in backend
-    assert "WMA301 unattended OTA is disabled" in backend
+    assert "WMA301 unattended OTA is disabled" not in backend
+    assert "cmd_auto() {\n\t[ \"$(uci" in backend
     assert "ppe-update-wma301-preflight" in backend
     assert "releases?per_page=100" in backend
     assert "sysupgrade -T" in backend
