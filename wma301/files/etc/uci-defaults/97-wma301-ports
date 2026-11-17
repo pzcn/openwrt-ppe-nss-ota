@@ -1,9 +1,0 @@
-#!/bin/sh
-case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
-	tplink,wma301-v2|tplink,wma301-v2-1) ;;
-	*) exit 0 ;;
-esac
-[ -f /etc/config/wma301-ports ] || exit 0
-/etc/init.d/wma301-ports enable
-/etc/init.d/wma301-ports start
-exit 0

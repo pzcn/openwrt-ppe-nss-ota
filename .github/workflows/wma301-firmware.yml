@@ -111,17 +111,13 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Python syntax, focused build/OTA tests, WAN UI syntax
+      - name: Python syntax and focused ImageBuilder/OTA checks
         run: |
           set -euo pipefail
           python3 -m py_compile scripts/official_builder.py scripts/stage_files.py scripts/verify_official.py scripts/aurora.py scripts/stage_unified_ota.py scripts/pack_unified_ota.py
           python3 scripts/test_official_builder.py
           python3 scripts/test_unified_ota.py
-          for script in files/usr/libexec/ppe-update-wma301-preflight files/usr/sbin/wma301-ports files/usr/libexec/wma301-ports-dhcp-probe files/etc/init.d/wma301-ports; do
-            sh -n "$script"
-          done
-          node --check files/www/luci-static/resources/view/status/include/29_ports.js
-          python3 -m json.tool files/usr/share/rpcd/acl.d/luci-app-wma301-ports.json >/dev/null
+          sh -n files/usr/libexec/ppe-update-wma301-preflight
 
   fast-build:
     needs: [metadata, offline-tests]
@@ -280,7 +276,6 @@ jobs:
           REV="$(python3 -c 'import json; print(json.load(open("official-provenance.json"))["version"])')"
           TAG="$(python3 ../scripts/ota_version.py wma301 "$BUILD" --revision "$REV")"
           python3 scripts/stage_unified_ota.py --overlay "$PWD/wma301-overlay" --tag "$TAG" --build "$BUILD"
-          test -s "$PWD/wma301-overlay/www/luci-static/resources/view/status/include/29_ports.js"
           echo "WMA_OTA_TAG=$TAG" >> "$GITHUB_ENV"
           echo "WMA_OTA_BUILD=$BUILD" >> "$GITHUB_ENV"
       - name: Repack unified v2.0/v2.1 FIT using official precompiled Linux kernel
