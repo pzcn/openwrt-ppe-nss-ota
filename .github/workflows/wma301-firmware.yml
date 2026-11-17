@@ -13,6 +13,11 @@ on:
     - cron: '41 2 * * *'
   workflow_dispatch:
     inputs:
+      hardware_revision:
+        description: 'Hardware revision (v2.1 is verification artifact only; no OTA publication)'
+        type: choice
+        options: [v2.0, v2.1]
+        default: v2.0
       release_mode:
         description: "none = verified artifact; prerelease = preview; stable = approved OTA"
         type: choice
@@ -286,6 +291,7 @@ jobs:
             --aurora-source "$PWD/aurora-theme"
           echo "BUILDER=$BUILDER" >> "$GITHUB_ENV"
       - name: Stage shared OTA panel, version and WMA301-only NAND preflight
+        if: inputs.hardware_revision != 'v2.1'
         run: |
           set -euo pipefail
           BUILD="$(date -u +%s)"
@@ -295,6 +301,7 @@ jobs:
           echo "WMA_OTA_TAG=$TAG" >> "$GITHUB_ENV"
           echo "WMA_OTA_BUILD=$BUILD" >> "$GITHUB_ENV"
       - name: Repack FIT using official precompiled Linux kernel
+        if: inputs.hardware_revision != 'v2.1'
         run: |
           set -euo pipefail
           PACKAGES="$(python3 scripts/official_builder.py packages --file configs/official-packages.txt)"
@@ -305,7 +312,43 @@ jobs:
             PACKAGES="$PACKAGES" FILES="$PWD/wma301-overlay" BIN_DIR="$PWD/images" \
             > repack.log 2>&1 || { tail -n 200 repack.log; exit 1; }
           tail -n 35 repack.log
+      - name: Repack v2.1 FIT using the v2.0 baseline and revised LEDs
+        if: inputs.hardware_revision == 'v2.1'
+        run: |
+          set -euo pipefail
+          PACKAGES="$(python3 scripts/official_builder.py packages --file configs/official-packages.txt)"
+          mkdir -p "$PWD/images"
+          make -C "$BUILDER" info > builder-info.log
+          grep -q 'tplink_wma301-v2-1:' builder-info.log
+          make -C "$BUILDER" image PROFILE=tplink_wma301-v2-1 \
+            PACKAGES="$PACKAGES" FILES="$PWD/wma301-overlay" BIN_DIR="$PWD/images" \
+            > repack-v21.log 2>&1 || { tail -n 200 repack-v21.log; exit 1; }
+          tail -n 35 repack-v21.log
+      - name: Verify v2.1 FIT and LED wiring (never publish to v2.0 OTA)
+        if: inputs.hardware_revision == 'v2.1'
+        env:
+          WMA301_VERIFY_BOARD: tplink,wma301-v2-1
+        run: |
+          set -euo pipefail
+          python3 scripts/verify_official.py --images images --output dist \
+            --provenance official-provenance.json --local-sha "$GITHUB_SHA" \
+            --packages-file configs/official-packages.txt \
+            --aurora-overlay "$PWD/wma301-overlay" \
+            --aurora-apk "$BUILDER/packages/luci-theme-aurora-1.4.0-r1.apk"
+          (cd dist && sha256sum -c SHA256SUMS)
+          test "$(find dist -maxdepth 1 -name '*.itb' | wc -l)" -eq 1
+      - name: Upload v2.1 hardware-validation artifact
+        if: inputs.hardware_revision == 'v2.1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: WMA301_V21_LED_ONLY_HARDWARE_TEST
+          path: |
+            wma301/dist/
+            wma301/official-provenance.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Verify FIT, actual packages and unified OTA provenance
+        if: inputs.hardware_revision != 'v2.1'
         env:
           IMMORTALWRT_SHA: ${{ steps.source.outputs.sha }}
         run: |
@@ -325,6 +368,7 @@ jobs:
             --aurora-apk "$BUILDER/packages/luci-theme-aurora-1.4.0-r1.apk"
           (cd out-wma301-ota && sha256sum -c sha256sums)
       - name: Upload verified FIT Artifact
+        if: inputs.hardware_revision != 'v2.1'
         uses: actions/upload-artifact@v4
         with:
           name: WMA301_VERIFIED_UNIFIED_OTA
@@ -335,7 +379,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
       - name: Publish to main repository OTA on explicit manual request only
-        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.release_mode != 'none'
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.hardware_revision != 'v2.1' && inputs.release_mode != 'none'
         env:
           RELEASE_MODE: ${{ inputs.release_mode }}
           HARDWARE_CONFIRMED: ${{ inputs.confirm_hardware_tested }}
@@ -368,6 +412,7 @@ jobs:
             ota.json sha256sums manifest.json official-provenance.json \
             luci-theme-aurora-1.4.0-r1.apk
       - name: Summarize official source, cache reuse and artifact safety
+        if: inputs.hardware_revision != 'v2.1'
         env:
           IB_CACHE: ${{ steps.ib_cache.outputs.cache-hit }}
           KERNEL_CACHE: ${{ steps.kernel_cache.outputs.cache-hit }}
@@ -390,12 +435,12 @@ jobs:
             printf '\n[Download verified Artifact](https://github.com/%s/actions/runs/%s)\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Write successful fingerprint after artifact upload
-        if: needs.metadata.outputs.previous_success != 'true'
+        if: needs.metadata.outputs.previous_success != 'true' && inputs.hardware_revision != 'v2.1'
         run: |
           printf '%s\n' '${{ needs.metadata.outputs.fingerprint }}' > fast-success.marker
       - uses: actions/cache/save@v4
         name: Cache success marker only after verified artifact upload
-        if: needs.metadata.outputs.previous_success != 'true'
+        if: needs.metadata.outputs.previous_success != 'true' && inputs.hardware_revision != 'v2.1'
         with:
           path: wma301/fast-success.marker
           key: ${{ needs.metadata.outputs.fingerprint }}
