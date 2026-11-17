@@ -381,7 +381,14 @@ return baseclass.extend({
 			firewall.getZones(),
 			network.getNetworks(),
 			uci.load('network'),
-			L.resolveDefault(fs.exec_direct('/usr/sbin/wma301-ports', [ 'status' ], 'json'), { mode: 'auto', active: 'none', active_number: 0 })
+			fs.exec('/usr/sbin/wma301-ports', [ 'status' ]).then((res) => {
+				if (res.code !== 0)
+					throw new Error(res.stderr || 'WAN 网口后台返回错误');
+				const state = JSON.parse(res.stdout || '{}');
+				if (!['auto', '1', '2', '3', '4'].includes(state.mode))
+					throw new Error('WAN 网口状态无效');
+				return state;
+			}).catch((err) => ({ error: err.message || String(err) }))
 		]).then((data) => {
 			/* Get all known port names from builtin ports or board.json */
 			const builtinPorts = data[0] || [];
@@ -431,7 +438,7 @@ return baseclass.extend({
 
 		const board = JSON.parse(data[1]),
 		      port_map = buildInterfaceMapping(data[2], data[3]),
-		      wanState = data[5] || { mode: 'auto', active: 'none', active_number: 0 },
+		      wanState = data[5] || { error: 'WAN 网口后台未返回状态' },
 		      pseMap = data[6] || {};
 		let known_ports = [];
 
@@ -528,6 +535,7 @@ return baseclass.extend({
 		// mode picker.  A pending choice survives status-page polling.
 		this.currentWanMode = wanState.mode;
 		const selected = this.pendingWanMode != null ? this.pendingWanMode : wanState.mode;
+		const backendReady = !wanState.error;
 		const options = [
 			[ 'auto', '自动识别（默认）' ],
 			[ '1', '固定网口 1' ],
@@ -537,17 +545,29 @@ return baseclass.extend({
 		];
 		const selector = E('select', {
 			'class': 'cbi-input-select',
+			'disabled': backendReady ? null : '',
 			'change': (ev) => {
 				this.pendingWanMode = ev.target.value;
 			}
-		}, options.map((opt) => E('option', {
-			'value': opt[0],
-			'selected': opt[0] === selected
-		}, opt[1])));
+		}, [
+			backendReady ? null : E('option', { 'value': '', 'selected': '' }, '后台不可用'),
+			...options.map((opt) => E('option', {
+				'value': opt[0],
+				// LuCI E() converts false to selected="false", which HTML
+				// still treats as selected! Never use a boolean here.
+				'selected': opt[0] === selected ? '' : null
+			}, opt[1]))
+		]);
 
-		const hint = wanState.active_number > 0
-			? '当前 WAN：网口 %d（%s）'.format(wanState.active_number, wanState.active)
-			: '尚未识别到 DHCP 上联';
+		const hint = wanState.error ? ('WAN 控制服务不可用：' + wanState.error)
+			: wanState.scanning ? '正在检测 DHCP 上联，请稍候'
+			: wanState.mode === 'auto' && wanState.detected === 'none'
+				? '自动识别尚未完成；当前网络配置可能仍保留原 WAN'
+			: wanState.active_number > 0
+				? '当前实际 WAN：网口 %d（%s）；模式：%s'.format(
+					wanState.active_number, wanState.active,
+					wanState.mode === 'auto' ? '自动识别' : '固定网口 ' + wanState.mode)
+				: '当前未分配 WAN，等待上联 DHCP';
 		const picker = E('div', {
 			'class': 'cbi-value',
 			'style': 'margin-bottom:1em;'
@@ -557,8 +577,9 @@ return baseclass.extend({
 				selector, ' ',
 				E('button', {
 					'class': 'btn cbi-button cbi-button-apply',
+					'disabled': backendReady ? null : '',
 					'click': ui.createHandlerFn(this, 'confirmWanSelection')
-				}, '应用'),
+				}, selected === 'auto' && wanState.mode === 'auto' ? '重新识别' : '应用'),
 				E('div', { 'class': 'description', 'style': 'margin-top:.5em' }, hint)
 			])
 		]);
@@ -568,7 +589,7 @@ return baseclass.extend({
 
 	confirmWanSelection() {
 		const choice = this.pendingWanMode != null ? this.pendingWanMode : this.currentWanMode;
-		if (choice === this.currentWanMode)
+		if (choice === this.currentWanMode && choice !== 'auto')
 			return;
 		ui.showModal('确认更改 WAN 网口', [
 			E('p', {}, '变更 WAN 网口会重新配置网桥及网络接口。若管理设备正连接于目标端口，当前页面可能断开。'),
@@ -591,7 +612,9 @@ return baseclass.extend({
 			if (res.code !== 0)
 				throw new Error(res.stderr || '无法修改 WAN 网口');
 			this.pendingWanMode = null;
-			ui.addNotification(null, E('p', {}, 'WAN 选择已保存，系统正在调整网口。'));
+			this.currentWanMode = choice;
+			ui.addNotification(null, E('p', {},
+				choice === 'auto' ? '已启动 DHCP 自动识别，请等待状态刷新。' : 'WAN 网口已切换。'));
 		}).catch((err) => {
 			ui.addNotification(null, E('p', {}, err.message || String(err)), 'error');
 		});
