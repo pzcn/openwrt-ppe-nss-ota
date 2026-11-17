@@ -70,7 +70,7 @@ def prepare(upstream: Path):
          "not an ImmortalWrt / OpenWrt source checkout")
     image=upstream/"target/linux/mediatek/image/filogic.mk"
     text=image.read_text()
-    need("define Device/tplink_wma301-v2" not in text,
+    need("define Device/tplink_wma301-v2" not in text and\n         "define Device/tplink_wma301-v2-1" not in text,
          "upstream already has WMA301 v2; reconcile instead of overriding")
     need("TARGET_DEVICES +=" in text, "missing expected image makefile hook")
     with image.open("a") as f:
@@ -80,7 +80,7 @@ def prepare(upstream: Path):
     dest=upstream/"target/linux/mediatek/dts"
     need(dest.is_dir(), "missing DTS directory")
     for name in ("mt7981b-tplink-wma301-v2-common.dtsi",
-                 "mt7981b-tplink-wma301-v2.dts"):
+                 "mt7981b-tplink-wma301-v2.dts",\n                 "mt7981b-tplink-wma301-v2-1.dts"):
         target=dest/name
         need(not target.exists(), f"upstream already has {name}: reconcile first")
         shutil.copy2(HERE/"device"/name,target)
