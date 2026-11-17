@@ -29,11 +29,11 @@
 
 ## 软件包恢复：避免旧固件依赖污染
 
-新版 `ppe-update` 首先比较 `/etc/apk/world` 与 `/rom/etc/apk/world`，识别相对**当前 ROM 出厂系统**真正额外请求安装的顶层软件包。再与新固件 manifest 比较，仅保存新固件未内置的内容。旧固件自带的 Btrfs、collectd、Lua 兼容组件及其依赖不再因为固件精简而被当作用户软件。不会根据“旧 ROM 有、当前 world 没有”自动推断卸载；只保留用户明确写入 world 的 `!软件包` 排除项。
+新版 `ppe-update` 首先比较 `/etc/apk/world` 与 `/rom/etc/apk/world`，识别相对**当前 ROM 出厂系统**真正额外请求安装的顶层软件包。再与新固件 manifest 比较，仅保存新固件未内置的内容。旧固件自带的 Btrfs、collectd、Lua 兼容组件及其依赖只有经用户明确额外安装才被视为恢复对象。单凭“旧 ROM 有、当前 world 没有”无法判断用户是否要求卸载；只保留用户明确写入 world 的 `!软件包` 排除项。
 
 `kmod-*` 和类似 `libubox20261103` 的 ABI 日期版本绑定库不跨固件自动补装；如果确实需要，应在新固件上安装与新内核和用户态 ABI 配套的新包。若当前 ROM world 缺失，将记录警告并跳过自动恢复，而不是自动补装旧固件全部软件包。
 
-为了处理此前已产生的长队列，v2 恢复清单在 `/etc/ppe-update/packages` 首行带有格式标记。升级后发现没有标记的旧队列，会自动备份至 `/etc/ppe-update/packages.legacy`，停止重复调用 `apk add`；不会删除已经安装的软件包或丢弃旧列表。管理员可按需检查：
+为了处理此前已产生的长队列，v2 恢复清单在 `/etc/ppe-update/packages` 首行带有格式标记。升级后发现没有标记的旧队列，会自动备份至 `/etc/ppe-update/packages.legacy`，停止重复调用 `apk add`；当前已安装软件保持原样，旧列表完整保留。管理员可按需检查：
 
 ```sh
 cat /etc/ppe-update/packages.legacy
