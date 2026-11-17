@@ -111,7 +111,7 @@ def register_profile(targetinfo: Path) -> None:
     end = begin + following.start() if following else len(text)
     profile = (
         f"\nTarget-Profile: DEVICE_{PROFILE}\n"
-        "Target-Profile-Name: TP-Link WMA301 v2.0/v2.1\n"
+        "Target-Profile-Name: TP-Link WMA301\n"
         "Target-Profile-Packages: kmod-mt7915e kmod-mt7981-firmware "
         "mt7981-wo-firmware uboot-envtools\n"
         "Target-Profile-hasImageMetadata: 1\n"
