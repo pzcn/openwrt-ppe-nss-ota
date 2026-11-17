@@ -266,7 +266,7 @@ archive_legacy_queue() {
 	} | sed '/^[[:space:]]*$/d' | sort -u >"$tmp" || return 1
 	mv -f "$tmp" "$STATE/packages.legacy" || return 1
 	rm -f "$STATE/packages"
-	log "旧版软件包恢复队列已归档到 $STATE/packages.legacy，停止自动重装"
+	log "旧版软件包恢复队列已归档到 $STATE/packages.legacy，停止自动重装；请按需手动恢复插件"
 }
 
 cmd_status() {
