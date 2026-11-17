@@ -450,12 +450,12 @@ jobs:
             printf '\n[Download verified Artifact](https://github.com/%s/actions/runs/%s)\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Write successful fingerprint after artifact upload
-        if: needs.metadata.outputs.previous_success != 'true' && inputs.hardware_revision != 'v2.1'
+        if: needs.metadata.outputs.previous_success != 'true'
         run: |
           printf '%s\n' '${{ needs.metadata.outputs.fingerprint }}' > fast-success.marker
       - uses: actions/cache/save@v4
         name: Cache success marker only after verified artifact upload
-        if: needs.metadata.outputs.previous_success != 'true' && inputs.hardware_revision != 'v2.1'
+        if: needs.metadata.outputs.previous_success != 'true'
         with:
           path: wma301/fast-success.marker
           key: ${{ needs.metadata.outputs.fingerprint }}
