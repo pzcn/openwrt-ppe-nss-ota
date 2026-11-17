@@ -55,7 +55,7 @@ with tempfile.TemporaryDirectory() as d:
         rel = {"arthur": arthur, "mx4200v1": mx, "wma301": wma, "wma301v21": wma21}[device] / "etc/immortal-ppe-ota-release"
         assert "OTA_TAG=" + tag in rel.read_text()
         assert "OTA_CHANNEL=" + cfg["channel"] in rel.read_text()
-        menu = json.loads((({"arthur": arthur, "mx4200v1": mx, "wma301": wma}[device]) /
+        menu = json.loads((({"arthur": arthur, "mx4200v1": mx, "wma301": wma, "wma301v21": wma21}[device]) /
                            "usr/share/luci/menu.d/zzzz-ota-flash-cache.json").read_text())
         action = menu["admin/system/flash"]["action"]
         assert action["type"] == "view"
