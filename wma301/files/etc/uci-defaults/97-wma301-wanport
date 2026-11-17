@@ -1,0 +1,10 @@
+#!/bin/sh
+case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
+	tplink,wma301-v2|tplink,wma301-v2-1) ;;
+	*) exit 0 ;;
+esac
+# Enable for later boots and register the reload trigger for this boot
+# (rc.d was already enumerated when uci-defaults run).
+/etc/init.d/wma301-wanport enable
+/etc/init.d/wma301-wanport start
+exit 0

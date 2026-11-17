@@ -12,6 +12,10 @@ import shutil
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+EXECUTABLE_DIRS = {
+    ("etc", "init.d"), ("etc", "uci-defaults"),
+    ("usr", "sbin"), ("usr", "libexec"),
+}
 
 
 def ota_enabled() -> bool:
@@ -40,7 +44,9 @@ def stage_files(source: Path, overlay: Path, *, include_ota: bool | None = None)
             raise ValueError(f"custom overlay clashes with board file: {rel}")
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(item, dest)
-        if rel.parts[:2] == ("etc", "uci-defaults"):
+        # Init scripts, helpers and UCI defaults must be executable in the
+        # image even if the repository copy lost its mode bits.
+        if rel.parts[:2] in EXECUTABLE_DIRS:
             dest.chmod(dest.stat().st_mode | 0o111)
         staged.append(rel.as_posix())
     return staged

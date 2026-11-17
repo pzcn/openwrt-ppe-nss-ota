@@ -118,6 +118,10 @@ jobs:
           python3 scripts/test_official_builder.py
           python3 scripts/test_unified_ota.py
           sh -n files/usr/libexec/ppe-update-wma301-preflight
+          sh -n files/usr/libexec/wma301-wanport
+          sh -n files/etc/init.d/wma301-wanport
+          sh -n files/etc/uci-defaults/97-wma301-wanport
+          python3 scripts/test_wanport.py
 
   fast-build:
     needs: [metadata, offline-tests]
