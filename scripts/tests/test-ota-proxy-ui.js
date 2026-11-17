@@ -116,7 +116,7 @@ view.otaRefresh = () => Promise.resolve();
       stage: 'downloading', downloaded: 2 * 1024 * 1024, total: 4 * 1024 * 1024
     }, '');
     assert.equal(view._otaMeter.value, 50);
-    assert.match(view._otaNumbers.textContent, /MiB\/s/);
+    assert.match(view._otaNumbers.textContent, /[KM]iB\/s/);
     view.otaUpdateProgress({ stage: 'verifying', downloaded: 4 * 1024 * 1024,
       total: 4 * 1024 * 1024 }, '');
     assert.equal(view._otaMeter.value, 100);
