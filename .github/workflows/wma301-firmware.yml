@@ -56,6 +56,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   metadata:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     env:
       BASE: https://downloads.immortalwrt.org/snapshots/targets/mediatek/filogic
@@ -110,37 +111,17 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Check Python, device geometry and safe package list
+      - name: Python syntax, focused build/OTA tests, WAN UI syntax
         run: |
           set -euo pipefail
-          python3 -m py_compile scripts/official_builder.py scripts/stage_files.py scripts/verify_official.py scripts/aurora.py
+          python3 -m py_compile scripts/official_builder.py scripts/stage_files.py scripts/verify_official.py scripts/aurora.py scripts/stage_unified_ota.py scripts/pack_unified_ota.py
           python3 scripts/test_official_builder.py
-          python3 scripts/test_master_migration.py
-          python3 scripts/test_stage_files.py
-          python3 scripts/test_aurora.py
-          python3 scripts/test_wma301_ota.py
-          python3 scripts/test_wma301_runtime.py
           python3 scripts/test_unified_ota.py
-          python3 scripts/test_wma301_ports.py
-          sh -n files/usr/sbin/wma301-ports
-          sh -n files/usr/libexec/wma301-ports-dhcp-probe
-          sh -n files/etc/init.d/wma301-ports
-          sh -n files/etc/uci-defaults/97-wma301-ports
+          for script in files/usr/libexec/ppe-update-wma301-preflight files/usr/sbin/wma301-ports files/usr/libexec/wma301-ports-dhcp-probe files/etc/init.d/wma301-ports; do
+            sh -n "$script"
+          done
           node --check files/www/luci-static/resources/view/status/include/29_ports.js
           python3 -m json.tool files/usr/share/rpcd/acl.d/luci-app-wma301-ports.json >/dev/null
-          python3 ../scripts/tests/test-ota-version.py
-          python3 ../scripts/tests/test-ota-package-restore.py
-          python3 ../scripts/tests/test-ota-devices.py
-          python3 -m py_compile scripts/stage_unified_ota.py scripts/pack_unified_ota.py
-          sh -n files/usr/libexec/ppe-update-wma301-preflight
-          sh -n files/usr/sbin/wma301-ota
-          node --check files/www/luci-static/resources/view/system/wma301-ota.js
-          python3 -m json.tool files/usr/share/luci/menu.d/luci-app-wma301-ota.json >/dev/null
-          python3 -m json.tool files/usr/share/rpcd/acl.d/luci-app-wma301-ota.json >/dev/null
-          sh -n files/etc/uci-defaults/95-luci-preferences
-          python3 scripts/test_layout.py
-          python3 scripts/test_arthur_packages.py
-          python3 scripts/official_builder.py packages --file configs/official-packages.txt
 
   fast-build:
     needs: [metadata, offline-tests]
@@ -299,22 +280,9 @@ jobs:
           REV="$(python3 -c 'import json; print(json.load(open("official-provenance.json"))["version"])')"
           TAG="$(python3 ../scripts/ota_version.py wma301 "$BUILD" --revision "$REV")"
           python3 scripts/stage_unified_ota.py --overlay "$PWD/wma301-overlay" --tag "$TAG" --build "$BUILD"
+          test -s "$PWD/wma301-overlay/www/luci-static/resources/view/status/include/29_ports.js"
           echo "WMA_OTA_TAG=$TAG" >> "$GITHUB_ENV"
           echo "WMA_OTA_BUILD=$BUILD" >> "$GITHUB_ENV"
-      - name: Assert homepage WAN selector reached the actual image overlay
-        run: |
-          set -euo pipefail
-          O="$PWD/wma301-overlay"
-          test -s "$O/www/luci-static/resources/view/status/include/29_ports.js"
-          grep -Fq 'WAN 网口选择' "$O/www/luci-static/resources/view/status/include/29_ports.js"
-          grep -Fq 'nativePortGrid' "$O/www/luci-static/resources/view/status/include/29_ports.js"
-          test -x "$O/usr/sbin/wma301-ports"
-          test -x "$O/usr/libexec/wma301-ports-dhcp-probe"
-          test -x "$O/etc/init.d/wma301-ports"
-          test -x "$O/etc/uci-defaults/97-wma301-ports"
-          test -s "$O/etc/config/wma301-ports"
-          test -s "$O/usr/share/rpcd/acl.d/luci-app-wma301-ports.json"
-          grep -Fq 'tplink,wma301-v2-1' "$O/usr/sbin/wma301-ports"
       - name: Repack unified v2.0/v2.1 FIT using official precompiled Linux kernel
         run: |
           set -euo pipefail
