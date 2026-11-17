@@ -285,20 +285,16 @@ jobs:
             --expected-source "$SOURCE_SHA" --kernel-headers "$HEADERS" \
             --aurora-source "$PWD/aurora-theme"
           echo "BUILDER=$BUILDER" >> "$GITHUB_ENV"
-      - name: Stage both revisions with the same OTA services
+      - name: Stage single WMA301 v2.x OTA services
         run: |
           set -euo pipefail
           BUILD="$(date -u +%s)"
           REV="$(python3 -c 'import json; print(json.load(open("official-provenance.json"))["version"])')"
           TAG="$(python3 ../scripts/ota_version.py wma301 "$BUILD" --revision "$REV")"
-          TAG_V21="$(python3 ../scripts/ota_version.py wma301v21 "$BUILD" --revision "$REV")"
-          cp -a "$PWD/wma301-overlay" "$PWD/wma301-v21-overlay"
           python3 scripts/stage_unified_ota.py --overlay "$PWD/wma301-overlay" --tag "$TAG" --build "$BUILD"
-          python3 scripts/stage_unified_ota.py --overlay "$PWD/wma301-v21-overlay" --tag "$TAG_V21" --build "$BUILD" --device wma301v21
           echo "WMA_OTA_TAG=$TAG" >> "$GITHUB_ENV"
-          echo "WMA_V21_OTA_TAG=$TAG_V21" >> "$GITHUB_ENV"
           echo "WMA_OTA_BUILD=$BUILD" >> "$GITHUB_ENV"
-      - name: Repack v2.0 FIT using official precompiled Linux kernel
+      - name: Repack unified v2.0/v2.1 FIT using official precompiled Linux kernel
         run: |
           set -euo pipefail
           PACKAGES="$(python3 scripts/official_builder.py packages --file configs/official-packages.txt)"
@@ -309,48 +305,6 @@ jobs:
             PACKAGES="$PACKAGES" FILES="$PWD/wma301-overlay" BIN_DIR="$PWD/images" \
             > repack.log 2>&1 || { tail -n 200 repack.log; exit 1; }
           tail -n 35 repack.log
-      - name: Repack v2.1 FIT with the same base and revised LEDs
-        run: |
-          set -euo pipefail
-          PACKAGES="$(python3 scripts/official_builder.py packages --file configs/official-packages.txt)"
-          mkdir -p "$PWD/images-v21"
-          make -C "$BUILDER" info > builder-info.log
-          grep -q 'tplink_wma301-v2-1:' builder-info.log
-          make -C "$BUILDER" image PROFILE=tplink_wma301-v2-1 \
-            PACKAGES="$PACKAGES" FILES="$PWD/wma301-v21-overlay" BIN_DIR="$PWD/images-v21" \
-            > repack-v21.log 2>&1 || { tail -n 200 repack-v21.log; exit 1; }
-          tail -n 35 repack-v21.log
-      - name: Verify v2.1 FIT and package its own OTA release
-        env:
-          WMA301_VERIFY_BOARD: tplink,wma301-v2-1
-          IMMORTALWRT_SHA: ${{ steps.source.outputs.sha }}
-        run: |
-          set -euo pipefail
-          python3 scripts/verify_official.py --images images-v21 --output dist-v21 \
-            --provenance official-provenance.json --local-sha "$GITHUB_SHA" \
-            --packages-file configs/official-packages.txt \
-            --aurora-overlay "$PWD/wma301-v21-overlay" \
-            --aurora-apk "$BUILDER/packages/luci-theme-aurora-1.4.0-r1.apk"
-          (cd dist-v21 && sha256sum -c SHA256SUMS)
-          test "$(find dist-v21 -maxdepth 1 -name '*.itb' | wc -l)" -eq 1
-          python3 scripts/pack_unified_ota.py \
-            --images images-v21 --dist dist-v21 --overlay "$PWD/wma301-v21-overlay" \
-            --output out-wma301-v21-ota --tag "$WMA_V21_OTA_TAG" \
-            --build "$WMA_OTA_BUILD" --upstream "$IMMORTALWRT_SHA" \
-            --source "$GITHUB_SHA" --provenance official-provenance.json \
-            --aurora-apk "$BUILDER/packages/luci-theme-aurora-1.4.0-r1.apk" \
-            --device wma301v21
-          (cd out-wma301-v21-ota && sha256sum -c sha256sums)
-      - name: Upload verified v2.1 unified OTA artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: WMA301_V21_VERIFIED_UNIFIED_OTA
-          path: |
-            wma301/dist-v21/
-            wma301/out-wma301-v21-ota/
-            wma301/official-provenance.json
-          if-no-files-found: error
-          retention-days: 14
       - name: Verify FIT, actual packages and unified OTA provenance
         env:
           IMMORTALWRT_SHA: ${{ steps.source.outputs.sha }}
@@ -403,28 +357,14 @@ jobs:
             echo "::error::Immutable WMA301 OTA Release already exists: $WMA_OTA_TAG"
             exit 1
           fi
-          if gh release view "$WMA_V21_OTA_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::Immutable WMA301 v2.1 OTA Release already exists: $WMA_V21_OTA_TAG"
-            exit 1
-          fi
           cd out-wma301-ota
           sha256sum -c sha256sums
           gh release create "$WMA_OTA_TAG" -R "$GITHUB_REPOSITORY" \
             "${flags[@]}" --target "$GITHUB_SHA" \
-            --title "WMA301 v2.0 ImmortalWrt 6.18 ($WMA_OTA_TAG)" \
-            --notes "WMA301 v2.0 migrated single-UBI layout ONLY. Shared manual-only OTA on the main repository; verify boot, NAND/UBI layout, preserved U-Boot environment and recovery before flashing. No automatic installation. Hardware approval: $HARDWARE_CONFIRMED." \
+            --title "WMA301 v2.0/v2.1 ImmortalWrt 6.18 ($WMA_OTA_TAG)" \
+            --notes "WMA301 v2.0/v2.1 universal FIT, one shared kernel, DTB and OTA. Dual red/green status LEDs support both wiring revisions. Same migrated single-UBI layout; not for OEM A/B." \
             immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb \
             immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest \
-            ota.json sha256sums manifest.json official-provenance.json \
-            luci-theme-aurora-1.4.0-r1.apk
-          cd ../out-wma301-v21-ota
-          sha256sum -c sha256sums
-          gh release create "$WMA_V21_OTA_TAG" -R "$GITHUB_REPOSITORY" \
-            "${flags[@]}" --target "$GITHUB_SHA" \
-            --title "WMA301 v2.1 ImmortalWrt 6.18 ($WMA_V21_OTA_TAG)" \
-            --notes "WMA301 v2.1 shares the v2.0 migrated single-UBI layout, keys, WLAN, ports and packages. Only status LED GPIO/polarity differs: red GPIO12 active-low, green GPIO11 active-low. Hardware validation: NOT_TESTED. Do not flash on stock A/B." \
-            immortalwrt-mediatek-filogic-tplink_wma301-v2-1-squashfs-sysupgrade.itb \
-            immortalwrt-mediatek-filogic-tplink_wma301-v2-1.manifest \
             ota.json sha256sums manifest.json official-provenance.json \
             luci-theme-aurora-1.4.0-r1.apk
       - name: Summarize official source, cache reuse and artifact safety
@@ -445,7 +385,7 @@ jobs:
             echo '| Aurora | v1.4.0 native noarch APK, installed by official ImageBuilder |'
             printf '| WMA301 OTA enabled | %s |\n' "$WMA301_ENABLE_OTA"
             echo '| OTA feed | Unified main repository; manual publication only |'
-            echo '| Output | Both v2.0 and v2.1 verified sysupgrade FITs (no recovery) |'
+            echo '| Output | One v2.0/v2.1 verified sysupgrade FIT (no recovery) |'
             echo '| Hardware validation | CI only, no unattended flashing |'
             printf '\n[Download verified Artifact](https://github.com/%s/actions/runs/%s)\n' "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -486,11 +426,6 @@ jobs:
           gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
             --name "WMA301_VERIFIED_UNIFIED_OTA" \
             --dir "$RUNNER_TEMP/wma301-approved"
-          mkdir -p "$RUNNER_TEMP/wma301-v21-approved"
-          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" \
-            --name "WMA301_V21_VERIFIED_UNIFIED_OTA" \
-            --dir "$RUNNER_TEMP/wma301-v21-approved"
-
       - name: Reverify FIT, OTA metadata and device isolation
         run: |
           set -euo pipefail
@@ -557,76 +492,6 @@ jobs:
           fi
           echo "WMA301_TAG=$TAG" >> "$GITHUB_ENV"
 
-      - name: Reverify v2.1 FIT, OTA metadata and board isolation
-        run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP/wma301-v21-approved"
-          test -f official-provenance.json
-          test -f dist-v21/manifest.json
-          test -f dist-v21/SHA256SUMS
-          test -f out-wma301-v21-ota/sha256sums
-          test -f out-wma301-v21-ota/luci-theme-aurora-1.4.0-r1.apk
-          (cd dist-v21 && sha256sum -c SHA256SUMS)
-          cd out-wma301-v21-ota
-          sha256sum -c sha256sums
-          TAG="$(jq -r .tag ota.json)"
-          [[ "$TAG" =~ ^imm-wma301v21-SNAPSHOT-r[0-9]+-[0-9]{12}$ ]] || {
-            echo "::error::Invalid stable WMA301 Release tag"
-            exit 1
-          }
-          jq -e --arg source "$SOURCE_COMMIT" --arg tag "$TAG" '
-            .schema == 1 and
-            .repository == "pzcn/openwrt-ppe-nss-ota" and
-            .channel == "wma301v21-immortal-filogic" and
-            .tag == $tag and
-            .board == "tplink,wma301-v2-1" and
-            .profile == "tplink_wma301-v2-1" and
-            .target == "mediatek/filogic" and
-            .group == "filogic-mt7981-single-ubi" and
-            .layout == "oem-bl2-bl31-custom-bl33-single-ubi-v1" and
-            .source_commit == $source and
-            .image == "immortalwrt-mediatek-filogic-tplink_wma301-v2-1-squashfs-sysupgrade.itb" and
-            .manifest == "immortalwrt-mediatek-filogic-tplink_wma301-v2-1.manifest"
-          ' ota.json >/dev/null
-          jq -e --arg sha "$SOURCE_COMMIT" '
-            .build == "official-imagebuilder-fast" and
-            .device == "tplink,wma301-v2-1" and
-            .local_sha == $sha and
-            .hardware_validation == "NOT_TESTED" and
-            .output.fit_hashes == "pass" and
-            .output.mode == "squashfs-persistent" and
-            .output.dts.compatible == "tplink,wma301-v2-1" and
-            .output.dts.factory_info_protected == true
-          ' manifest.json >/dev/null
-          cmp manifest.json ../dist-v21/manifest.json
-          cmp official-provenance.json ../official-provenance.json
-          jq -e '
-            .installed_theme.name == "luci-theme-aurora" and
-            .installed_theme.version == "1.4.0-r1" and
-            .installed_theme.architecture == "noarch" and
-            .installed_theme.install_method == "imagebuilder-local-native-apk" and
-            (.installed_theme.sha256 | test("^[a-f0-9]{64}$"))
-          ' manifest.json >/dev/null
-          printf '%s  %s\n' "$(jq -r '.installed_theme.sha256' manifest.json)" \
-            luci-theme-aurora-1.4.0-r1.apk | sha256sum -c -
-          grep -Fxq 'luci-theme-aurora - 1.4.0-r1' \
-            immortalwrt-mediatek-filogic-tplink_wma301-v2-1.manifest
-          for package in autocore cpufreq luci-app-cpufreq luci-i18n-cpufreq-zh-cn default-settings-chn; do
-            grep -Eq "^${package} - [^[:space:]]+" immortalwrt-mediatek-filogic-tplink_wma301-v2-1.manifest || {
-              echo "::error::Missing WMA301 package: $package"
-              exit 1
-            }
-          done
-          if grep -Eiq '^(sing-box|tailscale|luci-app-tailscale-community|luci-app-ddns-go|luci-app-sing-box|luci-app-ppe-qos|luci-app-ppe-nss-monitor|kmod-qca-nss[^[:space:]]*)[[:space:]]' immortalwrt-mediatek-filogic-tplink_wma301-v2-1.manifest; then
-            echo "::error::Forbidden package in WMA301 manifest"
-            exit 1
-          fi
-          [[ "$TAG" == "${WMA301_TAG/imm-wma301-/imm-wma301v21-}" ]] || {
-            echo "::error::v2.0 and v2.1 are not from the same firmware build"
-            exit 1
-          }
-          echo "WMA301_V21_TAG=$TAG" >> "$GITHUB_ENV"
-
       - name: Publish immutable, non-prerelease WMA301 GitHub Release
         run: |
           set -euo pipefail
@@ -635,18 +500,18 @@ jobs:
             exit 1
           fi
           cat >"$RUNNER_TEMP/wma301-release-notes.md" <<'NOTES'
-          WMA301 v2.0 / MT7981 · ImmortalWrt master Linux 6.18
+          WMA301 v2.0 / v2.1 · MT7981 · ImmortalWrt master Linux 6.18
 
           **Official GitHub Release (not prerelease).**
           OTA UX includes progress, transfer rate, firmware verification, clear errors and reboot guidance.
 
-          Built using the official mediatek/filogic ImageBuilder and a locally compiled WMA301 DTS.
+          Built using the official ImageBuilder and one shared WMA301 v2.x DTS with mirrored native status LEDs.
           CI verified the sysupgrade FIT, device tree, SHA256, provenance, software manifest and single-UBI identity.
 
           **Hardware validation: NOT_TESTED.** The published status is not proof of safe flashing.
-          Only for WMA301 v2.0 already migrated to the 121 MiB single-UBI NAND layout.
+          For WMA301 v2.0 / v2.1 already migrated to the 121 MiB single-UBI NAND layout.
           Back up settings and confirm U-Boot recovery, UBI volumes, WLAN and network functionality.
-          Do not use on stock A/B layouts or WMA301 v2.1.
+          Do not use on stock A/B layouts.
           OTA supports manual and optional scheduled automatic upgrades (default off).
           Aurora v1.4.0 is installed as a native noarch APK and is published as
           luci-theme-aurora-1.4.0-r1.apk for independent package management.
@@ -657,52 +522,12 @@ jobs:
           cd "$RUNNER_TEMP/wma301-approved/out-wma301-ota"
           gh release create "$WMA301_TAG" --repo "$GITHUB_REPOSITORY" \
             --target "$SOURCE_COMMIT" --latest=false \
-            --title "WMA301 v2.0 | ImmortalWrt 6.18 ($WMA301_TAG)" \
+            --title "WMA301 v2.0 / v2.1 | ImmortalWrt 6.18 ($WMA301_TAG)" \
             --notes-file "$RUNNER_TEMP/wma301-release-notes.md" \
             immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb \
             immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest \
             ota.json sha256sums manifest.json official-provenance.json \
             luci-theme-aurora-1.4.0-r1.apk
           gh release view "$WMA301_TAG" --repo "$GITHUB_REPOSITORY" \
-            --json tagName,isPrerelease,assets \
-            --jq '{tag:.tagName,prerelease:.isPrerelease,assets:(.assets|map(.name))}'
-
-      - name: Publish immutable, non-prerelease WMA301 v2.1 GitHub Release
-        run: |
-          set -euo pipefail
-          if gh release view "$WMA301_V21_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "::error::WMA301 Release tag already exists: $WMA301_V21_TAG"
-            exit 1
-          fi
-          cat >"$RUNNER_TEMP/wma301-v21-release-notes.md" <<'NOTES'
-          WMA301 v2.1 / MT7981 · ImmortalWrt master Linux 6.18
-
-          **Official GitHub Release (not prerelease).**
-          OTA UX includes progress, transfer rate, firmware verification, clear errors and reboot guidance.
-
-          Built with the official mediatek/filogic ImageBuilder and shared v2.0 kernel; v2.1 only changes status LEDs (red GPIO12 active-low; green GPIO11 active-low).
-          CI verified the sysupgrade FIT, device tree, SHA256, provenance, software manifest and single-UBI identity.
-
-          **Hardware validation: NOT_TESTED.** The published status is not proof of safe flashing.
-          Only for WMA301 v2.1 already migrated to the 121 MiB single-UBI NAND layout.
-          Back up settings and confirm U-Boot recovery, UBI volumes, WLAN and network functionality.
-          Do not use on stock A/B layouts or WMA301 v2.0.
-          OTA supports manual and optional scheduled automatic upgrades (default off).
-          Aurora v1.4.0 is installed as a native noarch APK and is published as
-          luci-theme-aurora-1.4.0-r1.apk for independent package management.
-          Includes autocore (LuCI temperature), cpufreq, luci-app-cpufreq,
-          luci-i18n-cpufreq-zh-cn and default-settings-chn.
-          Excludes sing-box, Tailscale, DDNS-Go and Qualcomm PPE/NSS-specific packages.
-          NOTES
-          cd "$RUNNER_TEMP/wma301-v21-approved/out-wma301-v21-ota"
-          gh release create "$WMA301_V21_TAG" --repo "$GITHUB_REPOSITORY" \
-            --target "$SOURCE_COMMIT" --latest=false \
-            --title "WMA301 v2.1 | ImmortalWrt 6.18 ($WMA301_V21_TAG)" \
-            --notes-file "$RUNNER_TEMP/wma301-v21-release-notes.md" \
-            immortalwrt-mediatek-filogic-tplink_wma301-v2-1-squashfs-sysupgrade.itb \
-            immortalwrt-mediatek-filogic-tplink_wma301-v2-1.manifest \
-            ota.json sha256sums manifest.json official-provenance.json \
-            luci-theme-aurora-1.4.0-r1.apk
-          gh release view "$WMA301_V21_TAG" --repo "$GITHUB_REPOSITORY" \
             --json tagName,isPrerelease,assets \
             --jq '{tag:.tagName,prerelease:.isPrerelease,assets:(.assets|map(.name))}'
