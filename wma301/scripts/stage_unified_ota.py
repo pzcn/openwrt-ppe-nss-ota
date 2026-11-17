@@ -31,8 +31,11 @@ WMA_ONLY = {
 }
 
 
-def stage(overlay: Path, tag: str, build: int) -> None:
-    if not overlay.is_dir() or not tag.startswith("imm-wma301-SNAPSHOT-r") or build < 1:
+def stage(overlay: Path, tag: str, build: int, device: str = "wma301") -> None:
+    if device not in ("wma301", "wma301v21"):
+        raise ValueError("unknown WMA301 revision")
+    prefix = "imm-wma301-SNAPSHOT-r" if device == "wma301" else "imm-wma301v21-SNAPSHOT-r"
+    if not overlay.is_dir() or not tag.startswith(prefix) or build < 1:
         raise ValueError("invalid WMA301 overlay/version")
     existing_upgrade = overlay / "lib/upgrade/platform.sh"
     if not existing_upgrade.is_file():
@@ -55,7 +58,7 @@ def stage(overlay: Path, tag: str, build: int) -> None:
         raise RuntimeError("cannot load shared OTA implementation")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    module.prepare(overlay, tag, build, "wma301")
+    module.prepare(overlay, tag, build, device)
     backend = overlay / "usr/sbin/ppe-update"
     source = backend.read_text()
     required = (
@@ -88,8 +91,9 @@ def main() -> None:
     parser.add_argument("--overlay", type=Path, required=True)
     parser.add_argument("--tag", required=True)
     parser.add_argument("--build", type=int, required=True)
+    parser.add_argument("--device", choices=("wma301", "wma301v21"), default="wma301")
     args = parser.parse_args()
-    stage(args.overlay, args.tag, args.build)
+    stage(args.overlay, args.tag, args.build, args.device)
 
 
 if __name__ == "__main__":
