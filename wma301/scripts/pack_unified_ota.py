@@ -50,8 +50,12 @@ def sha256(path: Path) -> str:
 
 def pack(images: Path, dist: Path, overlay: Path, output: Path, tag: str,
          build: int, upstream: str, source: str, provenance: Path,
-         aurora_apk: Path) -> None:
-    require(re.fullmatch(r"imm-wma301-SNAPSHOT-r[0-9]+-[0-9]{12}", tag) is not None,
+         aurora_apk: Path, device: str = "wma301") -> None:
+    require(device in ("wma301", "wma301v21"), "unknown WMA301 board")
+    shared = load_shared()
+    spec = shared.device_spec(device)
+    image_name, manifest_name, board = spec["image"], spec["manifest"], spec["board"]
+    require(re.fullmatch(re.escape(spec["tag_prefix"]) + r"SNAPSHOT-r[0-9]+-[0-9]{12}", tag) is not None,
             "invalid unified WMA301 OTA tag")
     require(build >= 1_000_000_000, "WMA301 build must be a timestamp")
     for name, value in (("upstream", upstream), ("source", source)):
@@ -65,13 +69,13 @@ def pack(images: Path, dist: Path, overlay: Path, output: Path, tag: str,
             upstream.startswith(prov["source_revision"]),
             "unverified official Filogic Snapshot")
     require(report["build"] == "official-imagebuilder-fast" and
-            report["device"] == BOARD and report["local_sha"] == source and
+            report["device"] == board and report["local_sha"] == source and
             report["hardware_validation"] == "NOT_TESTED",
             "wrong FIT/build identity")
     fit_report = report["output"]
     require(fit_report["fit_hashes"] == "pass" and
             fit_report["mode"] == "squashfs-persistent" and
-            fit_report["dts"]["compatible"] == BOARD and
+            fit_report["dts"]["compatible"] == board and
             fit_report["dts"]["factory_info_protected"] is True,
             "FIT verification did not pass")
     original = dist / fit_report["file"]
@@ -85,7 +89,7 @@ def pack(images: Path, dist: Path, overlay: Path, output: Path, tag: str,
     # The manifest must reflect packages actually assembled by ImageBuilder.
     # Never synthesize it from requested_packages: dependencies matter for APK restore.
     candidates = sorted(p for p in images.iterdir() if p.is_file() and
-                        p.name.endswith("tplink_wma301-v2.manifest"))
+                        p.name.endswith(manifest_name))
     require(len(candidates) == 1, "missing or ambiguous actual WMA301 APK manifest")
     names = set()
     for line in candidates[0].read_text().splitlines():
@@ -129,20 +133,19 @@ def pack(images: Path, dist: Path, overlay: Path, output: Path, tag: str,
             (overlay / "usr/sbin/ppe-update").read_text(),
             "missing preflight hook in OTA backend")
     output.mkdir(parents=True, exist_ok=True)
-    target = output / IMAGE
+    target = output / image_name
     shutil.copyfile(original, target)
-    shutil.copyfile(candidates[0], output / MANIFEST)
+    shutil.copyfile(candidates[0], output / manifest_name)
     shutil.copyfile(dist / "manifest.json", output / "manifest.json")
     shutil.copyfile(provenance, output / "official-provenance.json")
     shutil.copyfile(aurora_apk, output / aurora_apk.name)
-    shared = load_shared()
     shared.metadata(tag=tag, build=build, upstream=upstream, ppe="",
-                    image=target, manifest=output / MANIFEST,
+                    image=target, manifest=output / manifest_name,
                     output=output / "ota.json", source_commit=source,
-                    device="wma301")
+                    device=device)
     assert json.loads((output / "ota.json").read_text())["layout"] == (
         "oem-bl2-bl31-custom-bl33-single-ubi-v1")
-    assets = (IMAGE, MANIFEST, "ota.json", "manifest.json",
+    assets = (image_name, manifest_name, "ota.json", "manifest.json",
               "official-provenance.json", aurora_apk.name)
     (output / "sha256sums").write_text("".join(
         f"{sha256(output / name)}  {name}\n" for name in assets))
@@ -161,9 +164,10 @@ def main() -> None:
     p.add_argument("--source", required=True)
     p.add_argument("--provenance", type=Path, required=True)
     p.add_argument("--aurora-apk", type=Path, required=True)
+    p.add_argument("--device", choices=("wma301", "wma301v21"), default="wma301")
     a = p.parse_args()
     pack(a.images, a.dist, a.overlay, a.output, a.tag, a.build,
-         a.upstream, a.source, a.provenance, a.aurora_apk)
+         a.upstream, a.source, a.provenance, a.aurora_apk, a.device)
 
 
 if __name__ == "__main__":
