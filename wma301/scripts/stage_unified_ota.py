@@ -64,7 +64,7 @@ def stage(overlay: Path, tag: str, build: int, device: str = "wma301") -> None:
     required = (
         "ppe-update-wma301-preflight",
         "WMA301 OTA layout mismatch",
-        "imm-wma301-",
+        "imm-wma301-" if device == "wma301" else "imm-wma301v21-",
         "tplink,wma301-v2",
     )
     if not all(piece in source for piece in required):
