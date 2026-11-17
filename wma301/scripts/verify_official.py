@@ -10,6 +10,7 @@ import argparse
 import hashlib
 import json
 import re
+import os
 from pathlib import Path
 
 from verify import verify_one
@@ -55,7 +56,7 @@ def verify_fast(images: Path, output: Path, provenance: Path, local_sha: str,
         raise ValueError("Unexpected Aurora APK filename/version")
     if aurora_apk.stat().st_size < 1024:
         raise ValueError("Aurora APK is incomplete")
-    package_manifests = list(images.glob("*tplink_wma301-v2.manifest"))
+    package_manifests = list(images.glob("*" + PROFILE + ".manifest"))
     if len(package_manifests) != 1:
         raise ValueError("Missing actual installed APK manifest")
     installed = package_manifests[0].read_text().splitlines()
@@ -76,7 +77,7 @@ def verify_fast(images: Path, output: Path, provenance: Path, local_sha: str,
     target.write_bytes(candidates[0].read_bytes())
     manifest = {
         "build": "official-imagebuilder-fast",
-        "device": "tplink,wma301-v2",
+        "device": BOARD,
         "recovery": "NOT_BUILT_USE_FULL_SOURCE_WORKFLOW",
         "hardware_validation": "NOT_TESTED",
         "builder": source,
