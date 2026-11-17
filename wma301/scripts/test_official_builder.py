@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from official_builder import (
-    IMAGEBUILDER, PROFILE, parse_checksums, register_profile, resolve,
+    IMAGEBUILDER, PROFILE, PROFILE_V21, parse_checksums, register_profile, resolve,
     prepare_kernel_image, locate_kernel, read_packages,
 )
 
@@ -104,6 +104,11 @@ def run() -> None:
         assert found == kdir and source == linux
         gzip = prepare_kernel_image(kdir)
         assert gzip.read_bytes()[:2] == b"\x1f\x8b"
+        assert gzip.name == f"{PROFILE}-kernel.bin"
+        v21_kernel = kdir / f"{PROFILE_V21}-kernel.bin"
+        assert v21_kernel.is_file(), "missing v2.1 kernel alias for ImageBuilder"
+        assert v21_kernel.read_bytes() == gzip.read_bytes(), \
+            "v2.0 and v2.1 must reuse identical official kernel bytes"
     print("Official Builder resolution, device metadata, kernel reuse: PASS")
 
 
