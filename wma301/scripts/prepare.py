@@ -51,9 +51,9 @@ define Device/tplink_wma301-v2-1
   IMAGES := sysupgrade.itb
   KERNEL_INITRAMFS_SUFFIX := -recovery.itb
   KERNEL := kernel-bin | gzip
-  KERNEL_INITRAMFS := kernel-bin | lzma | \
+  KERNEL_INITRAMFS := kernel-bin | lzma | \\
         fit lzma $(KDIR)/image-$(firstword $(DEVICE_DTS)).dtb with-initrd | pad-to 64k
-  IMAGE/sysupgrade.itb := append-kernel | \
+  IMAGE/sysupgrade.itb := append-kernel | \\
         fit gzip $(KDIR)/image-$(firstword $(DEVICE_DTS)).dtb external-static-with-rootfs | append-metadata
 endef
 TARGET_DEVICES += tplink_wma301-v2-1
