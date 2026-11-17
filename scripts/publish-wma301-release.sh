@@ -93,7 +93,13 @@ Includes native Aurora, autocore temperature reporting, cpufreq and
 default-settings-chn. Excludes sing-box, Tailscale, DDNS-Go and Qualcomm
 NSS/PPE-specific components.
 NOTES
-gh release create "$TAG" -R "$REPO" --target "$SOURCE_SHA" --latest=false \
+# Creating the tag separately avoids relying on the Releases API to create
+# a ref on an older verified source commit. The tag remains source-accurate.
+if ! gh api "repos/$REPO/git/ref/tags/$TAG" >/dev/null 2>&1; then
+  gh api -X POST "repos/$REPO/git/refs" \
+    -f "ref=refs/tags/$TAG" -f "sha=$SOURCE_SHA" >/dev/null
+fi
+gh release create "$TAG" -R "$REPO" --verify-tag --latest=false \
   --title "WMA301 v2.0 | ImmortalWrt 6.18 ($TAG)" \
   --notes-file "$RUNNER_TEMP/wma301-release-notes.md" \
   "$IMAGE" "$MANIFEST" ota.json sha256sums manifest.json \

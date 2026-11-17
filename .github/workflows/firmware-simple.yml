@@ -153,5 +153,5 @@ jobs:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
-      - name: Publish verified WMA301 firmware from immutable main-branch build
+      - name: Publish verified WMA301 firmware from immutable main-branch build (existing tag)
         run: bash scripts/publish-wma301-release.sh
