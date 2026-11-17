@@ -46,6 +46,12 @@ set_active() {
     uci -q set "wma301-ports.main.active=$1" || return 1
     uci -q commit wma301-ports
 }
+# Display the effective UCI WAN device, not the detection service's stale cache.
+current_wan() {
+    local p
+    p="$(uci -q get network.wan.device 2>/dev/null || true)"
+    is_port "$p" && echo "$p" || echo none
+}
 exists() { [ -d "$SYS_NET/$1" ]; }
 carrier() { [ "$(cat "$SYS_NET/$1/carrier" 2>/dev/null || echo 0)" = 1 ]; }
 signature() {
@@ -80,7 +86,7 @@ restore_kernel_bridge() {
     done
 }
 apply_port() {
-    local target="$1" bridge old_ports new_ports p old_wan old_wan6 changed
+    local target="$1" bridge old_ports new_ports p old_wan old_wan6 changed expected_wan
     [ "$target" = none ] || is_port "$target" || return 1
     bridge="$(bridge_section)" || { log "br-lan config missing"; return 1; }
     old_ports="$(uci -q get "network.$bridge.ports" 2>/dev/null || true)"
@@ -97,8 +103,10 @@ apply_port() {
         [ "$p" = "$target" ] && continue
         new_ports="${new_ports:+$new_ports }$p"
     done
+    expected_wan="$target"
+    [ "$target" = none ] && expected_wan=""
     changed=0
-    if [ "$new_ports" != "$old_ports" ] || [ "$old_wan" != "$target" ]; then
+    if [ "$new_ports" != "$old_ports" ] || [ "$old_wan" != "$expected_wan" ]; then
         changed=1
         uci -q delete "network.$bridge.ports" 2>/dev/null || true
         for p in $new_ports; do
@@ -122,7 +130,7 @@ apply_port() {
     set_active "$target" || return 1
     if [ "$changed" -eq 1 ]; then
         log "WAN=$target; br-lan=$new_ports"
-        ubus call network reload >/dev/null 2>&1 || /etc/init.d/network reload >/dev/null 2>&1 || true
+        ubus call network reload >/dev/null 2>&1 || /etc/init.d/network reload >/dev/null 2>&1 || return 1
         ifdown wan >/dev/null 2>&1 || true
         ifdown wan6 >/dev/null 2>&1 || true
         if [ "$target" != none ]; then
@@ -156,6 +164,7 @@ scan() {
     # *other* LAN port up throughout the scan; a full-bridge teardown
     # would disconnect all clients whenever an uplink is plugged in.
     for p in $PORTS; do
+        [ "$(mode)" = auto ] || break
         exists "$p" && carrier "$p" || continue
         ip link set dev "$p" nomaster 2>/dev/null || true
         ip link set dev "$p" up 2>/dev/null || true
@@ -167,27 +176,50 @@ scan() {
         fi
         restore_kernel_bridge
     done
-    if ! apply_port "$found"; then
-        log "cannot apply scanned WAN=$found"
+    if [ "$(mode)" = auto ]; then
+        if ! apply_port "$found"; then
+            log "cannot apply scanned WAN=$found"
+            restore_kernel_bridge
+        fi
+    else
         restore_kernel_bridge
     fi
     rmdir "$LOCK_DIR" 2>/dev/null || true
     trap - HUP INT TERM
 }
+wait_for_network() {
+    local i=0
+    # During uci-defaults the service can start before netifd creates br-lan.
+    # Do not consume the one initial scan while the bridge does not exist.
+    while [ "$i" -lt 30 ]; do
+        if [ -d "$SYS_NET/br-lan" ] && bridge_section >/dev/null 2>&1; then
+            return 0
+        fi
+        i=$((i + 1))
+        sleep 2
+    done
+    log "br-lan not ready; retry after procd respawn"
+    return 1
+}
 daemon() {
     local m a sig previous= first=1 requested
     board_supported || exit 0
-    sleep 4  # netifd must create br-lan before reassignment
+    wait_for_network || exit 1
     while :; do
         m="$(mode)"
         a="$(active)"
         if [ "$m" = auto ]; then
             sig="$(signature)"
-            if is_port "$a" && carrier "$a"; then
-                # Sticky WAN: no changes on ping loss, DHCP renewal or LAN plug.
+            if [ "$first" = 1 ]; then
+                # Always detect on boot/restart, even if a saved 'active'
+                # port happens to have carrier. Link != DHCP uplink.
+                scan
+                previous="$(signature)"
+            elif is_port "$a" && carrier "$a"; then
+                # Sticky WAN once a valid DHCP upstream has been detected.
                 previous="$sig"
-            elif [ "$first" = 1 ] || [ "$sig" != "$previous" ] || [ "$a" != none ]; then
-                sleep 2  # carrier debounce
+            elif [ "$sig" != "$previous" ] || [ "$a" != none ]; then
+                sleep 2
                 a="$(active)"
                 if ! is_port "$a" || ! carrier "$a"; then
                     scan
@@ -196,7 +228,7 @@ daemon() {
             fi
         else
             requested="$(port_for_choice "$m")"
-            if [ "$a" != "$requested" ]; then
+            if [ "$a" != "$requested" ] || [ "$(current_wan)" != "$requested" ]; then
                 apply_port "$requested" || log "manual WAN apply failed"
             fi
         fi
@@ -205,24 +237,36 @@ daemon() {
     done
 }
 status() {
-    local m a n
+    local m a n cached scan_flag=false
     m="$(mode)"
-    a="$(active)"
+    a="$(current_wan)"
+    cached="$(active)"
     n="$(choice_for_port "$a")"
-    printf '{"mode":"%s","active":"%s","active_number":%s}\n' "$m" "$a" "$n"
+    [ -d "$LOCK_DIR" ] && scan_flag=true
+    printf '{"mode":"%s","active":"%s","active_number":%s,"detected":"%s","scanning":%s}\n' "$m" "$a" "$n" "$cached" "$scan_flag"
 }
 set_mode() {
-    local choice="$1"
+    local choice="$1" target
     case "$choice" in auto|1|2|3|4) ;; *) die "invalid WAN choice" ;; esac
     board_supported || die "wrong board"
     uci -q set "wma301-ports.main.mode=$choice" || die "cannot set mode"
-    if [ "$choice" = auto ]; then
-        # Switching back from manual must rediscover the upstream once.
-        uci -q set wma301-ports.main.active=none || die "cannot reset WAN"
-    fi
     uci -q commit wma301-ports || die "cannot save WAN choice"
-    /etc/init.d/wma301-ports restart >/dev/null 2>&1 || die "cannot start detector"
-    echo OK
+    if [ "$choice" = auto ]; then
+        set_active none || die "cannot reset detection state"
+        # Restart guarantees a fresh scan, even when the old WAN has carrier.
+        /etc/init.d/wma301-ports restart >/dev/null 2>&1 || die "cannot start auto detector"
+        echo "DHCP auto detection started"
+    else
+        target="$(port_for_choice "$choice")"
+        # Stop a concurrent DHCP scan before touching bridge assignments.
+        /etc/init.d/wma301-ports stop >/dev/null 2>&1 || true
+        if ! apply_port "$target"; then
+            /etc/init.d/wma301-ports start >/dev/null 2>&1 || true
+            die "failed to assign $target as WAN"
+        fi
+        /etc/init.d/wma301-ports start >/dev/null 2>&1 || die "cannot start WAN service"
+        echo "WAN set to $target"
+    fi
 }
 case "${1:-}" in
     status) status ;;
