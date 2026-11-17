@@ -20,9 +20,11 @@ from aurora import build_apk as build_aurora_apk
 from stage_files import stage_files
 
 ROOT = Path(__file__).resolve().parents[1]
-PROFILE = "tplink_wma301-v2"\nPROFILE_V21 = "tplink_wma301-v2-1"
+PROFILE = "tplink_wma301-v2"
+PROFILE_V21 = "tplink_wma301-v2-1"
 COMPATIBLE = "tplink,wma301-v2"
-DEVICE_DTS = "mt7981b-tplink-wma301-v2"\nDEVICE_DTS_V21 = "mt7981b-tplink-wma301-v2-1"
+DEVICE_DTS = "mt7981b-tplink-wma301-v2"
+DEVICE_DTS_V21 = "mt7981b-tplink-wma301-v2-1"
 IMAGEBUILDER = "immortalwrt-imagebuilder-mediatek-filogic.Linux-x86_64.tar.zst"
 SDK_RE = re.compile(r"immortalwrt-sdk-mediatek-filogic_[^/\s]+\.tar\.zst")
 VERSION_RE = re.compile(r"r\d+-([0-9a-f]{10,40})")
@@ -119,7 +121,10 @@ def register_profile(targetinfo: Path) -> None:
         "Target-Profile-Description:\n"
         "@@\n"
     )
-    targetinfo.write_text(text[:end].rstrip("\n") + "\n" + profile + text[end:])
+    v21 = (profile.replace(f"DEVICE_{PROFILE}", f"DEVICE_{PROFILE_V21}")
+                   .replace("WMA301 v2.0", "WMA301 v2.1")
+                   .replace("tplink,wma301-v2\n", "tplink,wma301-v2-1\n"))
+    targetinfo.write_text(text[:end].rstrip("\n") + "\n" + profile + v21 + text[end:])
 
 
 def locate_kernel(builder: Path) -> tuple[Path, Path]:
@@ -146,7 +151,8 @@ def prepare_kernel_image(kdir: Path) -> Path:
     return dest
 
 
-def compile_dtb(builder: Path, kdir: Path, linux: Path, headers: Path,\n                device_dts: str = DEVICE_DTS) -> Path:
+def compile_dtb(builder: Path, kdir: Path, linux: Path, headers: Path,
+                device_dts: str = DEVICE_DTS) -> Path:
     dts_dir = builder / "target/linux/mediatek/dts"
     src = dts_dir / f"{device_dts}.dts"
     require(src.is_file(), "WMA301 DTS not staged")
@@ -239,7 +245,8 @@ def stage(builder: Path, upstream: Path, overlay: Path, expected_source: str,
 
     dts_dir = builder / "target/linux/mediatek/dts"
     require(dts_dir.is_dir(), "ImageBuilder lacks mediatek DTS directory")
-    for name in (f"{DEVICE_DTS}-common.dtsi", f"{DEVICE_DTS}.dts",\n                 f"{DEVICE_DTS_V21}.dts"):
+    for name in (f"{DEVICE_DTS}-common.dtsi", f"{DEVICE_DTS}.dts",
+                 f"{DEVICE_DTS_V21}.dts"):
         dest = dts_dir / name
         require(not dest.exists(), f"official Builder already defines {name}")
         shutil.copy2(ROOT / "device" / name, dest)
@@ -255,7 +262,8 @@ def stage(builder: Path, upstream: Path, overlay: Path, expected_source: str,
     (builder / ".profiles.mk").unlink(missing_ok=True)
 
     kdir, linux = locate_kernel(builder)
-    dtb = compile_dtb(builder, kdir, linux, headers)\n    dtb_v21 = compile_dtb(builder, kdir, linux, headers, DEVICE_DTS_V21)
+    dtb = compile_dtb(builder, kdir, linux, headers)
+    dtb_v21 = compile_dtb(builder, kdir, linux, headers, DEVICE_DTS_V21)
     kernel = prepare_kernel_image(kdir)
     print(f"Official kernel reused: {kernel}")
     print(f"Local WMA301 DTB: {dtb}; v2.1: {dtb_v21}")
