@@ -2,6 +2,7 @@ name: Firmware - Arthur and MX4200 (reuse published Builders)
 
 # Firmware never compiles a kernel, SDK or new Builder.
 # Marked stable releases repackage only against the already-published Builders.
+# WMA301 promotion reuses the immutable tested 44032999315 FIT artifact.
 # Every device runs independently; a failure on one cannot rebuild the other.
 on:
   workflow_dispatch:

@@ -3,8 +3,8 @@
 # workflow's release permissions. No recompilation or firmware modification.
 set -Eeuo pipefail
 REPO="pzcn/openwrt-ppe-nss-ota"
-SOURCE_RUN="44028887027"
-SOURCE_SHA="e01cd20e6df0f4818623538bf67d98e412dccf7a"
+SOURCE_RUN="44032999315"
+SOURCE_SHA="1cb66d5c2143fe0e5605902897208139433a6e10"
 IMAGE="immortalwrt-mediatek-filogic-tplink_wma301-v2-squashfs-sysupgrade.itb"
 MANIFEST="immortalwrt-mediatek-filogic-tplink_wma301-v2.manifest"
 
