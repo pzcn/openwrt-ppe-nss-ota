@@ -1,0 +1,9 @@
+#!/bin/sh
+# udhcpc -s callback: accept only a completed lease with a gateway.
+# No address, route or DNS changes are performed during probing.
+[ "$1" = bound ] || exit 0
+[ -n "${ip:-}" ] || exit 0
+[ -n "${router:-}" ] || exit 0
+[ -n "${WMA301_DHCP_RESULT:-}" ] || exit 0
+printf '%s\n' "$ip $router" > "$WMA301_DHCP_RESULT"
+exit 0

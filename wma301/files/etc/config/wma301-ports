@@ -1,0 +1,3 @@
+config ports 'main'
+	option mode 'auto'
+	option active 'none'

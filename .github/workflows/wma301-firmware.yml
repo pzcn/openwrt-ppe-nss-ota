@@ -121,6 +121,13 @@ jobs:
           python3 scripts/test_wma301_ota.py
           python3 scripts/test_wma301_runtime.py
           python3 scripts/test_unified_ota.py
+          python3 scripts/test_wma301_ports.py
+          sh -n files/usr/sbin/wma301-ports
+          sh -n files/usr/libexec/wma301-ports-dhcp-probe
+          sh -n files/etc/init.d/wma301-ports
+          sh -n files/etc/uci-defaults/97-wma301-ports
+          node --check files/www/luci-static/resources/view/status/include/29_ports.js
+          python3 -m json.tool files/usr/share/rpcd/acl.d/luci-app-wma301-ports.json >/dev/null
           python3 ../scripts/tests/test-ota-version.py
           python3 ../scripts/tests/test-ota-package-restore.py
           python3 ../scripts/tests/test-ota-devices.py
@@ -294,6 +301,20 @@ jobs:
           python3 scripts/stage_unified_ota.py --overlay "$PWD/wma301-overlay" --tag "$TAG" --build "$BUILD"
           echo "WMA_OTA_TAG=$TAG" >> "$GITHUB_ENV"
           echo "WMA_OTA_BUILD=$BUILD" >> "$GITHUB_ENV"
+      - name: Assert homepage WAN selector reached the actual image overlay
+        run: |
+          set -euo pipefail
+          O="$PWD/wma301-overlay"
+          test -s "$O/www/luci-static/resources/view/status/include/29_ports.js"
+          grep -Fq 'WAN 网口选择' "$O/www/luci-static/resources/view/status/include/29_ports.js"
+          grep -Fq 'nativePortGrid' "$O/www/luci-static/resources/view/status/include/29_ports.js"
+          test -x "$O/usr/sbin/wma301-ports"
+          test -x "$O/usr/libexec/wma301-ports-dhcp-probe"
+          test -x "$O/etc/init.d/wma301-ports"
+          test -x "$O/etc/uci-defaults/97-wma301-ports"
+          test -s "$O/etc/config/wma301-ports"
+          test -s "$O/usr/share/rpcd/acl.d/luci-app-wma301-ports.json"
+          grep -Fq 'tplink,wma301-v2-1' "$O/usr/sbin/wma301-ports"
       - name: Repack unified v2.0/v2.1 FIT using official precompiled Linux kernel
         run: |
           set -euo pipefail
