@@ -1,0 +1,17 @@
+#!/bin/sh /etc/rc.common
+# Re-run the WMA301 WAN port reconcile whenever the network config changes
+# (LuCI apply, reload_config). One-shot: no daemon, only a reload trigger.
+START=25
+USE_PROCD=1
+
+start_service() {
+	/usr/libexec/wma301-wanport
+}
+
+reload_service() {
+	/usr/libexec/wma301-wanport
+}
+
+service_triggers() {
+	procd_add_reload_trigger network
+}

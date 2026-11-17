@@ -29,6 +29,19 @@ v2.1 直接复用 v2.0 公共 DTSI、SPI-NAND 分区、UBI 四卷、网络、无
 
 原独立仓库的全源码 `master` 完整构建脚本、恢复 FIT 逻辑保留为人工后备参考，但本仓库没有为它新增第二条自动 Action。
 
+## 更换 WAN 网口
+
+四个网口都挂在同一颗 MT7531 DSA 交换芯片上（`lan1`、`lan2`、`lan3`、`wan`），硬件上可以任意指定 WAN。默认 WAN 为 `wan`（OEM 的第 4 口），**不做自动识别/盲插**。
+
+更换方法沿用 LuCI 原生选项，没有新增页面：**网络 → 接口 → wan → 编辑 → 常规设置 → 设备**，选择 `lan1`/`lan2`/`lan3`/`wan` 后“保存并应用”。`/etc/init.d/wma301-wanport` 监听 network 配置变化，由 `/usr/libexec/wma301-wanport` 自动完成其余调整：
+
+- 新 WAN 口移出 `br-lan`；不再被任何接口/网桥/VLAN 引用的物理口自动归还 `br-lan`；
+- `wan6` 原本绑定物理口时跟随 `wan`（`@wan` 等别名不动）；
+- OEM WAN MAC（出厂 +3）跟随 WAN 口，原 `wan` 口作为 LAN 时改用 LAN MAC；用户自定义（克隆）的 MAC 不会被覆盖，**换口后如需克隆 MAC 请在新 WAN 设备上重新设置**；
+- WAN 绑定 VLAN 等非物理设备，或 `br-lan` 使用 bridge-vlan 时不做任何改动。
+
+如果把当前用来访问管理页面的网口设为 WAN，LuCI 的应用确认会超时并自动回滚。恢复出厂设置即回到默认第 4 口。尚未在实机上核对四个插孔与 `lan1`…`wan` 的对应关系（DTS 注释：port0=`lan3`、port1=`lan2`、port2=`lan1`、port3=`wan`）。
+
 ## 主仓库统一 OTA
 
 **设备通道**：两版统一为 `wma301-immortal-filogic`。旧版 v2.1 已刷入设备初次迁移时可手动上传新的通用 FIT；迁移完成后两个版本共用 OTA。
@@ -79,6 +92,7 @@ OTA 入口仍是 LuCI **系统 → 备份 / 升级 → 在线固件更新**；�
 - `scripts/verify_official.py`：真实 FIT 哈希、DTS 和布局检查
 - `scripts/stage_unified_ota.py`、`scripts/pack_unified_ota.py`：统一 OTA 及发布附件
 - `files/usr/libexec/ppe-update-wma301-preflight`：本机 NAND/UBI 安全守卫
+- `files/usr/libexec/wma301-wanport`、`files/etc/init.d/wma301-wanport`：更换 WAN 网口后的网桥/MAC 同步；`scripts/test_wanport.py` 为其离线测试
 - `scripts/test_unified_ota.py`：本地不接触硬件的集成回归测试
 - `docs/`：迁移背景、Aurora、官方 ImageBuilder 和历史 OTA 说明
 

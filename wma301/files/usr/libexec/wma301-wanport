@@ -1,0 +1,151 @@
+#!/bin/sh
+# WMA301 v2: keep the LAN bridge consistent after the WAN port is changed.
+#
+# All four RJ45 jacks sit on the same MT7531 DSA switch (lan1 lan2 lan3 wan),
+# so any of them can be WAN. The native LuCI selector is used for this:
+#   Network -> Interfaces -> wan -> Edit -> General Settings -> Device
+# LuCI only rewrites network.wan.device; this script, run from a procd reload
+# trigger on the "network" config, does the rest:
+#   * removes the new WAN port from br-lan,
+#   * moves wan6 along when it was bound to a physical port,
+#   * returns any physical port that is no longer used anywhere to br-lan,
+#   * keeps the OEM WAN MAC (factory +3) on whichever port is WAN.
+# Nothing is done when wan is not bound to one of the four ports (VLAN,
+# PPPoE-on-VLAN, ...) or when br-lan uses bridge-vlan filtering.
+# Factory reset restores the default (jack 4, device "wan").
+set -u
+
+TAG=wma301-wanport
+PORTS="lan1 lan2 lan3 wan"
+UCI="${WMA301_WANPORT_UCI:-uci}"
+SYSNET="${WMA301_WANPORT_SYSNET:-/sys/class/net}"
+BOARD_FILE="${WMA301_WANPORT_BOARD:-/tmp/sysinfo/board_name}"
+CONDUIT=eth0
+
+log() { logger -t "$TAG" "$*" 2>/dev/null || echo "$TAG: $*" >&2; }
+is_port() { case " $PORTS " in *" $1 "*) return 0 ;; esac; return 1; }
+lower() { echo "$1" | tr 'A-F' 'a-f'; }
+
+board_ok() {
+	case "$(cat "$BOARD_FILE" 2>/dev/null)" in
+		tplink,wma301-v2|tplink,wma301-v2-1) return 0 ;;
+	esac
+	return 1
+}
+
+# mac_add <mac> <n>: add n to the NIC-specific half, like macaddr_add.
+mac_add() {
+	local oui nic
+	oui="$(echo "$1" | cut -d: -f1-3)"
+	nic="$(echo "$1" | cut -d: -f4-6 | tr -d :)"
+	nic="$(printf '%06x' $(( (0x$nic + $2) & 0xffffff )))"
+	echo "$oui:$(echo "$nic" | sed 's/../&:/g; s/:$//')"
+}
+
+show() { "$UCI" -q show network 2>/dev/null; }
+
+# Section name of the first "config device" whose name is $1.
+device_section() {
+	local sec
+	for sec in $(show | sed -n 's/^network\.\([^.=]*\)=device$/\1/p'); do
+		[ "$("$UCI" -q get "network.$sec.name")" = "$1" ] && { echo "$sec"; return 0; }
+	done
+	return 1
+}
+
+# Base device names referenced anywhere (device/ifname/ports; lan3.10 -> lan3).
+referenced() {
+	show | sed -nE "s/^network\.[^.]+\.(device|ifname|ports)=//p" |
+		tr ' ' '\n' | tr -d "'" | sed 's/[.:].*//' | grep -v '^$' | sort -u
+}
+is_referenced() { referenced | grep -qx "$1"; }
+
+CHANGED=0
+note() { CHANGED=1; log "$*"; }
+
+# set_port_mac <port> <mac|"">: only touches a port whose macaddr is unset or
+# one of the two factory addresses; a user-defined (cloned) MAC is kept.
+set_port_mac() {
+	local port="$1" want="$2" sec cur
+	sec="$(device_section "$port" || true)"
+	cur=""
+	[ -n "$sec" ] && cur="$(lower "$("$UCI" -q get "network.$sec.macaddr")")"
+	case "$cur" in
+		""|"$LANMAC"|"$WANMAC") ;;
+		*) return 0 ;;
+	esac
+	[ "$cur" = "$want" ] && return 0
+	if [ -z "$want" ]; then
+		"$UCI" -q delete "network.$sec.macaddr"
+		# Drop a device section this script created once it is empty again.
+		[ "$sec" = "wma301_$port" ] &&
+			[ "$(show | grep -c "^network\.$sec\.")" = 1 ] &&
+			"$UCI" -q delete "network.$sec"
+	else
+		if [ -z "$sec" ]; then
+			sec="wma301_$port"
+			"$UCI" -q set "network.$sec=device"
+			"$UCI" -q set "network.$sec.name=$port"
+		fi
+		"$UCI" -q set "network.$sec.macaddr=$want"
+	fi
+	note "$port macaddr ${cur:-<hw>} -> ${want:-<hw>}"
+}
+
+reconcile() {
+	local wan wan6 br q ports
+
+	board_ok || return 0
+	wan="$("$UCI" -q get network.wan.device || true)"
+	is_port "$wan" || return 0
+
+	br="$(device_section br-lan || true)"
+	[ -n "$br" ] || { log "br-lan device section missing, nothing done"; return 0; }
+	if show | grep -q "=bridge-vlan$"; then
+		log "bridge-vlan in use, port roles left to the user"
+		return 0
+	fi
+
+	ports=" $("$UCI" -q get "network.$br.ports" || true) "
+	case "$ports" in *" $wan "*)
+		"$UCI" -q del_list "network.$br.ports=$wan"
+		note "removed $wan from br-lan (now WAN)"
+	esac
+
+	wan6="$("$UCI" -q get network.wan6.device || true)"
+	if is_port "$wan6" && [ "$wan6" != "$wan" ]; then
+		"$UCI" -q set "network.wan6.device=$wan"
+		note "wan6 follows wan: $wan6 -> $wan"
+	fi
+
+	for q in $PORTS; do
+		[ "$q" = "$wan" ] && continue
+		is_referenced "$q" && continue
+		"$UCI" -q add_list "network.$br.ports=$q"
+		note "returned unused $q to br-lan"
+	done
+
+	LANMAC="$(lower "$(cat "$SYSNET/$CONDUIT/address" 2>/dev/null)")"
+	case "$LANMAC" in
+		??:??:??:??:??:??) WANMAC="$(mac_add "$LANMAC" 3)" ;;
+		*) log "cannot read $CONDUIT MAC, MAC addresses left unchanged"; LANMAC="" ;;
+	esac
+	if [ -n "$LANMAC" ]; then
+		for q in $PORTS; do
+			if [ "$q" = "$wan" ]; then
+				# The "wan" jack already carries factory +3 from the DTS.
+				if [ "$q" = wan ]; then set_port_mac "$q" ""; else set_port_mac "$q" "$WANMAC"; fi
+			else
+				# Avoid a second copy of the WAN MAC inside br-lan.
+				if [ "$q" = wan ]; then set_port_mac "$q" "$LANMAC"; else set_port_mac "$q" ""; fi
+			fi
+		done
+	fi
+
+	[ "$CHANGED" = 1 ] || return 0
+	"$UCI" commit network
+	log "WAN port is now $wan"
+	[ -n "${WMA301_WANPORT_NORELOAD:-}" ] || ubus call network reload >/dev/null 2>&1 || true
+}
+
+reconcile
