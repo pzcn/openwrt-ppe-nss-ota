@@ -41,7 +41,7 @@ define Device/tplink_wma301-v2-1
   DEVICE_DTS := mt7981b-tplink-wma301-v2-1
   DEVICE_DTS_DIR := ../dts
   SUPPORTED_DEVICES := tplink,wma301-v2-1
-  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware \
+  DEVICE_PACKAGES := kmod-mt7915e kmod-mt7981-firmware mt7981-wo-firmware \\
 	uboot-envtools
   BLOCKSIZE := 128k
   PAGESIZE := 2048
