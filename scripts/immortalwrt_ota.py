@@ -17,7 +17,7 @@ PROFILE = "jdcloud_re-ss-01"
 BOARD = "jdcloud,re-ss-01"
 IMAGE = "immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01-squashfs-sysupgrade.bin"
 MANIFEST = "immortalwrt-qualcommax-ipq60xx-jdcloud_re-ss-01.manifest"
-TAG_PATTERN = re.compile(r"^imm-(?:arthur|mx4200v1|wma301)-[a-zA-Z0-9._-]+$")
+TAG_PATTERN = re.compile(r"^imm-(?:arthur|mx4200v1|wma301|wma301v21)-[a-zA-Z0-9._-]+$")
 SHA_PATTERN = re.compile(r"^[a-f0-9]{40}$")
 
 # The updater implementation and release index are shared; every device gets
@@ -204,7 +204,7 @@ def metadata(tag: str, build: int, upstream: str, ppe: str, image: Path,
         raise ValueError("Invalid tag/build")
     if not SHA_PATTERN.fullmatch(upstream):
         raise ValueError("Expected 40-character upstream source SHA")
-    if device == "wma301":
+    if device in ("wma301", "wma301v21"):
         if ppe:
             raise ValueError("WMA301 cannot carry a Qualcomm PPE/NSS source SHA")
     elif not SHA_PATTERN.fullmatch(ppe):
