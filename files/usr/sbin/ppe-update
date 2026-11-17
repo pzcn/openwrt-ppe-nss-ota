@@ -16,6 +16,9 @@
 
 STATE=${PPE_STATE:-/etc/ppe-update}
 WORK=${PPE_WORK:-/tmp/ppe-update}
+APK_WORLD=${PPE_APK_WORLD:-/etc/apk/world}
+APK_ROM_WORLD=${PPE_APK_ROM_WORLD:-/rom/etc/apk/world}
+RESTORE_HEADER='# ppe-update-extras-v2'
 BOARD=$(cat /tmp/sysinfo/board_name 2>/dev/null)
 RELEASE_REPO='pzcn/openwrt-ppe-nss-ota'
 RELEASE_API='https://api.github.com/repos/pzcn/openwrt-ppe-nss-ota/releases/latest'
@@ -211,23 +214,73 @@ lookup() {
 }
 
 
-# World entries the new image does not install by itself, and the packages of
-# this image that were removed, as conflicts so the new image drops them too.
-# Repository tags go: the ImageBuilder's @snapshot is not a feed on the router.
+# apk world contains requested top-level packages, including every default
+# selection baked into the *old* image. Compare with the old ROM world first:
+# omitting this subtraction reinstalls removed stock packages after every OTA.
+# Keep explicit negative world constraints; never infer removals merely because
+# a stock package is absent from the writable world.
+apk_world_names() {
+	[ -s "$1" ] || return 1
+	awk -v negative="${2:-0}" '
+		{
+			name=$0
+			if (negative == 1) {
+				if (substr(name, 1, 1) != "!") next
+				name=substr(name, 2)
+			} else if (substr(name, 1, 1) == "!") next
+			sub(/[@<>=~].*$/, "", name)
+			if (name ~ /^[A-Za-z0-9][A-Za-z0-9+._-]*$/) print name
+		}
+	' "$1" | sort -u
+}
+
 extras() {
-	sed 's/[@<>=~].*//' /etc/apk/world | sort -u >"$WORK/world"
+	[ -s "$WORK/manifest" ] || return 1
+	apk_world_names "$APK_WORLD" >"$WORK/world" || return 1
+	apk_world_names "$APK_ROM_WORLD" >"$WORK/rom-world" || return 1
+	apk_world_names "$APK_WORLD" 1 >"$WORK/world-excluded" || return 1
+	apk_world_names "$APK_ROM_WORLD" 1 >"$WORK/rom-excluded" || return 1
 	{
-		grep -vxF -f "$WORK/manifest" "$WORK/world"
-		sed 's/[@<>=~].*//' /rom/etc/apk/world 2>/dev/null | grep -v '^!' |
-			grep -vxF -f "$WORK/world" | sed 's/^/!/'
+		# Only user-added top-level packages absent from the new image. Never
+		# reinstall old kernel modules or ABI-stamped system libraries by name.
+		grep -vxF -f "$WORK/rom-world" "$WORK/world" |
+			grep -vxF -f "$WORK/manifest" |
+			awk '!/^kmod-/ && !/^lib[A-Za-z0-9+._-]*[0-9]{8}$/'
+		grep -vxF -f "$WORK/rom-excluded" "$WORK/world-excluded" |
+			sed 's/^/!/'
 	} | sort -u
+}
+
+# Versions before v2 saved a new-manifest difference, including old ROM
+# dependencies. The old ROM baseline is lost after sysupgrade, so it cannot
+# reliably be reconstructed. Archive such a queue rather than bulk-installing
+# untrusted leftovers; retain all names so an administrator can review them.
+archive_legacy_queue() {
+	[ -s "$STATE/packages" ] || return 0
+	[ "$(sed -n '1p' "$STATE/packages")" != "$RESTORE_HEADER" ] || return 0
+	mkdir -p "$STATE" || return 1
+	local tmp="$STATE/packages.legacy.$$"
+	{
+		[ ! -s "$STATE/packages.legacy" ] || cat "$STATE/packages.legacy"
+		cat "$STATE/packages"
+	} | sed '/^[[:space:]]*$/d' | sort -u >"$tmp" || return 1
+	mv -f "$tmp" "$STATE/packages.legacy" || return 1
+	rm -f "$STATE/packages"
+	log "旧版软件包恢复队列已归档到 $STATE/packages.legacy，停止自动重装"
 }
 
 cmd_status() {
 	auto=$(uci -q get ppe-update.main.auto 2>/dev/null)
 	[ -n "$auto" ] || auto=0
 	pending=""
-	[ ! -r "$STATE/packages" ] || pending=$(tr '\n' ' ' <"$STATE/packages")
+	if [ -r "$STATE/packages" ] &&
+	   [ "$(sed -n '1p' "$STATE/packages")" = "$RESTORE_HEADER" ]; then
+		pending=$(sed '1d' "$STATE/packages" | tr '\n' ' ')
+	fi
+	legacy_count=0
+	if [ -s "$STATE/packages.legacy" ]; then
+		legacy_count=$(awk 'NF {n++} END {print n+0}' "$STATE/packages.legacy")
+	fi
 	mkdir -p "$WORK"
 	# Preserve the real reason for failure. A missing channel release is not
 	# a router networking failure; neither are invalid metadata or API errors.
@@ -239,9 +292,9 @@ cmd_status() {
 		else
 			avail=false
 		fi
-		printf '{"board":"%s","current":"%s","build":%s,"group":"%s","latest":"%s","latest_time":%s,"update":%s,"image":"%s","size":%s,"extras":"%s","missing":"","checked":false,"pending":"%s","auto":"%s","source":"%s"}\n' \
+		printf '{"board":"%s","current":"%s","build":%s,"group":"%s","latest":"%s","latest_time":%s,"update":%s,"image":"%s","size":%s,"extras":"%s","missing":"","checked":false,"pending":"%s","legacy_count":%s,"auto":"%s","source":"%s"}\n' \
 			"$BOARD" "$OTA_TAG" "$OTA_BUILD" "$GROUP" "$LATEST" "$LATEST_TIME" "$avail" "$IMAGE" "$SIZE" \
-			"$(extras | tr '\n' ' ')" "$pending" "$auto" "GitHub Releases"
+			"$(extras | tr '\n' ' ')" "$pending" "$legacy_count" "$auto" "GitHub Releases"
 	) 2>"$WORK/status-error.log"; then
 		printf '%s\n' "$status_json"
 		return 0
@@ -264,8 +317,8 @@ cmd_status() {
 	else
 		reason='检查失败，请运行 ppe-update check'
 	fi
-	printf '{"board":"%s","current":"%s","group":"%s","error":"%s","pending":"%s","auto":"%s","source":"%s"}\n' \
-		"$BOARD" "$OTA_TAG" "$GROUP" "$reason" "$pending" "$auto" "GitHub Releases"
+	printf '{"board":"%s","current":"%s","group":"%s","error":"%s","pending":"%s","legacy_count":%s,"auto":"%s","source":"%s"}\n' \
+		"$BOARD" "$OTA_TAG" "$GROUP" "$reason" "$pending" "$legacy_count" "$auto" "GitHub Releases"
 }
 
 # Read-only progress endpoint: measure in-flight bytes using a cheap stat,
@@ -302,10 +355,15 @@ cmd_update() {
 	lookup "$1"
 	newer || { echo "up to date: $OTA_TAG"; return 1; }
 
-	# Save extra package names for post-upgrade restoration. APK mirror
-	# availability has no bearing on installing the verified firmware.
-	extras >"$WORK/extras" ||
-		{ : >"$WORK/extras"; log "额外软件包列表读取失败"; }
+	# Migrate lists created by the previous (overinclusive) algorithm before
+	# computing the next upgrade's explicit user package selection.
+	archive_legacy_queue || die "unable to archive legacy package restore queue"
+	# The ROM baseline is mandatory to distinguish user additions from old
+	# stock packages. If unavailable, skip automatic package restoration.
+	if ! extras >"$WORK/extras"; then
+		: >"$WORK/extras"
+		log "无法比对当前和出厂 apk world；本次升级跳过自动恢复软件包"
+	fi
 	if [ -s "$WORK/extras" ]; then
 		log "升级后将尝试恢复额外软件包"
 	fi
@@ -340,8 +398,14 @@ cmd_update() {
 
 	progress_set preparing "校验通过，正在保存额外软件包列表" "$SIZE"
 	mkdir -p "$STATE"
-	cp "$WORK/extras" "$STATE/packages"
-	[ -s "$STATE/packages" ] || rm -f "$STATE/packages"
+	if [ -s "$WORK/extras" ]; then
+		tmp="$STATE/packages.$"
+		{ printf '%s\n' "$RESTORE_HEADER"; cat "$WORK/extras"; } >"$tmp" ||
+			die "cannot save extra package list"
+		mv -f "$tmp" "$STATE/packages" || die "cannot preserve extra package list"
+	else
+		rm -f "$STATE/packages"
+	fi
 	progress_set flashing "开始刷写固件，完成后设备将自动重启" "$SIZE"
 	log "开始刷写固件：$LATEST"
 	sysupgrade "$WORK/$IMAGE"
@@ -396,39 +460,46 @@ cmd_auto() {
 	cmd_update "$LATEST" "" auto
 }
 
-# Installs the kept list in one transaction. When that fails, each package is
-# tried on its own, with the removals beside it so a replacement can go in (pbr
-# taking ip-full for ip-tiny); what still fails stays in the list for the next
-# boot and is shown in LuCI.
+# Restore only v2 explicitly selected packages. Old v1 lists are quarantined
+# before any package manager/network action, without erasing user choices.
 cmd_restore() {
 	[ -s "$STATE/packages" ] || return 0
 	lock -n /var/lock/ppe-update || return 0
+	archive_legacy_queue || return 1
+	[ -s "$STATE/packages" ] || return 0
+	mkdir -p "$WORK"
+	sed '1d' "$STATE/packages" >"$WORK/restore-list"
+	if [ ! -s "$WORK/restore-list" ]; then
+		rm -f "$STATE/packages"
+		return 0
+	fi
+
 	# The network comes up after boot; retry for up to an hour.
 	i=0
 	until apk update >/dev/null 2>&1; do
 		i=$((i + 1))
-		[ $i -lt 120 ] || die "no package feed reachable; the list stays in $STATE/packages"
+		[ "$i" -lt 120 ] || die "no package feed reachable; the list stays in $STATE/packages"
 		sleep 30
 	done
 	# shellcheck disable=SC2046
-	if apk add $(cat "$STATE/packages"); then
-		log "reinstalled: $(tr '\n' ' ' <"$STATE/packages")"
+	if apk add $(cat "$WORK/restore-list"); then
+		log "reinstalled: $(tr '\n' ' ' <"$WORK/restore-list")"
 		rm -f "$STATE/packages"
 		return 0
 	fi
-	del=$(grep '^!' "$STATE/packages")
-	: >"$WORK.left"
-	grep -v "^!" "$STATE/packages" | while read -r p; do
+	del=$(grep '^!' "$WORK/restore-list")
+	printf '%s\n' "$RESTORE_HEADER" >"$WORK.left"
+	grep -v '^!' "$WORK/restore-list" | while IFS= read -r p; do
 		# shellcheck disable=SC2086
 		apk add $del "$p" >/dev/null 2>&1 || apk add "$p" || echo "$p" >>"$WORK.left"
 	done
 	# shellcheck disable=SC2086
 	[ -z "$del" ] || apk add $del || echo "$del" >>"$WORK.left"
-	if [ -s "$WORK.left" ]; then
+	if [ "$(wc -l <"$WORK.left")" -gt 1 ]; then
 		mv "$WORK.left" "$STATE/packages"
-		die "not reinstalled: $(tr '\n' ' ' <"$STATE/packages")- the list stays in $STATE/packages"
+		die "not reinstalled: $(sed '1d' "$STATE/packages" | tr '\n' ' ')- the list stays in $STATE/packages"
 	fi
-	log "reinstalled: $(tr '\n' ' ' <"$STATE/packages")"
+	log "reinstalled: $(tr '\n' ' ' <"$WORK/restore-list")"
 	rm -f "$STATE/packages" "$WORK.left"
 }
 

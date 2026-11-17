@@ -280,8 +280,22 @@ return view.extend({
 			st.error || (st.update === true ? '发现新版本，可手动下载并安装' : '已是最新版本')));
 		if (st.error)
 			rows.push(customOTARow('处理建议', otaErrorHelp(st.error)));
-		if (st.pending)
-			rows.push(customOTARow('待恢复软件包', st.pending));
+		const pending = String(st.pending || '').trim().split(/\s+/).filter(Boolean);
+		if (pending.length) {
+			rows.push(customOTARow('待恢复软件包', E('div', [
+				E('span', '共 ' + pending.length + ' 项，系统将在联网后尝试恢复'),
+				E('details', { 'style': 'margin-top:0.35em' }, [
+					E('summary', '展开软件包列表'),
+					E('pre', { 'style': 'white-space:pre-wrap;overflow-wrap:anywhere;max-height:12em;overflow:auto' },
+						pending.join('\n'))
+				])
+			])));
+		}
+		if (Number(st.legacy_count) > 0) {
+			rows.push(customOTARow('旧版恢复列表',
+				'已归档 ' + st.legacy_count +
+				' 项历史软件包，不自动重装；原始清单保存在 /etc/ppe-update/packages.legacy'));
+		}
 		root.replaceChildren(E('table', { 'class': 'table' }, rows));
 	},
 

@@ -92,6 +92,7 @@ jobs:
       - name: Validate GitHub proxy transport and LuCI settings
         run: |
           python3 scripts/tests/test-ota-github-proxy.py
+          python3 scripts/tests/test-ota-package-restore.py
           node scripts/tests/test-ota-proxy-ui.js
       - name: Check prerelease Builder and exact source compatibility
         id: builder

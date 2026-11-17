@@ -122,6 +122,7 @@ jobs:
           python3 scripts/test_wma301_runtime.py
           python3 scripts/test_unified_ota.py
           python3 ../scripts/tests/test-ota-version.py
+          python3 ../scripts/tests/test-ota-package-restore.py
           python3 ../scripts/tests/test-ota-devices.py
           python3 -m py_compile scripts/stage_unified_ota.py scripts/pack_unified_ota.py
           sh -n files/usr/libexec/ppe-update-wma301-preflight

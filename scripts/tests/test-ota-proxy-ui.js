@@ -128,5 +128,24 @@ view.otaRefresh = () => Promise.resolve();
   finally {
     Date.now = now;
   }
+  // Large restore queues stay folded; legacy queue only shows its count.
+  view._otaInfo = E('div');
+  view._otaRunning = false;
+  view.otaShow({
+    current: 'r1', latest: 'r2', update: true,
+    pending: 'luci-app-custom luci-i18n-custom-zh-cn',
+    legacy_count: 57
+  });
+  assert.ok(collect(view._otaInfo, n => n.tag === 'tr').length >= 4);
+  assert.equal(collect(view._otaInfo, n => n.tag === 'details').length, 1);
+  assert.match(collect(view._otaInfo, n => n.tag === 'span').map(
+    n => n.children.join(' ')
+  ).join(' '), /共 2 项/);
+  assert.ok(collect(view._otaInfo, n => n.tag === 'pre').some(
+    n => n.children.join(' ').includes('luci-app-custom')
+  ));
+  assert.ok(collect(view._otaInfo, n => n.tag === 'td').some(
+    n => n.children.some(s => typeof s === 'string' && s.includes('已归档 57 项'))
+  ));
   console.log('PASS: LuCI OTA proxy presets, custom URL validation and UCI commit');
 })().catch(e => { console.error(e); process.exitCode = 1; });

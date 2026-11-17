@@ -93,6 +93,7 @@ jobs:
           python3 scripts/tests/test-drcom.py
           python3 scripts/tests/test-extra-apps.py
           python3 scripts/tests/test-immortalwrt-ota.py
+          python3 scripts/tests/test-ota-package-restore.py
           python3 scripts/tests/test-ota-version.py
           python3 scripts/tests/test-ota-github-proxy.py
           python3 scripts/tests/test-ota-devices.py
