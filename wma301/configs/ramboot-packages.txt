@@ -5,7 +5,6 @@
 # Local wired management (LuCI + Dropbear from standard image defaults).
 luci
 luci-theme-bootstrap
-luci-i18n-base-zh-cn
 
 # Flash readout / UBI diagnostics. Writing tools are for deliberate manual use.
 ubi-utils

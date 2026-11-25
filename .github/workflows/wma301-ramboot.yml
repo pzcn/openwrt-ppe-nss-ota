@@ -97,8 +97,11 @@ jobs:
         working-directory: wma301/upstream
         run: |
           set -euo pipefail
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
+          # Only feeds required by this rescue image; avoid unrelated video Kconfig.
+          ./scripts/feeds update packages luci routing
+          ./scripts/feeds install -a -p packages
+          ./scripts/feeds install -a -p luci
+          ./scripts/feeds install -a -p routing
           make defconfig
           grep -qx 'CONFIG_TARGET_ROOTFS_INITRAMFS=y' .config
           grep -Eq '^CONFIG_TARGET_.*wma301-v2=y$' .config
