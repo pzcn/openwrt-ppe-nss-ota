@@ -1,0 +1,27 @@
+# Small RAM-rescue environment for 256 MiB WMA301.
+# No OTA, no persistent customizations, no preconfigured credentials.
+# Firmware, network and SSH base packages come from target defaults.
+
+# Local wired management (LuCI + Dropbear from standard image defaults).
+luci
+luci-theme-bootstrap
+luci-i18n-base-zh-cn
+
+# Flash readout / UBI diagnostics. Writing tools are for deliberate manual use.
+ubi-utils
+mtd
+nand-utils
+
+# Network and kernel troubleshooting.
+tcpdump
+ip-full
+ethtool
+curl
+jq
+
+# Do not pull optional, high-memory services into the rescue image.
+-tailscale
+-luci-app-homeproxy
+-luci-app-ddns-go
+-luci-app-diskman
+-luci-app-statistics
